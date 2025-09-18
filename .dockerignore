@@ -25,6 +25,12 @@ backend/Dockerfile/
 backend/videos_url.json/
 backend/.gitignore/
 backend/.gitattributes/
+backend/miaowu.txt
+backend/videos.backup.db
+backend/videos_url.json
+backend/videos.db
+backend/CLAUDE.local.md
+backend/CLAUDE.md
 
 frontend/node_modules/
 frontend/.git/
