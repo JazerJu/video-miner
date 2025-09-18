@@ -10,7 +10,7 @@ services:
     environment:
       # VidGo Configuration
       # Set your deployment URL for automatic CORS, CSRF, and host configuration
-      # VIDGO_URL: "https://your-domain.com"
+      VIDGO_URL: "https://your-domain.com"
 
       # Optional: Override individual settings if needed
       # VIDGO_ALLOWED_HOSTS: "your-domain.com,localhost"
