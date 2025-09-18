@@ -5,6 +5,7 @@ __pycache__/
 cache/
 doc/
 logs/
+README.md
 rubbish/
 test/
 backend/.claude/

@@ -18,7 +18,7 @@ services:
       # VIDGO_CSRF_TRUSTED_ORIGINS: "https://your-domain.com,https://frontend.example.com"
     volumes:
       # 数据库文件
-      - ./data/videos.db:/app/videos.db
+      - ./data/videos.db:/app/database/videos.db
       # 媒体文件目录
       - ./data/media:/app/media
       # 用户配置目录

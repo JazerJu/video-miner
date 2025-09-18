@@ -1,7 +1,7 @@
 // 前端会编译后与后端运行在同一台主机，同一端口，所以生产中使用${window.location.port}
-// export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
+export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
 // 开发中前后端端口不统一，使用默认的8000端口
-export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_BACKEND_ORIGIN}`
+// export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_BACKEND_ORIGIN}`
 
 // User-defined hidden categories API functions
 export async function loadUserHiddenCategories(): Promise<{
