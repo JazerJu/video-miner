@@ -61,16 +61,48 @@ VidGo是一个专为NAS用户和小型团队设计的本地视频管理平台，
 
 ## Node + python部署
 ```
+git clone https://github.com/your-org/vidgo.git
+cd vidgo
 
+#  修改 .ini 文件
+cp ./backend/config/config.ini.example ./backend/config/config.ini.
+
+# 安装前端依赖
+cd frontend
+npm install
+npm run start # 可以调整前端运行端口，默认为4173。
+# frontend/.env记录前后端交互时后端api所用端口，默认为8000,若后端因端口冲突，可以修改该文件以匹配后端。
+
+# 另开终端运行后端
+cd ../backend
+conda create -n vidgo-env python=3.10
+conda activate vidgo-env  # 或你自定义的虚拟环境
+pip install -r requirements.txt. # 安装其他依赖
+pip install faster_whisper # 安装faster_whisper
+bash run_all.sh # 运行后端服务
 ```
 
 
 ## Docker快速部署
-在命令行中输入命令
-`docker pull jaceju68/vidgo:latest`
-使用Docker快速部署。
+```
+sudo docker pull jaceju68/vidgo:latest
 
-项目同时支持采用docker-compose.yml部署，默认使用GPU，[示例文件](https://github.com/JaceJu-frog/vidgo/blob/main/docker-compose.yml)
+sudo docker run -d --name vidgo \
+  --restart unless-stopped \
+  --gpus '"device=0"' \
+  -e CUDA_VISIBLE_DEVICES=0 \
+  -e WHISPER_DEVICE=cuda \
+  -p 8030:8000 \
+  -v "$(pwd)/data/videos.db:/app/database/videos.db" \
+  -v "$(pwd)/data/media:/app/media" \
+  -v "$(pwd)/data/config:/app/config" \
+  -v "$(pwd)/data/models:/app/models" \
+  jaceju68/vidgo:latest
+```
+
+项目同时支持采用docker-compose.yml部署，默认使用GPU，
+
+[示例文件](https://github.com/JaceJu-frog/vidgo/blob/main/docker-compose.yml)
 
 
 # 未来规划
