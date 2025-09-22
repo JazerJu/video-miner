@@ -1841,37 +1841,46 @@ function createPlayModeToggleControl() {
   const vjsComponent = videojs.getComponent('Component')
 
   class PlayModeToggleControl extends vjsComponent {
-    isLoopMode: boolean
+    playMode: number // 0: 观后即停, 1: 单集循环, 2: 顺序播放
 
     constructor(player: any, options: any) {
       super(player, options)
       this.addClass('vjs-playmode-control')
       this.addClass('vjs-control')
       this.addClass('vjs-button')
-      this.isLoopMode = false
+      this.playMode = 0 // Start with 观后即停
 
       // Add click handler for toggle
       this.on('click', this.togglePlayMode.bind(this))
     }
 
     togglePlayMode() {
-      this.isLoopMode = !this.isLoopMode
+      // Cycle through: 观后即停 -> 单集循环 -> 顺序播放 -> 观后即停
+      this.playMode = (this.playMode + 1) % 3
       const player = this.player()
-      
-      if (this.isLoopMode) {
-        // Enable single loop
+
+      if (this.playMode === 0) {
+        // 观后即停: Disable both loop and autoplay
         if (player) {
-          player.loop(true)
+          player.loop(false)
         }
-        // Disable autoplay when loop is enabled (mutual exclusivity)
         if (isAutoPlayEnabled.value) {
           isAutoPlayEnabled.value = false
           emit('autoplay-settings-changed', false)
-          console.log('[PlayModeToggle] Autoplay disabled due to loop activation')
+        }
+        console.log('[PlayModeToggle] Stop after watching mode enabled')
+      } else if (this.playMode === 1) {
+        // 单集循环: Enable single loop
+        if (player) {
+          player.loop(true)
+        }
+        if (isAutoPlayEnabled.value) {
+          isAutoPlayEnabled.value = false
+          emit('autoplay-settings-changed', false)
         }
         console.log('[PlayModeToggle] Single loop mode enabled')
       } else {
-        // Enable sequential play (disable loop, enable autoplay)
+        // 顺序播放: Enable sequential play (disable loop, enable autoplay)
         if (player) {
           player.loop(false)
         }
@@ -1886,9 +1895,19 @@ function createPlayModeToggleControl() {
     updateDisplay() {
       const textEl = this.el().querySelector('.playmode-text')
       const iconEl = this.el().querySelector('.playmode-icon')
-      
+
       if (textEl && iconEl) {
-        if (this.isLoopMode) {
+        if (this.playMode === 0) {
+          // 观后即停
+          textEl.textContent = '观后即停'
+          iconEl.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="6" height="6" x="9" y="9"/>
+            </svg>
+          `
+          ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(244, 67, 54, 0.3)'
+        } else if (this.playMode === 1) {
+          // 单集循环
           textEl.textContent = '单集循环'
           iconEl.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1899,6 +1918,7 @@ function createPlayModeToggleControl() {
           `
           ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(76, 175, 80, 0.3)'
         } else {
+          // 顺序播放
           textEl.textContent = '顺序播放'
           iconEl.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1919,7 +1939,7 @@ function createPlayModeToggleControl() {
           color: white;
           padding: 6px 8px;
           cursor: pointer;
-          background: rgba(0, 0, 0, 0.3);
+          background: rgba(244, 67, 54, 0.3);
           border-radius: 4px;
           margin: 0 2px;
           display: flex;
@@ -1930,22 +1950,21 @@ function createPlayModeToggleControl() {
           height: auto;
           transition: background-color 0.3s ease;
         `,
-        title: 'Toggle between single loop and sequential play',
+        title: 'Toggle between stop after watching, single loop and sequential play',
       })
 
       const iconEl = videojs.dom.createEl('span', {
         className: 'playmode-icon',
         innerHTML: `
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 4h4v12H5z"/>
-            <path d="M13 4v12l6-6z"/>
+            <rect width="6" height="6" x="9" y="9"/>
           </svg>
         `
       })
 
       const textEl = videojs.dom.createEl('span', {
         className: 'playmode-text',
-        textContent: '顺序播放',
+        textContent: '观后即停',
         style: 'font-size: 11px; font-weight: 500;'
       })
 
