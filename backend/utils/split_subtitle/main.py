@@ -79,10 +79,10 @@ def merge_segments_based_on_sentences(asr_data: ASRData, sentences: List[str]) -
 
         # 滑动窗口大小，优先考虑接近句子词数的窗口
         # 最多为目标词数的2倍
-        #   但不能超过剩余的ASR数据长度
+        # 但不能超过剩余的ASR数据长度
         min_window_size = max(1, word_count // 2)
         # 至少为1（保证窗口不为空）
-        #   通常为目标词数的一半
+        # 通常为目标词数的一半
         max_window_size = min(word_count * 2, asr_len - asr_index)
 
         window_sizes = sorted(range(min_window_size, max_window_size + 1), key=lambda x: abs(x - word_count))
@@ -120,6 +120,7 @@ def merge_segments_based_on_sentences(asr_data: ASRData, sentences: List[str]) -
         else:
             # 无法匹配句子，跳过当前分段
             print(f"[-] 无法匹配句子: {sentence},尝试匹配过的分段为{substr_proc},词数为{word_count}其Sequence匹配度为{ratio}")
+            # 匹配失败时只前进1步，而不是跳过整个窗口
             asr_index += 1
 
     # 统一处理过长和过短的分段
@@ -372,67 +373,6 @@ def determine_num_segments(word_count: int, threshold: int = 500) -> int:
         num_segments += 1
     return max(1, num_segments)
 
-
-# def main_subspliter(
-#         srt_path: str, 
-#         save_path: str, 
-#         num_threads: int = FIXED_NUM_THREADS):
-#     # 从SRT文件加载ASR数据
-#     with open(srt_path, encoding="utf-8") as f:
-#         asr_data = from_srt(f.read())
-
-#     # 预处理ASR数据，去除标点并转换为小写
-#     new_segments = []
-#     for seg in asr_data.segments:
-#         if not is_pure_punctuation(seg.text):
-#             if re.match(r'^[a-zA-Z\']+$', seg.text.strip()):
-#                 seg.text = seg.text.lower() + " "
-#             new_segments.append(seg)
-#     asr_data.segments = new_segments # lenth of it can be 7047，也就是字幕总token数
-
-#     # 获取完整文本
-#     txt = asr_data.to_txt().replace("\n", "")
-#     total_word_count = count_words(txt)
-#     print(f"[+] 合并后的文本长度: {total_word_count} 字")
-
-#     # 确定分段数，千字数加一
-#     num_segments = determine_num_segments(total_word_count, threshold=SEGMENT_THRESHOLD)
-#     logger.info(f"[+] 根据字数 {total_word_count}，确定分段数: {num_segments}")
-
-#     # 分割ASRData，返回Segments列表
-#     asr_data_segments = split_asr_data(asr_data, num_segments)
-
-
-#     # 多线程执行 split_by_llm 获取句子列表
-#     print("[+] 正在并行请求LLM将每个分段的文本拆分为句子...")
-#     with ThreadPoolExecutor(max_workers=num_threads) as executor:
-#         def process_segment(asr_data_part):
-#             txt = asr_data_part.to_txt().replace("\n", "")
-#             sentences = split_by_llm(txt, use_cache=True)
-#             print(f"[+] 分段的句子提取完成，共 {len(sentences)} 句")
-#             return sentences
-#         all_sentences = list(executor.map(process_segment, asr_data_segments))
-#     all_sentences = [item for sublist in all_sentences for item in sublist]
-    
-#     print(f"[+] 总共提取到 {len(all_sentences)} 句")
-
-#     # 基于LLM已经分段的句子，对ASR分段进行合并
-#     print("[+] 正在基于句子列表合并ASR分段...")
-#     # all_sentences是得到的所有句子。
-#     merged_asr_data = merge_segments_based_on_sentences(asr_data, all_sentences)
-
-#     # 循环合并过短的分段
-#     print("[+] 正在合并过短的分段...")
-#     final_segments = merge_short_segments_iteratively(merged_asr_data.segments)
-
-#     # 按开始时间排序合并后的分段(其实好像不需要)
-#     final_segments.sort(key=lambda seg: seg.start_time)
-#     final_asr_data = ASRData(final_segments)
-
-#     # 保存到SRT文件
-#     final_asr_data.to_srt(save_path=save_path)
-#     print(f"[+] 已完成srt文件合并")
-
 from video.views.set_setting import load_all_settings
 
 from typing import Callable, List
@@ -505,16 +445,6 @@ def optimise_srt(
     • 你看到的大量“无法匹配”并非线程池速度问题，而是结果顺序被打乱导致后续算法对不了号。
     • 既然 map 已经满足性能要求，又天然保证顺序，最简单的就是保留 map 写法。(所以这里只需要提供是否完成，不需要提供进度)
     """
-    # with ThreadPoolExecutor(max_workers=num_threads) as executor:
-    #     futures = {executor.submit(process_segment, seg): idx
-    #             for idx, seg in enumerate(asr_data_segments)}
-
-    #     done = 0
-    #     for fut in as_completed(futures):
-    #         all_sentences.extend(fut.result())   # 把每段结果并入大列表
-    #         done += 1
-    #         ratio = 0.10 + 0.75 * done / num_segments
-    #         progress_cb(ratio)                  # 进度回调
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
         all_sentences = list(executor.map(process_segment, asr_data_segments))
     logger.info("all_sentences before flatten: %s", all_sentences)
