@@ -423,19 +423,6 @@ download_status = defaultdict(
     }
 )
 
-download_status["miaowu"]={
-        "stages": {              # 只存状态
-            "video": "Failed",
-            "audio": "Failed",
-            "merge": "Queued",
-            "convert": "Queued",
-        },
-        "finished": False,       # 四个阶段都完成后置 True
-        "title": "Idontknow",
-        "url": "miaowu",
-        "cid": "miaowu",
-        "bvid": "miaowu",
-    }
 
 """
 视频导出（字幕硬嵌入）流程：
