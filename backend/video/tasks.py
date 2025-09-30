@@ -29,6 +29,10 @@ subtitle_task_queue: Queue[str] = Queue()  # 改为 str 类型，支持 video_id
 download_queue: Queue[int] = Queue()
 SAVE_DIR = 'media/saved_srt'
 
+# 线程锁保护 download_status 的并发访问
+import threading
+download_status_lock = threading.RLock()
+
 # 外部转录任务状态跟踪
 external_task_status = defaultdict(lambda: {
     "task_id": "",
@@ -446,11 +450,12 @@ export_task_status = defaultdict(lambda: {
 
 def dl_set(task_id: str, stage: str, status: str):
     """把某个 stage 的状态改成 Queued / Running / Completed / Failed"""
-    download_status[task_id]["stages"][stage] = status
-    stages = download_status[task_id]["stages"]
-    download_status[task_id]["finished"] = all(
-        s == "Completed" for s in stages.values()
-    )
+    with download_status_lock:
+        download_status[task_id]["stages"][stage] = status
+        stages = download_status[task_id]["stages"]
+        download_status[task_id]["finished"] = all(
+            s == "Completed" for s in stages.values()
+        )
 
 from utils.stream_downloader.bili_download import get_direct_media_link,download_file_with_progress,merge_audio_video,get_video_info
 from utils.stream_downloader.youtube_download import YouTubeDownloader
@@ -510,8 +515,9 @@ def download_thumbnail(thumbnail_url: str, md5_value: str) -> str:
 
 def download_youtube_video(task_id: str):
     """下载 YouTube 视频的完整流程"""
-    task = download_status[task_id]
-    video_id, url, title = task["video_id"], task["url"], task["title"]
+    with download_status_lock:
+        task = download_status[task_id]
+        video_id, url, title = task["video_id"], task["url"], task["title"]
     
     downloader = YouTubeDownloader()
     
@@ -639,8 +645,9 @@ def download_youtube_video(task_id: str):
             print(f"Error cleaning up work directory: {e}")
 
 def download_bilibili_video(task_id: str):
-    task              = download_status[task_id]
-    bvid,cid, url, title =task["bvid"], task["cid"], task["url"], task["title"]
+    with download_status_lock:
+        task = download_status[task_id]
+        bvid,cid, url, title =task["bvid"], task["cid"], task["url"], task["title"]
     
     # Read Bilibili sessdata from config using load_all_settings function
     try:
@@ -769,9 +776,10 @@ def download_bilibili_video(task_id: str):
 
 def download_podcast_audio(task_id: str):
     """下载 Apple Podcast 音频的完整流程"""
-    task = download_status[task_id]
-    episode_id, title = task["episode_id"], task["title"]
-    url = task["url"]
+    with download_status_lock:
+        task = download_status[task_id]
+        episode_id, title = task["episode_id"], task["title"]
+        url = task["url"]
     
     # 创建临时工作目录
     work_dir = f"work_dir/{episode_id}"
@@ -880,8 +888,9 @@ def download_podcast_audio(task_id: str):
 
 def download_stream_media(task_id: str):
     """平台分发器：根据平台类型调用相应的下载函数"""
-    task = download_status[task_id]
-    platform = task.get("platform", "bilibili")  # 默认为bilibili以保持向后兼容
+    with download_status_lock:
+        task = download_status[task_id]
+        platform = task.get("platform", "bilibili")  # 默认为bilibili以保持向后兼容
     
     print(f"Starting download for task {task_id}, platform: {platform}")
     

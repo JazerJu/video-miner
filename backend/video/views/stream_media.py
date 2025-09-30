@@ -9,7 +9,7 @@ from utils.stream_downloader.bili_download import get_video_info
 from utils.stream_downloader import bili_download
 from utils.stream_downloader.youtube_download import YouTubeDownloader
 from django.views.decorators.http import require_POST
-from ..tasks import download_queue,download_status
+from ..tasks import download_queue, download_status, download_status_lock
 from yt_dlp import YoutubeDL
 """
 这个文件用于下载流媒体和查询流媒体信息，作为中间件继承download_status中的变量
@@ -217,13 +217,14 @@ class DownloadActionView(View):
         for idx,cid in enumerate(cids,start=1):
             task_id_per_cid=str(task_id)+str(idx)
             title=f"{filename}-p{idx}-{parts[idx-1]}"
-            download_status[task_id_per_cid] = {
-                "bvid": bvid,
-                "title":title,
-                "url":  url,
-                "cid": cid,
-                **_new_download_status(),
-            }
+            with download_status_lock:
+                download_status[task_id_per_cid] = {
+                    "bvid": bvid,
+                    "title":title,
+                    "url":  url,
+                    "cid": cid,
+                    **_new_download_status(),
+                }
             print(idx,cid,filename)
 
             # 4. 推送到后台队列
@@ -236,21 +237,22 @@ class DownloadActionView(View):
         """
         # 1. 新建 task_id
         task_id = str(int(time.time() * 1000))
-        
+
         # 2. 初始化任务状态
-        download_status[task_id] = {
-            "video_id": video_id, # youtube的video_id,例如q_sQUK418mM
-            "title": filename,
-            "url": url,
-            "platform": "youtube",
-            **_new_download_status(),
-        }
-        
+        with download_status_lock:
+            download_status[task_id] = {
+                "video_id": video_id, # youtube的video_id,例如q_sQUK418mM
+                "title": filename,
+                "url": url,
+                "platform": "youtube",
+                **_new_download_status(),
+            }
+
         print(f"YouTube download task created: {task_id}, {filename}")
-        
+
         # 3. 推送到后台队列
         download_queue.put(task_id)
-        
+
         return JsonResponse({"success": True, "task_id": task_id})
 
     def enqueue_podcast_download_task(self, request, url, episode_id, filename):
@@ -259,21 +261,22 @@ class DownloadActionView(View):
         """
         # 1. 新建 task_id
         task_id = str(int(time.time() * 1000))
-        
+
         # 2. 初始化任务状态
-        download_status[task_id] = {
-            "episode_id": episode_id,  # Apple podcast的episode id
-            "title": filename,
-            "url": url,
-            "platform": "apple_podcast",
-            **_new_download_status(),
-        }
-        
+        with download_status_lock:
+            download_status[task_id] = {
+                "episode_id": episode_id,  # Apple podcast的episode id
+                "title": filename,
+                "url": url,
+                "platform": "apple_podcast",
+                **_new_download_status(),
+            }
+
         print(f"Apple Podcast download task created: {task_id}, {filename}")
-        
+
         # 3. 推送到后台队列
         download_queue.put(task_id)
-        
+
         return JsonResponse({"success": True, "task_id": task_id})
 
 class DownloadStatusView(View):
@@ -298,7 +301,8 @@ class AllDownloadStatusView(View):
     """
     def get(self, request):
         # 强制把 defaultdict 转成普通 dict，避免序列化问题
-        all_status = {tid: data for tid, data in download_status.items()}
+        with download_status_lock:
+            all_status = {tid: data for tid, data in download_status.items()}
         return JsonResponse(all_status)
 
 
@@ -307,22 +311,23 @@ class AllDownloadStatusView(View):
 class RetryDownloadTaskView(View):
     def post(self, request,task_id):
         old_id = task_id
-        old = download_status.get(old_id)
-        if not old:
-            return HttpResponseBadRequest("Task not found")
+        with download_status_lock:
+            old = download_status.get(old_id)
+            if not old:
+                return HttpResponseBadRequest("Task not found")
 
-        # 深拷贝旧状态，避免并发污染
-        new_status = copy.deepcopy(old)
-        # 重置各阶段
-        new_status["finished"] = False
-        new_status["stages"] = {
-            "video":  "Queued",
-            "audio": "Queued",
-            "merge": "Queued",
-            "convert": "Queued"
-        }
-        # 覆写回 download_status 同一个 key
-        download_status[old_id] = new_status
+            # 深拷贝旧状态，避免并发污染
+            new_status = copy.deepcopy(old)
+            # 重置各阶段
+            new_status["finished"] = False
+            new_status["stages"] = {
+                "video":  "Queued",
+                "audio": "Queued",
+                "merge": "Queued",
+                "convert": "Queued"
+            }
+            # 覆写回 download_status 同一个 key
+            download_status[old_id] = new_status
         download_queue.put(old_id)
         return JsonResponse({"task_id": old_id,'message': 'Retry scheduled'})
 
@@ -332,17 +337,18 @@ class DeleteDownloadTaskView(View):
     处理 DELETE /stream_media/download/<str:task_id>/
     """
     def delete(self, request, task_id):
-        if task_id not in download_status:
-            return JsonResponse({'error': 'Task not found'}, status=404)
+        with download_status_lock:
+            if task_id not in download_status:
+                return JsonResponse({'error': 'Task not found'}, status=404)
 
-        try:
-            download_queue.remove(task_id)
-        except (ValueError, AttributeError):
-            print("error")
-            pass
+            try:
+                download_queue.remove(task_id)
+            except (ValueError, AttributeError):
+                print("error")
+                pass
 
-        # 最终从状态表里删掉
-        download_status.pop(task_id, None)
+            # 最终从状态表里删掉
+            download_status.pop(task_id, None)
         return JsonResponse({'message': 'Download task deleted'})
 
     def post(self, request, *args, **kwargs):
