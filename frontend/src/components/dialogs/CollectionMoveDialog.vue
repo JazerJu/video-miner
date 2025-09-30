@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import type { Collection } from '@/types/media'
 
 import { BACKEND } from '@/composables/ConfigAPI'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 const props = defineProps<{
   modelValue: boolean
@@ -27,11 +28,14 @@ async function confirm() {
   // No need to check for null since we use 0 for "未分类"
 
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/collection/move_category/${props.collection.id}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
+      credentials: 'include',
       body: JSON.stringify({
         category_id: targetCategoryId.value === 0 ? null : targetCategoryId.value,
       }),

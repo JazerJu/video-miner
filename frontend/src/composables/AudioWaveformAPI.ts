@@ -21,6 +21,7 @@ export interface AudioDetectionResult {
 }
 
 import { BACKEND } from '@/composables/ConfigAPI'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 // Check if audio file exists for the video (using video ID)
 export async function checkAudioFile(videoId: number): Promise<AudioDetectionResult> {
@@ -82,11 +83,13 @@ export async function fetchWaveformPeaksByMd5(md5Hash: string): Promise<Waveform
 // Generate waveform peaks for a video
 export async function generateWaveformPeaks(videoId: number): Promise<boolean> {
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/videos/${videoId}/generate_waveform_peaks`, {
       method: 'POST',
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
     })
 
@@ -129,11 +132,13 @@ export async function fetchWaveformPeaks(audioFilename: string): Promise<Wavefor
 // Trigger audio extraction from video (using video ID)
 export async function triggerAudioExtraction(videoId: number): Promise<boolean> {
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/videos/${videoId}/extract_audio`, {
       method: 'POST',
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
     })
 

@@ -80,6 +80,7 @@ watch(
 // Debounced search
 let searchTimeout: number | null = null
 import { BACKEND } from '@/composables/ConfigAPI'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
 const performSearch = async () => {
   if (!searchQuery.value.trim()) {
     searchResults.value = []
@@ -91,10 +92,12 @@ const performSearch = async () => {
   isLoading.value = true
 
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/videos/search/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
       credentials: 'include',
       body: JSON.stringify({

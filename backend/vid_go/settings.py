@@ -49,9 +49,9 @@ CSRF_TRUSTED_ORIGINS = __get_list(
     ["http://localhost:4173", "http://127.0.0.1:4173"]  # 开发环境默认设置
 )
 
-# 全站 HTTPS 建议
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+# 全站 HTTPS 建议 - 仅在生产环境启用
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
 
 # 解析VIDGO_URL并自动配置CORS、CSRF和ALLOWED_HOSTS的函数
 def _parse_vidgo_url():

@@ -123,11 +123,14 @@ const saveEdit = async () => {
   }
 
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/videos/${props.video.id}/rename`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
+      credentials: 'include',
       body: JSON.stringify({ videoId: props.video.id, newName }),
     })
 

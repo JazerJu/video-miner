@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { BACKEND } from '@/composables/ConfigAPI'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 export interface User {
   id: number
@@ -48,8 +49,12 @@ export const useUser = () => {
   // Logout function
   const logout = async () => {
     try {
+      const csrf = await getCSRFToken()
       const response = await fetch(`${BACKEND}/api/auth/logout/`, {
         method: 'POST',
+        headers: {
+          'X-CSRFToken': csrf,
+        },
         credentials: 'include',
       })
 

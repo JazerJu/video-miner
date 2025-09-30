@@ -3,6 +3,8 @@ export const BACKEND = `${window.location.protocol}//${window.location.hostname}
 // 开发中前后端端口不统一，使用默认的8000端口
 // export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_BACKEND_ORIGIN}`
 
+import { getCSRFToken } from '@/composables/GetCSRFToken'
+
 // User-defined hidden categories API functions
 export async function loadUserHiddenCategories(): Promise<{
   hidden_categories: number[]
@@ -54,10 +56,12 @@ export async function loadUserHiddenCategories(): Promise<{
 
 export async function saveUserHiddenCategories(hiddenCategories: number[]): Promise<void> {
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/auth/user-hidden-categories/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -428,10 +432,12 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
       },
     }
 
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/config/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -498,10 +504,12 @@ export async function loadWhisperModels(): Promise<WhisperModelData> {
 
 export async function downloadWhisperModel(modelName: string): Promise<void> {
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/whisper-models/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -565,10 +573,12 @@ export interface ModelSizeData {
 
 export async function getModelSize(modelName: string): Promise<ModelSizeData> {
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/whisper-models/size/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
       credentials: 'include',
       body: JSON.stringify({

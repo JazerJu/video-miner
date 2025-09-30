@@ -340,6 +340,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElSelect, ElOption } from 'element-plus'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 interface User {
   id: string
@@ -433,10 +434,12 @@ const createUser = async () => {
 
   loading.value = true
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/auth/create-user/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
       credentials: 'include',
       body: JSON.stringify(newUser.value),
@@ -478,10 +481,12 @@ const updateUser = async () => {
 
   loading.value = true
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/auth/update-user/${editingUser.value.id}/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
       credentials: 'include',
       body: JSON.stringify({

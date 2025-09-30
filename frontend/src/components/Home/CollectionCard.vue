@@ -5,6 +5,7 @@ import { SquarePen } from 'lucide-vue-next'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CollectionMoveDialog from '@/components/dialogs/CollectionMoveDialog.vue'
 import { ref, nextTick } from 'vue'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 const props = defineProps<{ col: Collection; view: 'grid' | 'list' }>()
 const content = `${props.col.videos.length}个视频`
@@ -43,8 +44,13 @@ const handleDelete = () => {
   })
     .then(async () => {
       try {
+        const csrf = await getCSRFToken()
         const response = await fetch(`${BACKEND}/api/collection/delete/${props.col.id}`, {
           method: 'DELETE',
+          headers: {
+            'X-CSRFToken': csrf,
+          },
+          credentials: 'include',
         })
 
         const result = await response.json()
@@ -84,11 +90,14 @@ const saveEdit = async () => {
   }
 
   try {
+    const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/collection/rename/${props.col.id}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
       },
+      credentials: 'include',
       body: JSON.stringify({ newName }),
     })
 
