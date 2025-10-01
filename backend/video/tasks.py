@@ -413,13 +413,23 @@ class SubtitleTaskStatusView(View):
 
 download_status = defaultdict(
     lambda: {
-        "stages": {              # 只存状态
+        "stages": {              # 状态：Queued/Running/Completed/Failed
             "video": "Queued",
             "audio": "Queued",
             "merge": "Queued",
-            "convert": "Queued",  # 新增AV1转换阶段
         },
-        "finished": False,       # 四个阶段都完成后置 True
+        "stage_progress": {      # 🆕 各阶段进度百分比 (0-100)
+            "video": 0,
+            "audio": 0,
+            "merge": 0,
+        },
+        "stage_weights": {       # 🆕 各阶段权重（用于计算总进度）
+            "video": 0.40,       # 视频下载占40%
+            "audio": 0.30,       # 音频下载占30%
+            "merge": 0.30,       # FFmpeg合成占30%
+        },
+        "total_progress": 0,     # 🆕 总进度百分比 (0-100)
+        "finished": False,
         "title": "",
         "url": "",
         "cid": "",
@@ -448,13 +458,40 @@ export_task_status = defaultdict(lambda: {
 })
 
 
-def dl_set(task_id: str, stage: str, status: str):
-    """把某个 stage 的状态改成 Queued / Running / Completed / Failed"""
+def dl_set(task_id: str, stage: str, status: str, progress: int = None):
+    """
+    更新阶段状态和进度
+
+    Args:
+        task_id: 任务ID
+        stage: 阶段名称 (video/audio/merge)
+        status: 状态 (Queued/Running/Completed/Failed)
+        progress: 该阶段进度百分比 (0-100)，可选
+    """
     with download_status_lock:
-        download_status[task_id]["stages"][stage] = status
-        stages = download_status[task_id]["stages"]
-        download_status[task_id]["finished"] = all(
-            s == "Completed" for s in stages.values()
+        task = download_status[task_id]
+
+        # 更新状态
+        task["stages"][stage] = status
+
+        # 更新阶段进度
+        if progress is not None:
+            task["stage_progress"][stage] = min(100, max(0, progress))
+        elif status == "Completed":
+            task["stage_progress"][stage] = 100
+        elif status == "Running" and task["stage_progress"][stage] == 0:
+            task["stage_progress"][stage] = 1  # Running时至少显示1%
+
+        # 🆕 计算总进度
+        total = sum(
+            task["stage_weights"][s] * task["stage_progress"][s]
+            for s in task["stage_progress"]
+        )
+        task["total_progress"] = round(total, 1)
+
+        # 检查是否全部完成
+        task["finished"] = all(
+            s == "Completed" for s in task["stages"].values()
         )
 
 from utils.stream_downloader.bili_download import get_direct_media_link,download_file_with_progress,merge_audio_video,get_video_info
@@ -554,42 +591,6 @@ def download_youtube_video(task_id: str):
         dl_set(task_id, "audio", "Completed")
         dl_set(task_id, "merge", "Completed")
         
-        # # AV1转换阶段 (复用现有逻辑)
-        # from utils.video_converter import VideoConverter
-        # converter = VideoConverter()
-        
-        # if converter.should_convert_to_av1(str(output_path)):
-        #     print(f"Converting {output_path} to AV1 format...")
-        #     dl_set(task_id, "convert", "Running")
-            
-        #     av1_output_file = str(output_path).replace('.mp4', '_av1.mp4')
-            
-        #     def conversion_progress_callback(status):
-        #         dl_set(task_id, "convert", status)
-            
-        #     conversion_success = converter.convert_to_av1(
-        #         str(output_path), 
-        #         av1_output_file,
-        #         progress_callback=conversion_progress_callback
-        #     )
-            
-        #     if conversion_success and os.path.exists(av1_output_file):
-        #         try:
-        #             os.remove(output_path)
-        #             os.rename(av1_output_file, str(output_path))
-        #             print(f"AV1 conversion successful: {output_path}")
-        #             dl_set(task_id, "convert", "Completed")
-        #         except OSError as e:
-        #             print(f"Error replacing original file with AV1: {e}")
-        #             dl_set(task_id, "convert", "Failed")
-        #     else:
-        #         print(f"AV1 conversion failed, keeping original file: {output_path}")
-        #         dl_set(task_id, "convert", "Failed")
-        # else:
-        #     print(f"Video codec is already browser-compatible, skipping AV1 conversion")
-        #     dl_set(task_id, "convert", "Completed")
-        dl_set(task_id, "convert", "Completed")
-        
         # 创建保存视频的目录
         save_dir = os.path.join(settings.MEDIA_ROOT, 'saved_video')
         os.makedirs(save_dir, exist_ok=True)
@@ -634,7 +635,6 @@ def download_youtube_video(task_id: str):
         dl_set(task_id, "video", "Failed")
         dl_set(task_id, "audio", "Failed")
         dl_set(task_id, "merge", "Failed")
-        dl_set(task_id, "convert", "Failed")
     finally:
         # 清理临时工作目录
         try:
@@ -671,19 +671,30 @@ def download_bilibili_video(task_id: str):
         duration_seconds = 0
     
     video_file,audio_file,output_file,urls=get_direct_media_link(bvid,cid=cid,title=title,sessdata=sessdata)
+
+    # 🆕 定义各阶段的进度回调
+    def video_progress_cb(percent):
+        dl_set(task_id, "video", "Running", progress=percent)
+
+    def audio_progress_cb(percent):
+        dl_set(task_id, "audio", "Running", progress=percent)
+
+    def merge_progress_cb(percent):
+        dl_set(task_id, "merge", "Running", progress=percent)
+
     # 1.下载视频流
     dl_set(task_id, "video", "Running")
-    download_file_with_progress(urls['vidBaseUrl'], video_file)
+    download_file_with_progress(urls['vidBaseUrl'], video_file, progress_callback=video_progress_cb)
     dl_set(task_id, "video", "Completed")
 
     # 2.下载音频流
     dl_set(task_id, "audio", "Running")
-    download_file_with_progress(urls['audBaseUrl'], audio_file)
+    download_file_with_progress(urls['audBaseUrl'], audio_file, progress_callback=audio_progress_cb)
     dl_set(task_id, "audio", "Completed")
 
     # ③ 合并音视频
     dl_set(task_id, "merge", "Running")
-    merge_audio_video(audio_file, video_file, output_file)
+    merge_audio_video(audio_file, video_file, output_file, progress_callback=merge_progress_cb)
     for fpath in [video_file]:
         try:
             os.remove(fpath)
@@ -730,8 +741,6 @@ def download_bilibili_video(task_id: str):
     #         # 转换失败但不影响整个下载流程，继续使用原文件
     # else:
     #     print(f"Video codec is already browser-compatible, skipping AV1 conversion")
-    #     dl_set(task_id, "convert", "Completed")
-    dl_set(task_id, "convert", "Completed")
 
     # 创建保存视频的目录
     save_dir = os.path.join(settings.MEDIA_ROOT, 'saved_video')
@@ -825,11 +834,10 @@ def download_podcast_audio(task_id: str):
             return
             
         dl_set(task_id, "video", "Completed")
-        
+
         # 跳过音频和合并阶段（因为已经是音频文件）
         dl_set(task_id, "audio", "Completed")
         dl_set(task_id, "merge", "Completed")
-        dl_set(task_id, "convert", "Completed")
         
         # 创建保存音频的目录 - 注意这里保存到 saved_audio 而不是 saved_video
         save_dir = os.path.join(settings.MEDIA_ROOT, 'saved_audio')
@@ -876,7 +884,6 @@ def download_podcast_audio(task_id: str):
         dl_set(task_id, "video", "Failed")
         dl_set(task_id, "audio", "Failed")
         dl_set(task_id, "merge", "Failed")
-        dl_set(task_id, "convert", "Failed")
     finally:
         # 清理临时工作目录
         try:

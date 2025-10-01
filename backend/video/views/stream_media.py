@@ -24,14 +24,28 @@ def sanitize_filename(title: str) -> str:
     return re.sub(special_chars, "-", title)
 
 def _new_download_status():
+    """
+    创建新下载任务的初始状态结构
+    必须与 tasks.py 中的 download_status defaultdict 结构一致
+    """
     return {
-        "stages": {
-            "video": {"status": "Queued"},
-            "audio":   {"status": "Queued"},
-            "merge":  {"status": "Queued"},
-            "convert": {"status": "Queued"},  # 新增AV1转换阶段
+        "stages": {              # 状态：Queued/Running/Completed/Failed
+            "video": "Queued",
+            "audio": "Queued",
+            "merge": "Queued",
         },
-        "overall": 0,
+        "stage_progress": {      # 各阶段进度百分比 (0-100)
+            "video": 0,
+            "audio": 0,
+            "merge": 0,
+        },
+        "stage_weights": {       # 各阶段权重（用于计算总进度）
+            "video": 0.40,       # 视频下载占40%
+            "audio": 0.30,       # 音频下载占30%
+            "merge": 0.30,       # FFmpeg合成占30%
+        },
+        "total_progress": 0,     # 总进度百分比 (0-100)
+        "finished": False,
     }
 
 class InfoView(View):

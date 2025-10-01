@@ -13,9 +13,29 @@ import argparse
 
 # **0. Utils function
 # 替换标题中的特殊字符 --> 用于文件命名。
-def sanitize_filename(title: str) -> str:
+def sanitize_filename(title: str, max_bytes: int = 200) -> str:
+    """
+    清理文件名中的特殊字符并限制长度
+
+    Args:
+        title: 原始标题
+        max_bytes: 最大字节数（默认200，为文件扩展名和后缀预留空间）
+
+    Returns:
+        清理后的文件名
+    """
     special_chars = r"[ |?？*:\"<>/\\&%#@!()+^~,\';.]"
-    return re.sub(special_chars, "-", title)
+    sanitized = re.sub(special_chars, "-", title)
+
+    # 限制字节长度（考虑 UTF-8 编码，中文字符可能占 3 个字节）
+    encoded = sanitized.encode('utf-8')
+    if len(encoded) > max_bytes:
+        # 截断到指定字节数，避免截断中文字符中间
+        truncated = encoded[:max_bytes].decode('utf-8', errors='ignore')
+        # 去除可能被截断的尾部破损字符
+        sanitized = truncated.rstrip('-')
+
+    return sanitized
 
 from functools import reduce
 from hashlib import md5
@@ -217,29 +237,99 @@ def parse_video_url(raw_vid_json: dict) -> dict:
 
 # 下载文件并显示进度
 
-def download_file_with_progress(url: str, filename: str):
+def download_file_with_progress(url: str, filename: str, progress_callback=None):
+    """
+    下载文件并实时报告进度
+
+    Args:
+        url: 下载URL
+        filename: 保存文件名
+        progress_callback: 进度回调函数 callback(percent: int)，范围 0-100
+    """
     headers = {
         'Referer': 'https://www.bilibili.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
     }
     resp = requests.get(url, headers=headers, stream=True)
     total = int(resp.headers.get('content-length', 0))
+    downloaded = 0
+    chunk_size = 512 * 1024  # 优化：从1KB提升到512KB（参考GIL分析）
+
     with open(filename, 'wb') as f:
-        for chunk in tqdm(resp.iter_content(chunk_size=1024),
-                          total=total // 1024,
+        for chunk in tqdm(resp.iter_content(chunk_size=chunk_size),
+                          total=total // chunk_size,
                           unit='KB',
                           desc=f"Downloading {os.path.basename(filename)}"):
             if chunk:
                 f.write(chunk)
+                downloaded += len(chunk)
+
+                # 🆕 回调进度百分比
+                if progress_callback and total > 0:
+                    percent = int((downloaded / total) * 100)
+                    progress_callback(percent)
 
 # 合并音视频文件
 
-def merge_audio_video(audio_file: str, video_file: str, output_file: str):
+def merge_audio_video(audio_file: str, video_file: str, output_file: str, progress_callback=None):
+    """
+    使用FFmpeg合并音视频，支持真实进度回调
+
+    Args:
+        audio_file: 音频文件路径
+        video_file: 视频文件路径
+        output_file: 输出文件路径
+        progress_callback: 进度回调函数 callback(percent: int)，范围 0-100
+    """
     cmd = [
         'ffmpeg', '-y', '-i', video_file, '-i', audio_file,
-        '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', output_file
+        '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental',
+        '-progress', 'pipe:1',  # 输出进度到stdout
+        output_file
     ]
-    subprocess.run(cmd, check=True)
+
+    if not progress_callback:
+        # 无需进度回调，直接运行
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return
+
+    # 🆕 获取视频总时长（用于计算进度百分比）
+    import json
+    probe_cmd = [
+        'ffprobe', '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'json',
+        video_file
+    ]
+    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+    duration = 0.0
+    try:
+        probe_data = json.loads(probe_result.stdout)
+        duration = float(probe_data['format']['duration'])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        duration = 0.0
+
+    # 🆕 启动FFmpeg进程并解析进度
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+
+    for line in process.stdout:
+        line = line.strip()
+        # FFmpeg进度输出格式：out_time_ms=12345678
+        if line.startswith('out_time_ms='):
+            try:
+                time_ms = int(line.split('=')[1])
+                current_time = time_ms / 1_000_000  # 微秒转秒
+                if duration > 0:
+                    percent = min(int((current_time / duration) * 100), 99)
+                    progress_callback(percent)
+            except (ValueError, IndexError):
+                pass
+
+    process.wait()
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, cmd)
+
+    progress_callback(100)  # 完成时确保100%
 
 from pathlib import Path           # 比 os.path 更好用
 WORK_DIR = Path(settings.BASE_DIR, "work_dir")   # …/<your_project>/work_dir
