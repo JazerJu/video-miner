@@ -257,6 +257,7 @@ export default {
   subtitleGeneration: '字幕生成',
   subtitleOptimization: '字幕优化',
   translationProgress: '翻译进度',
+  totalProgress: '总进度',
   videoDownloadProgress: '视频下载',
   audioDownloadProgress: '音频下载',
   audioVideoMerge: '音视频拼接',

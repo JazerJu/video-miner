@@ -266,6 +266,7 @@ export default {
   subtitleGeneration: 'Subtitle Generation',
   subtitleOptimization: 'Subtitle Optimization',
   translationProgress: 'Translation Progress',
+  totalProgress: 'Total Progress',
   videoDownloadProgress: 'Video Download',
   audioDownloadProgress: 'Audio Download',
   audioVideoMerge: 'Audio/Video Merge',
