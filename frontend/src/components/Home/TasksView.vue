@@ -604,6 +604,26 @@ onBeforeUnmount(() => {
       >
         <!-- 视频名称 -->
         <el-table-column prop="videoName" :label="t('videoName')" min-width="220" />
+
+        <!-- 🆕 总进度（第二列） -->
+        <el-table-column :label="t('totalProgress')" width="200" align="center">
+          <template #default="{ row }">
+            <div class="flex items-center justify-center">
+              <div class="w-32 bg-gray-600 rounded-full h-3 mr-2">
+                <div
+                  class="h-3 rounded-full transition-all duration-300"
+                  :class="{
+                    'bg-blue-500': row.progress < 100,
+                    'bg-green-500': row.progress === 100,
+                  }"
+                  :style="{ width: `${row.progress}%` }"
+                ></div>
+              </div>
+              <span class="text-xs text-gray-300 font-semibold">{{ row.progress }}%</span>
+            </div>
+          </template>
+        </el-table-column>
+
         <!-- 字幕类型 -->
         <el-table-column
           prop="subtitleType"
@@ -611,8 +631,9 @@ onBeforeUnmount(() => {
           width="120"
           align="center"
         />
+
         <!-- 导出状态 -->
-        <el-table-column :label="t('exportStatus')" min-width="160">
+        <el-table-column :label="t('exportStatus')" min-width="140">
           <template #default="{ row }">
             <div class="flex items-center">
               <span
@@ -626,21 +647,6 @@ onBeforeUnmount(() => {
               ></span>
               <span class="ml-2 text-sm">{{ getStatusLabel(row.status) }}</span>
             </div>
-          </template>
-        </el-table-column>
-        <!-- 进度 -->
-        <el-table-column :label="t('progress')" width="120" align="center">
-          <template #default="{ row }">
-            <div v-if="row.status === 'Running'" class="flex items-center">
-              <div class="w-16 bg-gray-600 rounded-full h-2 mr-2">
-                <div
-                  class="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                  :style="{ width: `${row.progress}%` }"
-                ></div>
-              </div>
-              <span class="text-xs text-gray-300">{{ row.progress }}%</span>
-            </div>
-            <span v-else class="text-xs text-gray-400">-</span>
           </template>
         </el-table-column>
         <!-- 输出文件 -->
