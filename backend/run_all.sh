@@ -19,10 +19,17 @@ if lsof -t -i tcp:"$PORT" >/dev/null 2>&1; then
   exit 1
 fi
 
-# 若当前不在 manage.py 所在目录，可加 --chdir "$(dirname "$0")"
+# 单进程多线程模式：
+# - 解决 download_status 跨进程共享问题（无需 Redis）
+# - I/O 密集型任务（下载、FFmpeg）不受 GIL 影响
+# - 内存占用更低
+# - 线程池提供并发能力（apps.py 中配置）
 nohup python -m gunicorn "$APP_MODULE" \
   --bind "0.0.0.0:${PORT}" \
-  --workers "$(( 2*$(nproc) + 1 ))" \
+  --workers 1 \
+  --threads "$(( 2*$(nproc) + 1 ))" \
+  --worker-class gthread \
+  --timeout 300 \
   --access-logfile - --log-level info \
   >> "$LOG" 2>&1 & PID=$!
 
