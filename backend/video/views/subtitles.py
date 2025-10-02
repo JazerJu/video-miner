@@ -13,13 +13,31 @@ import time
 from ..tasks import subtitle_task_queue, subtitle_task_status
 
 def _new_subtitle_task():
+    """
+    创建新字幕任务的初始状态结构
+    必须与 tasks.py 中的 subtitle_task_status defaultdict 结构一致
+    """
     return {
         "stages": {
             "transcribe": "Queued",
             "optimize":   "Queued",
             "translate":  "Queued",
         },
-        "overall":"Queued",
+        "stage_progress": {
+            "transcribe": 0,
+            "optimize": 0,
+            "translate": 0,
+        },
+        "stage_weights": {
+            "transcribe": 0.40,
+            "optimize": 0.30,
+            "translate": 0.30,
+        },
+        "total_progress": 0,
+        "optimize_total_chunks": 0,
+        "optimize_completed_chunks": 0,
+        "translate_total_chunks": 0,
+        "translate_completed_chunks": 0,
     }
 
 
@@ -314,7 +332,22 @@ class SubtitleTranslationAddView(View):
                     "optimize": "Skipped",    # 跳过优化
                     "translate": "Queued",    # 仅执行翻译
                 },
-                "overall": "Queued",
+                # 🆕 进度追踪字段
+                "stage_progress": {
+                    "transcribe": 100,  # 跳过阶段显示100%
+                    "optimize": 100,    # 跳过阶段显示100%
+                    "translate": 0,
+                },
+                "stage_weights": {
+                    "transcribe": 0.40,
+                    "optimize": 0.30,
+                    "translate": 0.30,
+                },
+                "total_progress": 70,  # transcribe(40%) + optimize(30%) = 70%已完成
+                "optimize_total_chunks": 0,
+                "optimize_completed_chunks": 0,
+                "translate_total_chunks": 0,
+                "translate_completed_chunks": 0,
             }
             subtitle_task_queue.put(str(vid))
 
