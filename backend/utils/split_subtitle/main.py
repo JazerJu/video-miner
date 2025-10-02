@@ -431,12 +431,24 @@ def optimise_srt(
     asr_data_segments = split_asr_data(asr_data, num_segments)
 
     # ── 10‑85 %： 多线程执行 split_by_llm 获取句子列表 ─────────────────
+    # 🆕 进度追踪变量
+    import threading
+    completed_chunks = 0
+    total_chunks = len(asr_data_segments)
+    progress_lock = threading.Lock()
+
     def process_segment(asr_data_part):
+        nonlocal completed_chunks
         part_txt = asr_data_part.to_txt().replace("\n", "")
         sentences = split_by_llm(part_txt, use_cache=True,api_key=api_key,model=model,base_url=base_url)
         print(f"[+] 分段的句子提取完成，共 {len(sentences)} 句")
+        # 🆕 线程安全地更新进度 (10% ~ 85%)
+        with progress_lock:
+            completed_chunks += 1
+            progress_percent = 10 + int((completed_chunks / total_chunks) * 75)
+            if progress_cb:
+                progress_cb(progress_percent)
         return sentences
-    
     print("[+] 正在并行请求LLM将每个分段的文本拆分为句子...")
     all_sentences: List[str] = [] # 一个二维列表
     """

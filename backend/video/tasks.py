@@ -55,8 +55,24 @@ subtitle_task_status = defaultdict(lambda: {
     "stages": {
         "transcribe":  "Queued",
         "optimize":    "Queued",
-        "translate":   "Queued", 
+        "translate":   "Queued",
     },
+    # 🆕 进度追踪系统
+    "stage_progress": {       # 各阶段进度百分比 (0-100)
+        "transcribe": 0,
+        "optimize": 0,
+        "translate": 0,
+    },
+    "stage_weights": {        # 各阶段权重（40:30:30）
+        "transcribe": 0.40,   # 字幕生成占40%
+        "optimize": 0.30,     # 字幕优化占30%
+        "translate": 0.30,    # 翻译占30%
+    },
+    "total_progress": 0,      # 总进度百分比 (0-100)
+    "optimize_total_chunks": 0,    # 优化任务总chunk数
+    "optimize_completed_chunks": 0, # 优化已完成chunk数
+    "translate_total_chunks": 0,    # 翻译任务总chunk数
+    "translate_completed_chunks": 0, # 翻译已完成chunk数
 })
 FIXED_NUM_THREADS = 8
 
@@ -74,9 +90,33 @@ FIXED_NUM_THREADS = 8
 
 
 # 更新任务列表中对应video id的字幕生成任务status
-# def _update(video_id: int, stage: str, status: str, progress: int):
-def _update(video_id: int, stage: str, status: str):
-    subtitle_task_status[video_id]["stages"][stage]=status
+def _update(video_id: int, stage: str, status: str, progress: int = None):
+    """
+    更新字幕任务的阶段状态和进度
+
+    Args:
+        video_id: 视频ID
+        stage: 阶段名称 (transcribe/optimize/translate)
+        status: 状态 (Queued/Running/Completed/Failed)
+        progress: 该阶段进度百分比 (0-100)，可选
+    """
+    task = subtitle_task_status[video_id]
+    task["stages"][stage] = status
+
+    # 更新阶段进度
+    if progress is not None:
+        task["stage_progress"][stage] = min(100, max(0, progress))
+    elif status == "Completed":
+        task["stage_progress"][stage] = 100
+    elif status == "Running" and task["stage_progress"][stage] == 0:
+        task["stage_progress"][stage] = 1  # Running时至少显示1%
+
+    # 🆕 计算总进度
+    total = sum(
+        task["stage_weights"][s] * task["stage_progress"][s]
+        for s in task["stage_progress"]
+    )
+    task["total_progress"] = round(total, 1)
 
 def preprocess_audio_for_transcription(video_id):
     """
@@ -327,19 +367,45 @@ def generate_subtitles_for_video(video_id: int) -> None:
     #     _update(video_id, "optimize", state)
     
     try:
+        # 🆕 定义优化进度回调（支持整数百分比）
+        def optimize_progress_cb(value):
+            """处理优化阶段进度：整数0-100 或 字符串状态"""
+            if isinstance(value, (int, float)):
+                # 整数进度 -> 直接传递
+                _update(video_id, "optimize", "Running", progress=int(value))
+            elif value == "Completed":
+                _update(video_id, "optimize", "Completed", progress=100)
+            elif value == "Running":
+                _update(video_id, "optimize", "Running", progress=1)
+            else:
+                _update(video_id, "optimize", value)
+
         # 第一步：优化字幕
         _update(video_id, "optimize", "Running")
         optimise_srt(
             srt_path=work_srt_path,
             save_path=original_srt_path,  # 保存优化后的原文字幕
             num_threads=FIXED_NUM_THREADS,
-            progress_cb=lambda status: _update(video_id, "optimize", status),
+            progress_cb=optimize_progress_cb,  # 🆕 使用支持进度的回调
         )
         _update(video_id, "optimize", "Completed")
         
         # 第二步：翻译字幕（如果需要）
         if enable_translation and translated_srt_path:
             from utils.split_subtitle.main import translate_srt
+
+            # 🆕 定义翻译进度回调（支持整数百分比）
+            def translate_progress_cb(value):
+                """处理翻译阶段进度：整数0-100 或 字符串状态"""
+                if isinstance(value, (int, float)):
+                    _update(video_id, "translate", "Running", progress=int(value))
+                elif value == "Completed":
+                    _update(video_id, "translate", "Completed", progress=100)
+                elif value == "Running":
+                    _update(video_id, "translate", "Running", progress=1)
+                else:
+                    _update(video_id, "translate", value)
+
             _update(video_id, "translate", "Running")
             translate_srt(
                 raw_srt_path=original_srt_path,  # 使用优化后的原文字幕
@@ -348,7 +414,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
                 target_lang=trans_lang,
                 use_translation_cache=True,
                 num_threads=FIXED_NUM_THREADS,  # 使用多线程翻译
-                progress_cb=lambda status: _update(video_id, "translate", status),
+                progress_cb=translate_progress_cb,  # 🆕 使用支持进度的回调
             )
             _update(video_id, "translate", "Completed")
         else:
