@@ -664,10 +664,58 @@
               <p class="mt-2 text-sm text-gray-500">选择转录模型类型：本地或远程</p>
             </div>
 
-            <!-- Local Model Selection -->
-            <div v-if="settings.transcriptionMode === 'local'">
+            <!-- Local Engine & Model Selection -->
+            <div v-if="settings.transcriptionMode === 'local'" class="space-y-4">
+              <!-- Engine Selection -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">本地转录引擎</label>
+                <select
+                  v-model="settings.transcriptionPrimaryEngine"
+                  class="w-full p-2 border border-gray-300 rounded-md"
+                >
+                  <option value="faster_whisper">Faster-Whisper (Python)</option>
+                  <option value="whisper_cpp">Whisper.cpp (C++, 推荐)</option>
+                </select>
+                <p class="mt-2 text-xs text-gray-500">
+                  {{ settings.transcriptionPrimaryEngine === 'whisper_cpp'
+                     ? '✅ Whisper.cpp: 官方C++实现，Docker镜像小(~500MB)，支持CPU-only'
+                     : 'Faster-Whisper: Python实现，需要CUDA依赖，Docker镜像大(~2-8GB)' }}
+                </p>
+              </div>
+
+              <!-- GPU Toggle -->
+              <div class="flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200">
+                <div>
+                  <span class="text-sm font-medium text-gray-700">🚀 启用GPU加速</span>
+                  <p class="text-xs text-gray-500 mt-1">
+                    {{ settings.useGpu
+                       ? 'CUDA GPU加速 (需要NVIDIA GPU)'
+                       : 'CPU-only模式 (无需GPU，速度较慢)' }}
+                  </p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" v-model="settings.useGpu" class="sr-only" />
+                  <div
+                    :class="[
+                      'w-11 h-6 rounded-full transition-colors',
+                      settings.useGpu ? 'bg-green-500' : 'bg-gray-300',
+                    ]"
+                  >
+                    <div
+                      :class="[
+                        'w-5 h-5 bg-white rounded-full shadow transform transition-transform',
+                        settings.useGpu ? 'translate-x-5' : 'translate-x-0',
+                      ]"
+                    ></div>
+                  </div>
+                </label>
+              </div>
+
+              <!-- Model Selection -->
               <div class="flex justify-between items-center mb-2">
-                <label class="block text-sm font-medium text-gray-700">本地模型</label>
+                <label class="block text-sm font-medium text-gray-700">
+                  {{ settings.transcriptionPrimaryEngine === 'whisper_cpp' ? 'GGML模型' : 'Whisper模型' }}
+                </label>
                 <button
                   @click="loadAvailableModels"
                   class="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-sm"
@@ -684,7 +732,11 @@
                   {{ model.downloaded ? '✅' : model.downloading ? '⏳' : '⬇️' }}
                 </option>
               </select>
-              <p class="mt-2 text-sm text-gray-500">选择用于字幕生成的Whisper模型</p>
+              <p class="mt-2 text-sm text-gray-500">
+                {{ settings.transcriptionPrimaryEngine === 'whisper_cpp'
+                   ? '使用 bash scripts/download_whisper_models.sh 下载GGML模型'
+                   : '选择用于字幕生成的Whisper模型' }}
+              </p>
 
               <!-- Warning for distil-large-v3 -->
               <div
@@ -1333,6 +1385,7 @@ const providerOptions = [
 
 const transcriptionEngines = [
   { label: 'Faster-Whisper (本地)', value: 'faster_whisper' },
+  { label: 'Whisper.cpp (官方C++实现, CPU/CUDA)', value: 'whisper_cpp' },
   { label: 'ElevenLabs Speech-to-Text', value: 'elevenlabs' },
   { label: '阿里巴巴 DashScope', value: 'alibaba' },
   { label: 'OpenAI Whisper API', value: 'openai_whisper' },
@@ -1391,6 +1444,7 @@ const settings = reactive<FrontendSettings>({
   transcriptionPrimaryEngine: 'faster_whisper',
   transcriptionFallbackEngine: '',
   fwsrModel: 'large-v3',
+  useGpu: true,  // 🆕 GPU acceleration
   transcriptionElevenlabsApiKey: '',
   transcriptionElevenlabsModel: 'scribe_v1',
   transcriptionIncludePunctuation: true,
@@ -1491,7 +1545,7 @@ const downloadModel = async (modelName: string) => {
     isDownloading.value = true
     downloadProgress.value = 0
 
-    await downloadWhisperModel(modelName)
+    await downloadWhisperModel(modelName, settings.transcriptionPrimaryEngine)
     ElMessage.success(`开始下载模型 ${modelName}`)
 
     // Simple polling without progress estimation
@@ -1675,6 +1729,7 @@ const resetSettings = () => {
     transcriptionPrimaryEngine: 'faster_whisper',
     transcriptionFallbackEngine: '',
     fwsrModel: 'large-v3',
+    useGpu: true,  // 🆕 GPU acceleration
     transcriptionElevenlabsApiKey: '',
     transcriptionElevenlabsModel: 'scribe_v1',
     transcriptionIncludePunctuation: true,
@@ -1799,7 +1854,10 @@ watch(
   () => settings.transcriptionMode,
   (mode) => {
     if (mode === 'local') {
-      settings.transcriptionPrimaryEngine = 'faster_whisper'
+      // Keep current engine if it's valid for local mode
+      if (!['faster_whisper', 'whisper_cpp'].includes(settings.transcriptionPrimaryEngine)) {
+        settings.transcriptionPrimaryEngine = 'whisper_cpp'  // Default to whisper_cpp
+      }
       settings.transcriptionFallbackEngine = ''
     }
   },

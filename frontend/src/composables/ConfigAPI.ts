@@ -1,7 +1,7 @@
 // 前端会编译后与后端运行在同一台主机，同一端口，所以生产中使用${window.location.port}
-export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
+// export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
 // 开发中前后端端口不统一，使用默认的8000端口
-// export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_BACKEND_ORIGIN}`
+export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_BACKEND_ORIGIN}`
 
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 
@@ -165,6 +165,7 @@ export interface ConfigData {
     fallback_engine: string
     transcription_mode: string
     fwsr_model: string
+    use_gpu: string
     elevenlabs_api_key: string
     elevenlabs_model: string
     include_punctuation: string
@@ -232,6 +233,7 @@ export interface FrontendSettings {
   transcriptionFallbackEngine: string
   transcriptionMode: string
   fwsrModel: string
+  useGpu: boolean  // 🆕 GPU acceleration toggle
   transcriptionElevenlabsApiKey: string
   transcriptionElevenlabsModel: string
   transcriptionIncludePunctuation: boolean
@@ -337,6 +339,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
       transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'faster_whisper',
       transcriptionFallbackEngine: data['Transcription Engine']?.fallback_engine || '',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
+      useGpu: data['Transcription Engine']?.use_gpu === 'true',
       transcriptionElevenlabsApiKey: data['Transcription Engine']?.elevenlabs_api_key || '',
       transcriptionElevenlabsModel: data['Transcription Engine']?.elevenlabs_model || 'scribe_v1',
       transcriptionIncludePunctuation: data['Transcription Engine']?.include_punctuation === 'true',
@@ -417,6 +420,7 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         primary_engine: settings.transcriptionPrimaryEngine,
         fallback_engine: settings.transcriptionFallbackEngine,
         fwsr_model: settings.fwsrModel,
+        use_gpu: settings.useGpu.toString(),
         elevenlabs_api_key: settings.transcriptionElevenlabsApiKey,
         elevenlabs_model: settings.transcriptionElevenlabsModel,
         include_punctuation: settings.transcriptionIncludePunctuation.toString(),
@@ -502,7 +506,10 @@ export async function loadWhisperModels(): Promise<WhisperModelData> {
   }
 }
 
-export async function downloadWhisperModel(modelName: string): Promise<void> {
+export async function downloadWhisperModel(
+  modelName: string,
+  engine: string = 'faster_whisper'
+): Promise<void> {
   try {
     const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/whisper-models/`, {
@@ -514,6 +521,7 @@ export async function downloadWhisperModel(modelName: string): Promise<void> {
       credentials: 'include',
       body: JSON.stringify({
         model_name: modelName,
+        engine: engine,
       }),
     })
 

@@ -12,6 +12,7 @@ interface TaskRow {
   transcribe: number
   optimize: number
   translate: number
+  totalProgress: number  // 🆕 总进度百分比
 }
 
 type TaskStageStatus = 'Queued' | 'Running' | 'Completed' | 'Failed'
@@ -26,6 +27,7 @@ interface SubtitleTaskInfo {
     optimize: TaskStageStatus
     translate: TaskStageStatus
   }
+  total_progress: number  // 🆕 总进度
 }
 
 interface DownloadTaskRow {
@@ -98,6 +100,7 @@ async function fetchSubtitleTasks() {
       transcribe: info.stages.transcribe,
       optimize: info.stages.optimize,
       translate: info.stages.translate,
+      totalProgress: info.total_progress || 0,  // 🆕 总进度
     }))
   } catch (err) {
     ElMessage.error(`${t('taskListFailed')}：${err}`)
@@ -394,6 +397,26 @@ onBeforeUnmount(() => {
       >
         <!-- 文件名 -->
         <el-table-column prop="fileName" :label="t('filename')" min-width="220" />
+
+        <!-- 🆕 总进度条（第二列） -->
+        <el-table-column :label="t('totalProgress')" width="200" align="center">
+          <template #default="{ row }">
+            <div class="flex items-center justify-center">
+              <div class="w-32 bg-gray-600 rounded-full h-3 mr-2">
+                <div
+                  class="h-3 rounded-full transition-all duration-300"
+                  :class="{
+                    'bg-blue-500': row.totalProgress < 100,
+                    'bg-green-500': row.totalProgress === 100,
+                  }"
+                  :style="{ width: `${row.totalProgress}%` }"
+                ></div>
+              </div>
+              <span class="text-xs text-gray-300 font-semibold">{{ row.totalProgress.toFixed(1) }}%</span>
+            </div>
+          </template>
+        </el-table-column>
+
         <!-- 字幕生成进度 -->
         <el-table-column :label="t('subtitleGeneration')" min-width="160">
           <template #default="{ row }">
