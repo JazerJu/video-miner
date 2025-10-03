@@ -658,11 +658,20 @@ class VideoActionView(View):
             else:
                 print("Could not get media duration")
 
+            # 为视频自动生成缩略图（音频跳过）
+            thumbnail_filename = ''
+            if not is_audio:
+                try:
+                    thumbnail_filename = self._auto_generate_thumbnail(final_file_path, md5_value)
+                    print(f"[Auto-thumbnail] Generated: {thumbnail_filename}")
+                except Exception as e:
+                    print(f"[Auto-thumbnail] Failed to generate thumbnail: {e}")
+
             # 创建新的 Video 记录（音频也存储在 Video 表中）
             new_video = Video.objects.create(
                 name=file.name,
                 url=filename,
-                thumbnail_url='',
+                thumbnail_url=thumbnail_filename,
                 video_length=formatted_duration,
                 category=None,
             )
@@ -1179,30 +1188,58 @@ class VideoActionView(View):
         except Exception as e:
             return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
-    def _generate_screenshot_ffmpeg(self, video_path, timestamp, output_path):
-        """
-        使用FFmpeg生成视频截图
-        """
+    def _auto_generate_thumbnail(self, video_path, md5_value):
         try:
-            # FFmpeg命令
+            thumbnail_dir = os.path.join(settings.MEDIA_ROOT, 'thumbnail')
+            os.makedirs(thumbnail_dir, exist_ok=True)
+            thumbnail_filename = f"{md5_value}.jpg"
+            thumbnail_path = os.path.join(thumbnail_dir, thumbnail_filename)
+
+            from ..utils import get_video_duration
+            duration = get_video_duration(video_path)
+            extract_time = max(0.5, duration * 0.1) if duration and duration > 0 else 0.5
+
             cmd = [
                 'ffmpeg',
+                '-ss', str(extract_time),
                 '-i', video_path,
+                '-frames:v', '1',
+                '-vf', 'scale=480:-2',
+                '-q:v', '3',
+                '-y',
+                thumbnail_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, stderr=subprocess.PIPE)
+
+            if result.returncode == 0 and os.path.exists(thumbnail_path):
+                return thumbnail_filename
+            else:
+                return ''
+        except Exception as e:
+            print(f"[Auto-thumbnail] {e}")
+            return ''
+
+    def _generate_screenshot_ffmpeg(self, video_path, timestamp, output_path):
+        try:
+            cmd = [
+                'ffmpeg',
                 '-ss', str(timestamp),
-                '-vframes', '1',
-                '-y',  # 覆盖输出文件
+                '-i', video_path,
+                '-frames:v', '1',
+                '-q:v', '2',
+                '-y',
                 output_path
             ]
-            
-            # 执行命令
+
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            
+
             if result.returncode == 0 and os.path.exists(output_path):
                 return True
             else:
                 print(f"FFmpeg error: {result.stderr}")
                 return False
-                
+
         except subprocess.TimeoutExpired:
             print("FFmpeg timeout")
             return False
