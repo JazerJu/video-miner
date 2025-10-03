@@ -296,37 +296,69 @@ class WhisperModelAPIView(View):
     def get(self, request: HttpRequest, *args, **kwargs):
         """Get available models and download status."""
         try:
-            # Available Whisper models (filtered list)
-            available_models = [
+            # Get current engine to determine which models to show
+            settings_data = load_all_settings()
+            current_engine = settings_data.get('Transcription Engine', {}).get('primary_engine', 'faster_whisper')
+            current_model = settings_data.get('Transcription Engine', {}).get('fwsr_model', 'large-v3')
+
+            models_dir = os.path.join(dj_settings.BASE_DIR, 'models')
+
+            # Define models for whisper.cpp (GGML format)
+            whisper_cpp_models = [
+                {'name': 'tiny', 'size': '~75 MB', 'languages': 'multilingual', 'filename': 'ggml-tiny.bin'},
+                {'name': 'base', 'size': '~142 MB', 'languages': 'multilingual', 'filename': 'ggml-base.bin'},
+                {'name': 'small', 'size': '~466 MB', 'languages': 'multilingual', 'filename': 'ggml-small.bin'},
+                {'name': 'medium', 'size': '~1.5 GB', 'languages': 'multilingual', 'filename': 'ggml-medium.bin'},
+                {'name': 'medium-q5', 'size': '~600 MB', 'languages': 'multilingual (quantized)', 'filename': 'ggml-medium-q5_0.bin'},
+                {'name': 'large-v2', 'size': '~3.1 GB', 'languages': 'multilingual', 'filename': 'ggml-large-v2.bin'},
+                {'name': 'large-v3', 'size': '~3.1 GB', 'languages': 'multilingual', 'filename': 'ggml-large-v3.bin'},
+                {'name': 'large-v3-q5', 'size': '~1.3 GB', 'languages': 'multilingual (quantized)', 'filename': 'ggml-large-v3-q5_0.bin'},
+                {'name': 'large-v3-turbo', 'size': '~1.6 GB', 'languages': 'multilingual', 'filename': 'ggml-large-v3-turbo.bin'},
+            ]
+
+            # Define models for faster-whisper
+            faster_whisper_models = [
                 {'name': 'tiny', 'size': '~39 MB', 'languages': 'multilingual'},
                 {'name': 'tiny.en', 'size': '~39 MB', 'languages': 'English-only'},
-                {'name': 'large-v3', 'size': '~1550 MB', 'languages': 'multilingual'},
-                {'name': 'large-v2', 'size': '~1550 MB', 'languages': 'multilingual'},
+                {'name': 'base', 'size': '~74 MB', 'languages': 'multilingual'},
+                {'name': 'small', 'size': '~244 MB', 'languages': 'multilingual'},
                 {'name': 'medium', 'size': '~769 MB', 'languages': 'multilingual'},
+                {'name': 'large-v2', 'size': '~1550 MB', 'languages': 'multilingual'},
+                {'name': 'large-v3', 'size': '~1550 MB', 'languages': 'multilingual'},
                 {'name': 'distil-large-v3', 'size': '~756 MB', 'languages': 'English-only', 'warning': 'This distilled model only supports English transcription'},
             ]
-            
-            # Check which models are downloaded (simple folder check)
-            models_dir = os.path.join(dj_settings.BASE_DIR, 'models')
-            for model in available_models:
-                model_path = os.path.join(models_dir, f"whisper-{model['name']}")
-                model['downloaded'] = os.path.exists(model_path)
-                model['downloading'] = model['name'] in download_progress
-                if model['downloading']:
-                    model['progress'] = download_progress[model['name']]
-            
-            # Get current selected model
-            settings_data = load_all_settings()
-            current_model = settings_data.get('Transcription Engine', {}).get('fwsr_model', 'large-v3')
-            
+
+            # Select models based on current engine
+            if current_engine == 'whisper_cpp':
+                available_models = whisper_cpp_models
+                # Check for .bin files
+                for model in available_models:
+                    model_path = os.path.join(models_dir, model['filename'])
+                    model['downloaded'] = os.path.exists(model_path)
+                    model['downloading'] = model['name'] in download_progress
+                    model['engine'] = 'whisper_cpp'
+                    if model['downloading']:
+                        model['progress'] = download_progress[model['name']]
+            else:
+                available_models = faster_whisper_models
+                # Check for whisper-{name} folders
+                for model in available_models:
+                    model_path = os.path.join(models_dir, f"whisper-{model['name']}")
+                    model['downloaded'] = os.path.exists(model_path)
+                    model['downloading'] = model['name'] in download_progress
+                    model['engine'] = 'faster_whisper'
+                    if model['downloading']:
+                        model['progress'] = download_progress[model['name']]
+
             return JsonResponse({
-                'success': True, 
+                'success': True,
                 'data': {
                     'models': available_models,
-                    'current_model': current_model
+                    'current_model': current_model,
+                    'current_engine': current_engine
                 }
             })
-            
+
         except Exception as exc:
             return JsonResponse({'error': str(exc)}, status=500)
     
@@ -337,56 +369,86 @@ class WhisperModelAPIView(View):
                 data = json.loads(request.body)
             else:
                 return JsonResponse({'error': 'Content-Type must be application/json'}, status=400)
-            
+
             model_name = data.get('model_name')
+            engine_type = data.get('engine', 'faster_whisper')  # Get engine type from request
+
             if not model_name:
                 return JsonResponse({'error': 'model_name is required'}, status=400)
-            
+
             # Check if already downloading
             if model_name in download_progress:
                 return JsonResponse({'error': 'Model is already being downloaded'}, status=409)
-            
+
             # Start download in background thread
             import threading
-            from faster_whisper import WhisperModel
-            
+            import subprocess
+
             def download_model():
                 try:
                     import time
-                    import requests
-                    from pathlib import Path
-                    from huggingface_hub import hf_hub_download
-                    
+
                     download_progress[model_name] = 0
                     models_dir = os.path.join(dj_settings.BASE_DIR, 'models')
-                    model_path = models_dir
-
                     os.makedirs(models_dir, exist_ok=True)
-                    
-                    print(f"Starting download of {model_name} to {model_path}")
-                    
-                    # Actually download the model (blocking call)
-                    print(f"Initializing WhisperModel for {model_name}")
-                    model = WhisperModel(model_name, download_root=models_dir)
-                    print(f"WhisperModel initialization completed for {model_name}")
-                    
-                    # Mark as completed when WhisperModel initialization is done
-                    download_progress[model_name] = 100
-                    
+
+                    if engine_type == 'whisper_cpp':
+                        # Use bash script to download whisper.cpp GGML models
+                        script_path = os.path.join(dj_settings.BASE_DIR, 'scripts', 'download_whisper_models.sh')
+
+                        print(f"[whisper.cpp] Starting download of {model_name} using {script_path}")
+
+                        # Set WHISPER_MODEL_DIR environment variable
+                        env = os.environ.copy()
+                        env['WHISPER_MODEL_DIR'] = models_dir
+
+                        # Execute bash script with model name as argument
+                        result = subprocess.run(
+                            ['bash', script_path, model_name],
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                            check=True
+                        )
+
+                        print(f"[whisper.cpp] Download output: {result.stdout}")
+
+                        if result.stderr:
+                            print(f"[whisper.cpp] Download stderr: {result.stderr}")
+
+                        download_progress[model_name] = 100
+                        print(f"[whisper.cpp] Download completed for {model_name}")
+
+                    else:
+                        # Use faster-whisper download method
+                        from faster_whisper import WhisperModel
+
+                        print(f"[faster-whisper] Starting download of {model_name} to {models_dir}")
+                        print(f"[faster-whisper] Initializing WhisperModel for {model_name}")
+
+                        model = WhisperModel(model_name, download_root=models_dir)
+
+                        print(f"[faster-whisper] WhisperModel initialization completed for {model_name}")
+                        download_progress[model_name] = 100
+
                     # Keep the download status for a while so frontend can see completion
                     time.sleep(3)
                     if model_name in download_progress:
                         del download_progress[model_name]
-                        
+
+                except subprocess.CalledProcessError as e:
+                    print(f"[whisper.cpp] Model download script failed for {model_name}: {e.stderr}")
+                    if model_name in download_progress:
+                        download_progress[model_name] = -1  # Error state
                 except Exception as e:
                     print(f"Model download failed for {model_name}: {e}")
                     if model_name in download_progress:
                         download_progress[model_name] = -1  # Error state
-            
+
             thread = threading.Thread(target=download_model)
             thread.daemon = True
             thread.start()
-            
+
             return JsonResponse({'success': True, 'message': f'Started downloading {model_name}'})
             
         except json.JSONDecodeError:

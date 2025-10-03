@@ -236,6 +236,34 @@ class OpenAIWhisperEngine(TranscriptionEngine):
         return "openai_whisper"
 
 
+class WhisperCppEngine(TranscriptionEngine):
+    """Whisper.cpp local transcription engine (CPU/CUDA)"""
+
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+
+    def transcribe_audio(self, audio_file_path: str, progress_cb: Callable[[str], None], language: Optional[str] = None) -> str:
+        try:
+            from .whisper_cpp_wsr import transcribe_audio
+            return transcribe_audio(audio_file_path, progress_cb, language)
+        except Exception as e:
+            raise Exception(f"Whisper.cpp transcription failed: {str(e)}")
+
+    def is_available(self) -> bool:
+        try:
+            from .whisper_cpp_wsr import get_whisper_cpp_paths
+            from pathlib import Path
+            paths = get_whisper_cpp_paths()
+            # Check if binary exists
+            return Path(paths["binary"]).exists()
+        except Exception:
+            return False
+
+    @property
+    def engine_name(self) -> str:
+        return "whisper_cpp"
+
+
 class RemoteVidGoEngine(TranscriptionEngine):
     """Remote VidGo transcription service engine"""
     
@@ -357,6 +385,7 @@ class TranscriptionEngineFactory:
     
     _engines = {
         'faster_whisper': FasterWhisperEngine,
+        'whisper_cpp': WhisperCppEngine,
         'elevenlabs': ElevenLabsEngine,
         'alibaba': AlibabaEngine,
         'openai_whisper': OpenAIWhisperEngine,
@@ -396,6 +425,15 @@ class TranscriptionEngineFactory:
                 'languages': 'Multi-language',
                 'requires_api_key': False,
                 'speed': 'Fast',
+                'quality': 'High'
+            },
+            'whisper_cpp': {
+                'name': 'Whisper.cpp (Official C++ Implementation)',
+                'description': 'CPU/CUDA optimized, zero Python dependencies, smallest Docker image',
+                'type': 'local',
+                'languages': 'Multi-language',
+                'requires_api_key': False,
+                'speed': 'Very Fast (CPU), Ultra Fast (CUDA)',
                 'quality': 'High'
             },
             'elevenlabs': {

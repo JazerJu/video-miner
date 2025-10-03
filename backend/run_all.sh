@@ -40,4 +40,4 @@ echo "Log:     $(pwd)/$LOG"
 echo "VIDGO_URL=$VIDGO_URL"
 
 # 想现场看日志就保留这行；不想阻塞就注释掉
-tail -n 50 -f "$LOG"
+# tail -n 50 -f "$LOG"
