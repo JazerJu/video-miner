@@ -7,7 +7,3 @@ opencv-python-headless
 Pillow
 openai
 gunicorn
-
-## 接下来就是pytorch和faster_whisper的部分了##
-# sudo apt update
-# sudo apt install -y ffmpeg # 系统的ffmpeg

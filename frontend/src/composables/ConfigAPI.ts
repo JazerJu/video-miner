@@ -336,7 +336,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
       bilibiliSessData: data['Media Credentials']?.bilibili_sessdata || '',
       // Transcription Engine settings
       transcriptionMode: data['Transcription Engine']?.transcription_mode || 'local',
-      transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'faster_whisper',
+      transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'whisper_cpp',
       transcriptionFallbackEngine: data['Transcription Engine']?.fallback_engine || '',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
       useGpu: data['Transcription Engine']?.use_gpu === 'true',

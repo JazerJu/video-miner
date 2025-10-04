@@ -46,33 +46,6 @@ class TranscriptionEngine(ABC):
         pass
 
 
-class FasterWhisperEngine(TranscriptionEngine):
-    """Faster-Whisper local transcription engine"""
-    
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        
-    def transcribe_audio(self, audio_file_path: str, progress_cb: Callable[[str], None], language: Optional[str] = None) -> str:
-        try:
-            from .fast_wsr import transcribe_audio
-            return transcribe_audio(audio_file_path, progress_cb, language)
-        except Exception as e:
-            raise Exception(f"Faster-Whisper transcription failed: {str(e)}")
-    
-    def is_available(self) -> bool:
-        try:
-            from .fast_wsr import get_model
-            # Try to load model to verify availability
-            model = get_model()
-            return model is not None
-        except Exception:
-            return False
-    
-    @property
-    def engine_name(self) -> str:
-        return "faster_whisper"
-
-
 class ElevenLabsEngine(TranscriptionEngine):
     """ElevenLabs Speech-to-Text API engine"""
     
@@ -382,9 +355,8 @@ class RemoteVidGoEngine(TranscriptionEngine):
 
 class TranscriptionEngineFactory:
     """Factory class for creating transcription engines"""
-    
+
     _engines = {
-        'faster_whisper': FasterWhisperEngine,
         'whisper_cpp': WhisperCppEngine,
         'elevenlabs': ElevenLabsEngine,
         'alibaba': AlibabaEngine,
@@ -419,14 +391,6 @@ class TranscriptionEngineFactory:
     def get_engine_info(cls) -> Dict[str, Dict[str, Any]]:
         """Get information about all supported engines"""
         return {
-            'faster_whisper': {
-                'name': 'Faster-Whisper (Local)',
-                'type': 'local',
-                'languages': 'Multi-language',
-                'requires_api_key': False,
-                'speed': 'Fast',
-                'quality': 'High'
-            },
             'whisper_cpp': {
                 'name': 'Whisper.cpp (Official C++ Implementation)',
                 'description': 'CPU/CUDA optimized, zero Python dependencies, smallest Docker image',

@@ -526,14 +526,6 @@ def _convert_whisper_cpp_to_srt(json_data: Dict[str, Any]) -> str:
 # Compatibility Layer (保持与fast_wsr.py接口一致)
 # ──────────────────────────────────────────────────────────────
 
-def get_multilingual_transcription_params() -> Dict[str, Any]:
-    return {
-        'language': None,
-        'word_timestamps': True,  # whisper.cpp通过 -ml 1 实现
-        'beam_size': 5,
-        'best_of': 5,
-        'temperature': [0.0, 0.2],
-    }
 
 
 def get_model():

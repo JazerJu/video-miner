@@ -320,8 +320,8 @@ def generate_subtitles_for_video(video_id: int) -> None:
         settings = load_transcription_settings()
         transcription_settings = settings.get('Transcription Engine', {})
         
-        primary_engine = transcription_settings.get('primary_engine', 'faster_whisper')
-        fallback_engine = transcription_settings.get('fallback_engine', 'openai_whisper')
+        primary_engine = transcription_settings.get('primary_engine', 'whisper_cpp')
+        fallback_engine = transcription_settings.get('fallback_engine', '')
         
         print(f"Using primary transcription engine: {primary_engine}")
         if fallback_engine and fallback_engine != primary_engine:

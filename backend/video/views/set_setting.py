@@ -67,10 +67,11 @@ def _ensure_ini():
             'bilibili_sessdata': ''
         }
         cfg['Transcription Engine'] = {
-            'primary_engine': 'faster_whisper',
+            'primary_engine': 'whisper_cpp',
             'fallback_engine': '',
             'transcription_mode': 'local',
             'fwsr_model': 'large-v3',
+            'use_gpu': 'false',
             'elevenlabs_api_key': '',
             'elevenlabs_model': 'scribe_v1',
             'include_punctuation': 'true',
@@ -298,7 +299,7 @@ class WhisperModelAPIView(View):
         try:
             # Get current engine to determine which models to show
             settings_data = load_all_settings()
-            current_engine = settings_data.get('Transcription Engine', {}).get('primary_engine', 'faster_whisper')
+            current_engine = settings_data.get('Transcription Engine', {}).get('primary_engine', 'whisper_cpp')
             current_model = settings_data.get('Transcription Engine', {}).get('fwsr_model', 'large-v3')
 
             models_dir = os.path.join(dj_settings.BASE_DIR, 'models')
@@ -316,39 +317,16 @@ class WhisperModelAPIView(View):
                 {'name': 'large-v3-turbo', 'size': '~1.6 GB', 'languages': 'multilingual', 'filename': 'ggml-large-v3-turbo.bin'},
             ]
 
-            # Define models for faster-whisper
-            faster_whisper_models = [
-                {'name': 'tiny', 'size': '~39 MB', 'languages': 'multilingual'},
-                {'name': 'tiny.en', 'size': '~39 MB', 'languages': 'English-only'},
-                {'name': 'base', 'size': '~74 MB', 'languages': 'multilingual'},
-                {'name': 'small', 'size': '~244 MB', 'languages': 'multilingual'},
-                {'name': 'medium', 'size': '~769 MB', 'languages': 'multilingual'},
-                {'name': 'large-v2', 'size': '~1550 MB', 'languages': 'multilingual'},
-                {'name': 'large-v3', 'size': '~1550 MB', 'languages': 'multilingual'},
-                {'name': 'distil-large-v3', 'size': '~756 MB', 'languages': 'English-only', 'warning': 'This distilled model only supports English transcription'},
-            ]
-
-            # Select models based on current engine
-            if current_engine == 'whisper_cpp':
-                available_models = whisper_cpp_models
-                # Check for .bin files
-                for model in available_models:
-                    model_path = os.path.join(models_dir, model['filename'])
-                    model['downloaded'] = os.path.exists(model_path)
-                    model['downloading'] = model['name'] in download_progress
-                    model['engine'] = 'whisper_cpp'
-                    if model['downloading']:
-                        model['progress'] = download_progress[model['name']]
-            else:
-                available_models = faster_whisper_models
-                # Check for whisper-{name} folders
-                for model in available_models:
-                    model_path = os.path.join(models_dir, f"whisper-{model['name']}")
-                    model['downloaded'] = os.path.exists(model_path)
-                    model['downloading'] = model['name'] in download_progress
-                    model['engine'] = 'faster_whisper'
-                    if model['downloading']:
-                        model['progress'] = download_progress[model['name']]
+            # whisper.cpp only
+            available_models = whisper_cpp_models
+            # Check for .bin files
+            for model in available_models:
+                model_path = os.path.join(models_dir, model['filename'])
+                model['downloaded'] = os.path.exists(model_path)
+                model['downloading'] = model['name'] in download_progress
+                model['engine'] = 'whisper_cpp'
+                if model['downloading']:
+                    model['progress'] = download_progress[model['name']]
 
             return JsonResponse({
                 'success': True,
@@ -371,7 +349,6 @@ class WhisperModelAPIView(View):
                 return JsonResponse({'error': 'Content-Type must be application/json'}, status=400)
 
             model_name = data.get('model_name')
-            engine_type = data.get('engine', 'faster_whisper')  # Get engine type from request
 
             if not model_name:
                 return JsonResponse({'error': 'model_name is required'}, status=400)
@@ -392,44 +369,31 @@ class WhisperModelAPIView(View):
                     models_dir = os.path.join(dj_settings.BASE_DIR, 'models')
                     os.makedirs(models_dir, exist_ok=True)
 
-                    if engine_type == 'whisper_cpp':
-                        # Use bash script to download whisper.cpp GGML models
-                        script_path = os.path.join(dj_settings.BASE_DIR, 'scripts', 'download_whisper_models.sh')
+                    # Use bash script to download whisper.cpp GGML models
+                    script_path = os.path.join(dj_settings.BASE_DIR, 'scripts', 'download_whisper_models.sh')
 
-                        print(f"[whisper.cpp] Starting download of {model_name} using {script_path}")
+                    print(f"[whisper.cpp] Starting download of {model_name} using {script_path}")
 
-                        # Set WHISPER_MODEL_DIR environment variable
-                        env = os.environ.copy()
-                        env['WHISPER_MODEL_DIR'] = models_dir
+                    # Set WHISPER_MODEL_DIR environment variable
+                    env = os.environ.copy()
+                    env['WHISPER_MODEL_DIR'] = models_dir
 
-                        # Execute bash script with model name as argument
-                        result = subprocess.run(
-                            ['bash', script_path, model_name],
-                            env=env,
-                            capture_output=True,
-                            text=True,
-                            check=True
-                        )
+                    # Execute bash script with model name as argument
+                    result = subprocess.run(
+                        ['bash', script_path, model_name],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
 
-                        print(f"[whisper.cpp] Download output: {result.stdout}")
+                    print(f"[whisper.cpp] Download output: {result.stdout}")
 
-                        if result.stderr:
-                            print(f"[whisper.cpp] Download stderr: {result.stderr}")
+                    if result.stderr:
+                        print(f"[whisper.cpp] Download stderr: {result.stderr}")
 
-                        download_progress[model_name] = 100
-                        print(f"[whisper.cpp] Download completed for {model_name}")
-
-                    else:
-                        # Use faster-whisper download method
-                        from faster_whisper import WhisperModel
-
-                        print(f"[faster-whisper] Starting download of {model_name} to {models_dir}")
-                        print(f"[faster-whisper] Initializing WhisperModel for {model_name}")
-
-                        model = WhisperModel(model_name, download_root=models_dir)
-
-                        print(f"[faster-whisper] WhisperModel initialization completed for {model_name}")
-                        download_progress[model_name] = 100
+                    download_progress[model_name] = 100
+                    print(f"[whisper.cpp] Download completed for {model_name}")
 
                     # Keep the download status for a while so frontend can see completion
                     time.sleep(3)

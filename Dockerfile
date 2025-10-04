@@ -28,15 +28,10 @@ RUN npm run build
 # Stage 1: Python dependencies builder
 FROM python:${PYTHON_VERSION}-slim-bookworm AS python-builder
 
-# Re-declare ARGs in this stage
-# ARG TORCH_VERSION=2.1.2+cu121
-# ARG TORCHAUDIO_VERSION=2.1.2+cu121
-ARG FASTER_WHISPER_VERSION=1.0.3
-
 # 设置pip清华源和HuggingFace镜像
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
-    
+
 ENV HF_ENDPOINT=https://hf-mirror.com
 
 WORKDIR /app
@@ -44,8 +39,6 @@ COPY backend/requirements.txt .
 
 # Install dependencies to system directory
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir \
-        faster-whisper==${FASTER_WHISPER_VERSION} \
     && pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Runtime
