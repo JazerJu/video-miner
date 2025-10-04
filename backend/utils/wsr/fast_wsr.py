@@ -5,11 +5,6 @@ from utils.video.time_convert import seconds_to_srt_time
 import os
 
 
-# 加载模型
-# model = WhisperModel("large-v2",device="cuda")  # 根据需要选择设备和计算类型
-# model = WhisperModel("/path/to/local/model", device="cpu")  # 根据需要调整设备
-# 找一下它在本地的位置，这里似乎默认用网络，我需要本地的模型
-# -------- 全局单例 & 懒加载 --------
 _MODEL: Optional[WhisperModel] = None
 
 def get_configured_model_name() -> str:
@@ -185,7 +180,7 @@ def transcribe_audio(audio_file_path: str,
                     idx += 1
                     word_count += 1
             else:
-                # 如果没有词级时间戳，使用segment级别
+                # 如果关闭词级时间戳，打印segment级别
                 srt_content += f"{idx}\n{seconds_to_srt_time(segment.start)} --> " \
                                f"{seconds_to_srt_time(segment.end)}\n{segment.text.strip()}\n\n"
                 idx += 1
