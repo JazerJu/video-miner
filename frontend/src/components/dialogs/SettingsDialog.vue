@@ -703,56 +703,6 @@
                 </label>
               </div>
 
-              <!-- Transcription Workers -->
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                  并行转录线程数: {{ settings.transcriptionWorkers }}
-                </label>
-                <input
-                  type="range"
-                  v-model.number="settings.transcriptionWorkers"
-                  min="1"
-                  max="8"
-                  class="w-full"
-                />
-                <div class="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>1 (单线程)</span>
-                  <span>2 (推荐)</span>
-                  <span>4</span>
-                  <span>8 (最大)</span>
-                </div>
-                <p class="mt-2 text-xs text-gray-500">
-                  多线程转录将长音频分段并行处理，提高转录速度。推荐2-4个线程。音频&lt;5分钟时自动使用单线程。
-                </p>
-              </div>
-
-              <!-- VAD Toggle -->
-              <div class="flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200">
-                <div>
-                  <span class="text-sm font-medium text-gray-700">🎙️ 启用VAD语音检测</span>
-                  <p class="text-xs text-gray-500 mt-1">
-                    {{ settings.useVad
-                       ? 'Silero VAD优化分段边界 (可能影响准确性)'
-                       : '禁用VAD，直接分段识别 (推荐)' }}
-                  </p>
-                </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" v-model="settings.useVad" class="sr-only" />
-                  <div
-                    :class="[
-                      'w-11 h-6 rounded-full transition-colors',
-                      settings.useVad ? 'bg-blue-500' : 'bg-gray-300',
-                    ]"
-                  >
-                    <div
-                      :class="[
-                        'w-5 h-5 bg-white rounded-full shadow transform transition-transform',
-                        settings.useVad ? 'translate-x-5' : 'translate-x-0',
-                      ]"
-                    ></div>
-                  </div>
-                </label>
-              </div>
 
               <!-- Model Selection -->
               <div class="flex justify-between items-center mb-2">
@@ -1441,8 +1391,6 @@ const settings = reactive<FrontendSettings>({
   transcriptionPrimaryEngine: 'whisper_cpp',
   fwsrModel: 'large-v3',
   useGpu: true,  // GPU acceleration
-  transcriptionWorkers: 2,  // Parallel workers for multi-threaded transcription
-  useVad: false,  // Voice Activity Detection (disabled by default for better accuracy)
   transcriptionElevenlabsApiKey: '',
   transcriptionElevenlabsModel: 'scribe_v1',
   transcriptionIncludePunctuation: true,
@@ -1714,8 +1662,6 @@ const resetSettings = () => {
     transcriptionPrimaryEngine: 'whisper_cpp',
     fwsrModel: 'large-v3',
     useGpu: true,  // GPU acceleration
-    transcriptionWorkers: 2,  // Parallel workers
-    useVad: false,  // Voice Activity Detection
     transcriptionElevenlabsApiKey: '',
     transcriptionElevenlabsModel: 'scribe_v1',
     transcriptionIncludePunctuation: true,
