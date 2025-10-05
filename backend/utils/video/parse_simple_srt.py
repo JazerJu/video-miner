@@ -107,7 +107,8 @@ def call_gpt4o_mini_for_segment(segment_text: str, client) -> str:
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": segment_text}
-            ]
+            ],
+        max_tokens=4096  # Ensure sufficient tokens for long responses
     )
     return response.choices[0].message.content
 

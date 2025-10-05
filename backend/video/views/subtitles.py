@@ -223,6 +223,18 @@ class SubtitleGenerationTaskView(View):
             "optimize": "Queued",
             "traslate": "Queued"
         }
+        # 重置进度信息
+        new_status["stage_progress"] = {
+            "transcribe": 0,
+            "optimize": 0,
+            "translate": 0,
+        }
+        new_status["total_progress"] = 0
+        new_status["stage_detail"] = {
+            "transcribe": "",
+            "optimize": "",
+            "translate": "",
+        }
         # 覆写回 download_status 同一个 key
         subtitle_task_status[old_id] = new_status
         subtitle_task_queue.put(str(old_id))

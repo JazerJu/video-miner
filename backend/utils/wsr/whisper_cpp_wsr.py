@@ -1,16 +1,23 @@
 """
 whisper.cpp wrapper - Drop-in replacement for fast_wsr.py
 Uses official whisper.cpp binary via subprocess
-Supports both CPU-only and CUDA GPU acceleration
+Supports CPU, CUDA, and Vulkan GPU acceleration
+Single-threaded for better accuracy and context preservation
+Real-time progress tracking via SRT timestamp parsing
 """
 import subprocess
 import json
 import os
-import shutil
 import time
 import random
 from typing import Callable, Optional, Dict, Any
 from pathlib import Path
+
+# Import progress tracking utilities
+from .whisper_cpp_progress import (
+    estimate_audio_duration,
+    track_whisper_progress
+)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -44,23 +51,10 @@ def get_use_gpu_setting() -> bool:
         from video.views.set_setting import load_all_settings
         settings_data = load_all_settings()
         use_gpu_str = settings_data.get('Transcription Engine', {}).get('use_gpu', 'true')
-        print(f"use_gpu_str:={use_gpu_str}")
+        print(f"[whisper.cpp] use_gpu setting: {use_gpu_str}")
         return use_gpu_str.lower() in ('true', '1', 'yes')
     except:
         return True  # 默认启用GPU
-
-
-def get_whisper_cpp_binary_preference() -> str:
-    """
-    获取whisper.cpp二进制优先级配置
-    返回: 'auto' (自动选择), 'cpu', 'cuda', 'vulkan', 或具体路径
-    """
-    try:
-        from video.views.set_setting import load_all_settings
-        settings_data = load_all_settings()
-        return settings_data.get('Transcription Engine', {}).get('whisper_cpp_binary', 'auto')
-    except:
-        return 'auto'
 
 
 def _check_gpu_support(binary_path: Path) -> tuple[bool, str]:
@@ -69,7 +63,16 @@ def _check_gpu_support(binary_path: Path) -> tuple[bool, str]:
     返回: (支持GPU, GPU类型)  GPU类型可以是 'cuda', 'vulkan', 或 'none'
     """
     try:
-        # Set up library path for ldd to find dependencies
+        # 从文件名判断GPU类型
+        binary_name = binary_path.name.lower()
+        if 'vulkan' in binary_name:
+            return (True, 'vulkan')
+        elif 'cuda' in binary_name:
+            return (True, 'cuda')
+        elif 'cpu' in binary_name:
+            return (False, 'none')
+
+        # 通过ldd检查链接库
         env = os.environ.copy()
         source_dir = binary_path.parent / "source"
         lib_paths = [
@@ -91,11 +94,10 @@ def _check_gpu_support(binary_path: Path) -> tuple[bool, str]:
             env=env
         )
         output = result.stdout.lower()
-        print(f"[whisper.cpp] ldd output for {binary_path}:\n{output}")
+
         # 检查 Vulkan 支持
         if 'libvulkan' in output or 'ggml-vulkan' in output:
             return (True, 'vulkan')
-
         # 检查 CUDA 支持
         if 'libcuda' in output or 'libcublas' in output or 'ggml-cuda' in output:
             return (True, 'cuda')
@@ -108,27 +110,31 @@ def _check_gpu_support(binary_path: Path) -> tuple[bool, str]:
 def get_whisper_cpp_paths(use_gpu: bool = None) -> Dict[str, str]:
     """
     获取whisper.cpp二进制和模型路径
-    根据use_gpu设置和binary_preference自动选择合适版本
+    根据use_gpu设置自动选择合适版本
 
     Args:
         use_gpu: True使用GPU版本, False使用CPU版本, None自动检测配置
 
-    返回: {"binary": "path/to/main-cpu", "model_dir": "path/to/models", "has_cuda": bool, "gpu_type": str}
+    返回: {"binary": "path/to/main", "model_dir": "path/to/models", "has_cuda": bool, "gpu_type": str}
     """
     if use_gpu is None:
         use_gpu = get_use_gpu_setting()
-
 
     current_dir = Path(__file__).resolve().parent
     project_root = current_dir.parent.parent
     whisper_cpp_dir = project_root / "bin" / "whisper-cpp"
 
+    # 候选二进制列表（按优先级排序）
     candidate_bins = []
-    candidate_bins.extend([
-        whisper_cpp_dir / "main-vulkan",
-        whisper_cpp_dir / "main-cuda",
-        whisper_cpp_dir / "main-cpu",
-    ])
+    if use_gpu:
+        # GPU模式：优先Vulkan, 然后CUDA
+        candidate_bins.extend([
+            whisper_cpp_dir / "main-vulkan",
+            whisper_cpp_dir / "main-cuda",
+            whisper_cpp_dir / "vulkan" / "bin" / "whisper-cli",  # Vulkan构建输出
+        ])
+    # CPU作为fallback
+    candidate_bins.append(whisper_cpp_dir / "main-cpu")
 
     # 选择二进制
     selected_bin = None
@@ -141,25 +147,24 @@ def get_whisper_cpp_paths(use_gpu: bool = None) -> Dict[str, str]:
 
         has_gpu, detected_gpu_type = _check_gpu_support(bin_path)
 
-        if use_gpu:
-            # GPU模式：优先选择有GPU支持的
-            if has_gpu:
-                selected_bin = bin_path
-                has_cuda = (detected_gpu_type == 'cuda')
-                gpu_type = detected_gpu_type
-                print(f"[whisper.cpp] ✅ 找到GPU版本: {bin_path} (类型: {detected_gpu_type.upper()})")
-                break
-            elif selected_bin is None:
-                # 如果没找到GPU版本，暂存第一个可用的
-                selected_bin = bin_path
-                gpu_type = detected_gpu_type
-        else:
-            # CPU模式：选择第一个可用的
+        if use_gpu and has_gpu:
+            # GPU模式：选择第一个支持GPU的
             selected_bin = bin_path
             has_cuda = (detected_gpu_type == 'cuda')
-            gpu_type = detected_gpu_type if detected_gpu_type != 'none' else 'cpu'
-            print(f"[whisper.cpp] ℹ️ 使用二进制: {bin_path} (检测类型: {detected_gpu_type}, 模式: CPU-only)")
+            gpu_type = detected_gpu_type
+            print(f"[whisper.cpp] ✅ 选中GPU版本: {bin_path.name} (类型: {detected_gpu_type.upper()})")
             break
+        elif not use_gpu and not has_gpu:
+            # CPU模式：选择第一个不支持GPU的
+            selected_bin = bin_path
+            gpu_type = 'cpu'
+            print(f"[whisper.cpp] ℹ️  选中CPU版本: {bin_path.name}")
+            break
+        elif selected_bin is None:
+            # 暂存第一个可用的作为fallback
+            selected_bin = bin_path
+            has_cuda = (detected_gpu_type == 'cuda')
+            gpu_type = detected_gpu_type
 
     # 验证找到的二进制
     if not selected_bin or not selected_bin.exists():
@@ -167,14 +172,13 @@ def get_whisper_cpp_paths(use_gpu: bool = None) -> Dict[str, str]:
             f"whisper.cpp binary not found!\n"
             f"Searched paths:\n" + "\n".join(f"  - {p}" for p in candidate_bins) +
             f"\n\nPlease:\n"
-            f"1. Set WHISPER_CPP_BIN environment variable, OR\n"
-            f"2. Place binary at {whisper_cpp_dir}/main-cpu or main-vulkan or main-cuda, OR\n"
-            f"3. Set 'whisper_cpp_binary' in config.ini [Transcription Engine] section\n"
+            f"1. Place binary at {whisper_cpp_dir}/main-cpu or main-vulkan or main-cuda\n"
+            f"2. Or build from source: cd backend/bin/whisper-cpp && make\n"
             f"\nDownload from: https://github.com/ggml-org/whisper.cpp/releases"
         )
 
     if use_gpu and gpu_type == 'none':
-        print(f"[whisper.cpp] ⚠️ GPU已启用但二进制不支持GPU，将强制使用CPU模式")
+        print(f"[whisper.cpp] ⚠️  GPU已启用但二进制不支持GPU，将使用CPU模式")
 
     # 模型目录
     model_dir = os.getenv("WHISPER_MODEL_DIR")
@@ -195,15 +199,16 @@ def get_whisper_cpp_paths(use_gpu: bool = None) -> Dict[str, str]:
 
 def transcribe_audio(
     audio_file_path: str,
-    progress_cb: Callable[[float], None],
+    progress_cb: Callable[[str], None],
     language: str = None
 ) -> str:
     """
     使用whisper.cpp转录音频文件，生成word-level时间戳的SRT字幕
+    单线程处理，保持完整上下文和最佳准确性
 
     Args:
         audio_file_path: 音频文件路径
-        progress_cb: 进度回调函数（接收0-100的进度或"Running"/"Completed"）
+        progress_cb: 进度回调函数（接收字符串状态）
         language: 语言代码 (zh/en/jp/None表示自动检测)
 
     Returns:
@@ -214,19 +219,13 @@ def transcribe_audio(
     # 获取GPU设置
     use_gpu = get_use_gpu_setting()
 
-    # 获取whisper.cpp路径和模型（根据use_gpu自动选择CUDA/CPU版本）
+    # 获取whisper.cpp路径和模型
     paths = get_whisper_cpp_paths(use_gpu=use_gpu)
     binary_path = paths["binary"]
     model_dir = Path(paths["model_dir"])
-    has_cuda = paths["has_cuda"]
+    gpu_type = paths.get("gpu_type", "none")
     model_name = get_configured_model_name()
     model_path = model_dir / model_name
-
-    # 如果启用GPU但没有任何GPU支持（CUDA或Vulkan），强制使用CPU
-    gpu_type = paths.get("gpu_type", "none")
-    if use_gpu and gpu_type == "none":
-        print(f"[whisper.cpp] ⚠️ GPU已启用但二进制不支持GPU，强制使用CPU模式")
-        use_gpu = False
 
     # 转换音频文件为绝对路径
     audio_file_path_abs = str(Path(audio_file_path).resolve())
@@ -235,7 +234,7 @@ def transcribe_audio(
     if not Path(binary_path).exists():
         raise FileNotFoundError(
             f"whisper.cpp binary not found at {binary_path}\n"
-            f"Please set WHISPER_CPP_BIN environment variable or install to backend/bin/whisper-cpp/\n"
+            f"Please install whisper.cpp binary\n"
             f"Download from: https://github.com/ggml-org/whisper.cpp/releases"
         )
 
@@ -252,13 +251,14 @@ def transcribe_audio(
             f"Original path: {audio_file_path}"
         )
 
-    gpu_type_display = paths.get("gpu_type", "none").upper()
+    gpu_type_display = gpu_type.upper()
     print(f"[whisper.cpp] Binary: {binary_path} (GPU: {gpu_type_display})")
     print(f"[whisper.cpp] Model: {model_path}")
     print(f"[whisper.cpp] Audio: {audio_file_path_abs}")
-    if use_gpu and has_cuda:
+
+    if use_gpu and gpu_type == 'cuda':
         print(f"[whisper.cpp] Device: 🚀 GPU (CUDA)")
-    elif use_gpu and paths.get("gpu_type") == "vulkan":
+    elif use_gpu and gpu_type == 'vulkan':
         print(f"[whisper.cpp] Device: 🌋 GPU (Vulkan)")
     else:
         print(f"[whisper.cpp] Device: 🐌 CPU-only")
@@ -267,100 +267,124 @@ def transcribe_audio(
     cmd = [
         str(binary_path),
         "-m", str(model_path),
-        "-f", audio_file_path_abs,  # 使用绝对路径
+        "-f", audio_file_path_abs,
         "-ojf",  # JSON输出格式，包含word-level timestamps
-        "-fa",
-        "-ml","3",
-        "--dtw","large.v3",
-        "-l",language,
-        "-t", "8",   # 8线程（CPU模式下使用，GPU模式下自动调整）
-        # 不使用 -ml 和 -sow，让whisper.cpp输出原始word-level timestamps
-        # 后续在LLM优化阶段合并成句子
+        "-fa",   # 强制音频处理
+        "-ml", "3",  # 最大行长度
+        "--dtw", "large.v3",  # 动态时间规整
+        "-t", "8",   # 8线程（CPU模式下使用）
+        "-bs", "5",  # beam_size=5
+        "-bo", "5",  # best_of=5
     ]
 
-    # GPU/CPU控制
-    if not use_gpu:
-        # 禁用GPU，强制使用CPU
-        cmd.extend(["-ng"])  # --no-gpu
-        print(f"[whisper.cpp] GPU disabled via -ng flag")
+    # GPU/CPU控制 - 关键修复
+    if not use_gpu or gpu_type == 'none':
+        # 明确禁用GPU
+        cmd.extend(["-ng"])
+        print(f"[whisper.cpp] 已通过 -ng 参数禁用GPU")
     else:
-        # GPU模式：whisper.cpp会自动使用CUDA（如果编译时启用）
-        # 注意：需要使用CUDA编译的whisper.cpp二进制
-        print(f"[whisper.cpp] GPU enabled (requires CUDA-compiled binary)")
+        # GPU模式：whisper.cpp会自动检测并使用GPU
+        print(f"[whisper.cpp] GPU模式启用 ({gpu_type})")
 
     # 语言参数
     if language and language != "None":
         cmd.extend(["-l", language])
-        print(f"[whisper.cpp] Using language: {language}")
+        print(f"[whisper.cpp] Language: {language}")
     else:
         print(f"[whisper.cpp] Auto-detecting language")
 
-    # 其他优化参数（映射自fast_wsr.py的参数）
-    cmd.extend([
-        "-bs", "5",        # beam_size=5
-        "-bo", "5",        # best_of=5
-        # "-tr",           # translate to English (可选，默认不翻译)
-    ])
-
     print(f"[whisper.cpp] Command: {' '.join(cmd)}")
+
+    # 获取音频时长用于进度计算
+    print(f"[whisper.cpp] Detecting audio duration...")
+    total_duration = estimate_audio_duration(audio_file_path_abs)
+    print(f"[whisper.cpp] Total duration: {total_duration:.1f}s ({total_duration/60:.1f} min)")
 
     # 执行whisper.cpp
     try:
-        # 设置环境变量以支持CUDA库
+        # 设置环境变量支持GPU库
         env = os.environ.copy()
-        cuda_lib_path = "/usr/local/cuda-12.2/lib64"
-        source_dir = Path(binary_path).parent / "source"
-        ggml_lib_paths = [
-            str(source_dir / "build" / "ggml" / "src"),
-            str(source_dir / "build" / "ggml" / "src" / "ggml-cuda"),
-        ]
+        binary_dir = Path(binary_path).parent
 
-        # 构建LD_LIBRARY_PATH
-        lib_paths = [cuda_lib_path] + ggml_lib_paths
+        # 根据GPU类型设置库路径
+        lib_paths = []
+
+        if gpu_type == 'vulkan':
+            # Vulkan库路径（按优先级）
+            vulkan_lib_dirs = [
+                binary_dir / "vulkan" / "lib",  # 标准Vulkan构建输出
+                binary_dir / "lib",  # 备选lib目录
+            ]
+            for lib_dir in vulkan_lib_dirs:
+                if lib_dir.exists():
+                    lib_paths.append(str(lib_dir))
+                    print(f"[whisper.cpp] 添加Vulkan库路径: {lib_dir}")
+
+        elif gpu_type == 'cuda':
+            # CUDA库路径
+            cuda_lib_dirs = [
+                "/usr/local/cuda-12.2/lib64",
+                "/usr/local/cuda/lib64",
+                binary_dir / "cuda" / "lib",
+            ]
+            for lib_dir in cuda_lib_dirs:
+                if Path(lib_dir).exists():
+                    lib_paths.append(str(lib_dir))
+                    print(f"[whisper.cpp] 添加CUDA库路径: {lib_dir}")
+
+        # 添加源码构建目录（可选）
+        source_dir = binary_dir / "source"
+        if source_dir.exists():
+            source_lib_paths = [
+                source_dir / "build" / "ggml" / "src",
+                source_dir / "build" / "ggml" / "src" / "ggml-cuda",
+                source_dir / "build" / "ggml" / "src" / "ggml-vulkan",
+            ]
+            for lib_dir in source_lib_paths:
+                if lib_dir.exists():
+                    lib_paths.append(str(lib_dir))
+
+        # 保留原有的LD_LIBRARY_PATH
         if "LD_LIBRARY_PATH" in env:
             lib_paths.append(env["LD_LIBRARY_PATH"])
-        env["LD_LIBRARY_PATH"] = ":".join(lib_paths)
 
-        # 不使用 text=True，以避免自动解码错误
-        # 后续手动处理字节流
-        result = subprocess.run(
+        # 设置环境变量
+        if lib_paths:
+            env["LD_LIBRARY_PATH"] = ":".join(lib_paths)
+            print(f"[whisper.cpp] LD_LIBRARY_PATH: {env['LD_LIBRARY_PATH']}")
+        else:
+            print(f"[whisper.cpp] 使用系统默认LD_LIBRARY_PATH")
+
+        # 启动whisper.cpp进程 (使用Popen获取实时输出)
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
-            check=False,  # 先不检查返回码，手动处理错误
-            cwd=str(Path(binary_path).parent),  # 在二进制所在目录执行
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            cwd=str(Path(binary_path).parent),
             env=env
         )
 
-        # 手动解码 stdout 和 stderr，使用多种编码尝试
-        stdout_str = ""
-        stderr_str = ""
+        # 定义进度回调包装器
+        def on_whisper_progress(percent: int, detail: str):
+            """whisper.cpp进度回调: 解析时间戳后的百分比"""
+            # 将百分比传递给外部回调
+            progress_cb(percent)
 
-        for encoding in ['utf-8', 'gbk', 'latin-1']:
-            try:
-                stdout_str = result.stdout.decode(encoding)
-                stderr_str = result.stderr.decode(encoding)
-                print(f"[whisper.cpp] 命令输出解码成功: {encoding}")
-                break
-            except UnicodeDecodeError:
-                if encoding == 'latin-1':
-                    # latin-1 应该总是成功
-                    stdout_str = result.stdout.decode('latin-1', errors='replace')
-                    stderr_str = result.stderr.decode('latin-1', errors='replace')
-                    print(f"[whisper.cpp] 命令输出解码使用 latin-1 (有替换)")
-                continue
+        # 实时追踪进度并获取stdout输出
+        print(f"[whisper.cpp] Starting real-time progress tracking...")
+        stdout_str = track_whisper_progress(
+            process=process,
+            total_duration=total_duration,
+            callback=on_whisper_progress,
+            encoding='utf-8'
+        )
 
-        # 检查返回码
-        if result.returncode != 0:
-            print(f"[whisper.cpp] ❌ 命令执行失败 (返回码: {result.returncode})")
-            print(f"[whisper.cpp] stdout: {stdout_str[:500]}")
-            print(f"[whisper.cpp] stderr: {stderr_str[:500]}")
-            raise subprocess.CalledProcessError(result.returncode, cmd, stdout_str, stderr_str)
+        # 读取stderr
+        stderr_str = process.stderr.read()
 
-        print(f"[whisper.cpp] ✅ Transcription completed (返回码: {result.returncode})")
-        if stdout_str:
-            print(f"[whisper.cpp] stdout前200字符: {stdout_str[:200]}")
-        if stderr_str:
-            print(f"[whisper.cpp] stderr前200字符: {stderr_str[:200]}")
+        print(f"[whisper.cpp] ✅ Transcription completed")
 
         # whisper.cpp 的 -oj 参数会将 JSON 写入到 <audio_file>.json 文件
         json_file_path = Path(audio_file_path_abs + ".json")
@@ -368,100 +392,40 @@ def transcribe_audio(
         if not json_file_path.exists():
             raise FileNotFoundError(
                 f"whisper.cpp did not create JSON output file: {json_file_path}\n"
-                f"stdout: {result.stdout[:200]}\n"
-                f"stderr: {result.stderr[:200]}"
+                f"stderr: {stderr_str[:200]}"
             )
 
-        # 创建 work_dir 目录（如果不存在）
+        # 创建 work_dir 目录（保存JSON备份）
         work_dir = Path(__file__).resolve().parent.parent.parent / "work_dir"
         work_dir.mkdir(exist_ok=True)
 
-        # 生成带时间戳和随机数的文件名保存JSON
-        timestamp = int(time.time() * 1000)  # 毫秒级时间戳
+        # 读取JSON文件 (whisper.cpp outputs UTF-8 text, not binary)
+        # 使用 errors='replace' 处理 -ml 参数导致的UTF-8截断问题
+        # 无效的UTF-8字节会被替换为 � (U+FFFD)，但顶层text字段仍然正确
+        with open(json_file_path, 'r', encoding='utf-8', errors='replace') as f:
+            json_str = f.read()
+
+        # 保存备份
+        timestamp = int(time.time() * 1000)
         random_suffix = random.randint(1000, 9999)
         saved_json_filename = f"whisper_cpp_{timestamp}_{random_suffix}.json"
         saved_json_path = work_dir / saved_json_filename
+        with open(saved_json_path, 'w', encoding='utf-8') as f:
+            f.write(json_str)
+        print(f"[whisper.cpp] ✅ JSON备份已保存: {saved_json_path}")
 
-        # 读取JSON文件 - 先读取原始字节,然后尝试多种编码
-        try:
-            with open(json_file_path, 'rb') as f:
-                raw_data = f.read()
+        # 解析JSON
+        transcription_data = json.loads(json_str)
+        # print(f"[whisper.cpp] ✅ JSON解析成功, transcription条目数: {len(transcription_data.get('transcription', []))}")
 
-            print(f"[whisper.cpp] JSON文件大小: {len(raw_data)} bytes")
-            print(f"[whisper.cpp] 原始JSON文件路径: {json_file_path}")
-
-            # 保存原始字节到 work_dir
-            with open(saved_json_path, 'wb') as f:
-                f.write(raw_data)
-            print(f"[whisper.cpp] ✅ 已保存JSON到: {saved_json_path}")
-
-            # 尝试多种编码方式解析
-            json_str = None
-            encoding_used = None
-
-            # 1. 尝试UTF-8
-            try:
-                json_str = raw_data.decode('utf-8')
-                encoding_used = 'utf-8'
-                print(f"[whisper.cpp] ✅ 解码成功: UTF-8")
-            except UnicodeDecodeError as e:
-                print(f"[whisper.cpp] ⚠️ UTF-8解码失败: {e}")
-
-                # 2. 尝试UTF-8-SIG (带BOM)
-                try:
-                    json_str = raw_data.decode('utf-8-sig')
-                    encoding_used = 'utf-8-sig'
-                    print(f"[whisper.cpp] ✅ 解码成功: UTF-8-SIG")
-                except UnicodeDecodeError as e2:
-                    print(f"[whisper.cpp] ⚠️ UTF-8-SIG解码失败: {e2}")
-
-                    # 3. 尝试GBK (中文Windows常用编码)
-                    try:
-                        json_str = raw_data.decode('gbk')
-                        encoding_used = 'gbk'
-                        print(f"[whisper.cpp] ✅ 解码成功: GBK")
-                    except UnicodeDecodeError as e3:
-                        print(f"[whisper.cpp] ⚠️ GBK解码失败: {e3}")
-
-                        # 4. 尝试替换错误字符
-                        try:
-                            json_str = raw_data.decode('utf-8', errors='replace')
-                            encoding_used = 'utf-8 (with errors replaced)'
-                            print(f"[whisper.cpp] ⚠️ UTF-8解码(替换错误): 使用�替换无效字符")
-                        except Exception as e4:
-                            print(f"[whisper.cpp] ⚠️ UTF-8(replace)解码失败: {e4}")
-
-                            # 5. 最后使用latin-1作为兜底
-                            json_str = raw_data.decode('latin-1')
-                            encoding_used = 'latin-1 (fallback)'
-                            print(f"[whisper.cpp] ⚠️ 降级到Latin-1解码")
-
-            print(f"[whisper.cpp] 最终使用编码: {encoding_used}")
-            print(f"[whisper.cpp] JSON字符串长度: {len(json_str)} chars")
-            print(f"[whisper.cpp] JSON前200字符: {json_str[:200]}")
-
-            # 解析JSON
-            transcription_data = json.loads(json_str)
-            print(f"[whisper.cpp] ✅ JSON解析成功, transcription条目数: {len(transcription_data.get('transcription', []))}")
-
-        except json.JSONDecodeError as e:
-            print(f"[whisper.cpp] ❌ JSON解析失败: {e}")
-            print(f"[whisper.cpp] 错误位置: line={e.lineno}, column={e.colno}")
-            print(f"[whisper.cpp] 已保存的JSON文件: {saved_json_path}")
-            raise RuntimeError(f"Failed to parse whisper.cpp JSON output: {e}\nJSON保存在: {saved_json_path}")
-        except Exception as e:
-            print(f"[whisper.cpp] 读取/解析JSON时发生错误: {e}")
-            print(f"[whisper.cpp] 已保存的JSON文件: {saved_json_path}")
-            raise RuntimeError(f"Failed to read/parse JSON output: {e}\nJSON保存在: {saved_json_path}")
-
-        # 转换为SRT格式
         srt_content = _convert_whisper_cpp_to_srt(transcription_data)
-        print(f"[whisper.cpp] 成功转换为SRT, 字幕条目数: {srt_content.count('-->')}")
+        # print(f"[whisper.cpp] 成功转换为SRT, 字幕条目数: {srt_content.count('-->')}")
+
+        # Debug: Check first 200 chars of SRT content
 
         # 删除whisper.cpp生成的临时JSON文件
         try:
             json_file_path.unlink()
-            print(f"[whisper.cpp] 已删除临时JSON: {json_file_path}")
         except Exception as e:
             print(f"[whisper.cpp] 无法删除临时JSON: {e}")
 
@@ -503,7 +467,9 @@ def _convert_whisper_cpp_to_srt(json_data: Dict[str, Any]) -> str:
     transcription = json_data.get("transcription", [])
 
     for segment in transcription:
-        # 跳过空文本和纯空格
+        # 只使用顶层的text字段，忽略tokens数组
+        # tokens中的text可能包含 � 乱码(由于 -ml 参数截断UTF-8)
+        # 但顶层text是完整正确的识别结果
         text = segment.get("text", "").strip()
         if not text:
             continue
@@ -512,30 +478,12 @@ def _convert_whisper_cpp_to_srt(json_data: Dict[str, Any]) -> str:
         time_from = timestamps.get("from", "00:00:00,000")
         time_to = timestamps.get("to", "00:00:00,000")
 
-        # SRT格式: 序号、时间戳、文本、空行
+        # Write into subtitle format.
         srt_lines.append(f"{index}")
         srt_lines.append(f"{time_from} --> {time_to}")
         srt_lines.append(text)
-        srt_lines.append("")  
+        srt_lines.append("")
 
         index += 1
 
     return "\n".join(srt_lines)
-
-# ──────────────────────────────────────────────────────────────
-# Compatibility Layer (保持与fast_wsr.py接口一致)
-# ──────────────────────────────────────────────────────────────
-
-
-
-def get_model():
-    use_gpu = get_use_gpu_setting()
-    paths = get_whisper_cpp_paths(use_gpu=use_gpu)
-    print(f"[whisper.cpp] Model will be loaded on-demand from: {paths['model_dir']}")
-    print(f"[whisper.cpp] Binary: {paths['binary']} (CUDA: {'✅' if paths['has_cuda'] else '❌'})")
-    print(f"[whisper.cpp] GPU mode: {'Enabled' if use_gpu else 'Disabled (CPU-only)'}")
-
-    if use_gpu and not paths['has_cuda']:
-        print(f"[whisper.cpp] ⚠️ Warning: GPU enabled but binary doesn't support CUDA")
-
-    return None 

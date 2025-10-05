@@ -73,7 +73,7 @@ def set_cache(text: str, model: str, result: List[str]) -> None:
     except IOError:
         pass
 
-def split_by_llm(text: str, 
+def split_by_llm(text: str,
                  use_cache: bool = False,
                  max_length:int = 20,
                  language:str= "en",
@@ -93,11 +93,13 @@ def split_by_llm(text: str,
     client = openai.OpenAI(api_key=api_key, base_url=base_url)
     SYSTEM_PROMPT = f"使用<br>进行段落分割"
     total_word_count = count_words(text)
-    logger.info(f"total_word_count{total_word_count}")
+    logger.info(f"total_word_count: {total_word_count}")
+    logger.info(f"Input text length: {len(text)} characters")
     prompt = VIDEO_SPLIT_PROMPT_TEMPLATE.format(
         sentence=text
     )
     print("using model:",model)
+    result = None  # 初始化变量以便在异常处理中使用
     try:
         response = client.chat.completions.create(
             model=model,
@@ -105,17 +107,66 @@ def split_by_llm(text: str,
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1
+            temperature=0.1,
+            max_tokens=8192  # Ensure sufficient tokens for long responses
         )
         result = response.choices[0].message.content # 获取LLM返回的内容（OpenAI格式）
-        # result = result[7:-3] # 清理结果中的多余```json和```
-        json_data = json.loads(result)
-        logger.info(f"[+] LLM返回结果: {json_data}")
-        split_text = json_data[f'split']
+
+        # 调试：打印原始响应
+        logger.debug(f"[DEBUG] Raw LLM response content: {repr(result)}")
+
+        # 检查响应是否为空
+        if not result or result.strip() == "":
+            logger.error(f"[!] LLM返回空响应")
+            logger.debug(f"[DEBUG] Full response object: {response}")
+            return []
+
+        # 尝试清理可能的markdown代码块标记
+        result_cleaned = result.strip()
+        if result_cleaned.startswith("```json"):
+            result_cleaned = result_cleaned[7:]  # 移除 ```json
+        elif result_cleaned.startswith("```"):
+            result_cleaned = result_cleaned[3:]  # 移除 ```
+        if result_cleaned.endswith("```"):
+            result_cleaned = result_cleaned[:-3]  # 移除结尾的 ```
+        result_cleaned = result_cleaned.strip()
+
+        logger.debug(f"[DEBUG] Cleaned response length: {len(result_cleaned)} chars")
+        logger.debug(f"[DEBUG] Cleaned response preview: {result_cleaned[:200]}...")
+
+        # Check if response appears truncated (doesn't end with proper JSON closing)
+        if not result_cleaned.endswith('}'):
+            logger.warning(f"[!] Response appears truncated - doesn't end with '}}'. Last 50 chars: {result_cleaned[-50:]}")
+            logger.warning(f"[!] This may indicate the response exceeded max_tokens limit")
+            # Try to fix common truncation issues
+            if result_cleaned.endswith('"'):
+                result_cleaned += '\n}'
+            elif result_cleaned.endswith(','):
+                result_cleaned = result_cleaned.rstrip(',') + '\n}'
+            else:
+                result_cleaned += '"\n}'
+            logger.info(f"[DEBUG] Attempted to fix truncated JSON, new ending: {result_cleaned[-50:]}")
+
+        json_data = json.loads(result_cleaned)
+        logger.info(f"[+] LLM返回结果字段: {list(json_data.keys())}")
+        split_text = json_data.get('split', '')
+
+        if not split_text:
+            logger.error(f"[!] JSON中没有'split'字段: {json_data}")
+            return []
+
         split_result = [segment.strip() for segment in split_text.split("<br>") if segment.strip()] # 将单个段落拆分为句子（各语言通用），通过strip去除文本两端的空格
-        
+        logger.info(f"[+] 成功分割为 {len(split_result)} 个句子")
+
         set_cache(text, model, split_result)
         return split_result
+    except json.JSONDecodeError as e:
+        logger.error(f"[!] JSON解析失败: {e}")
+        logger.error(f"[!] 原始内容长度: {len(result) if result else 0} chars")
+        logger.error(f"[!] 原始内容预览 (前500字符): {result[:500] if result else 'None'}")
+        logger.error(f"[!] 原始内容结尾 (后200字符): {result[-200:] if result else 'None'}")
+        return []
     except Exception as e:
+        logger.error(f"[!] 请求LLM失败: {e}")
         print(f"[!] 请求LLM失败: {e}")
         return []

@@ -20,11 +20,12 @@ from .views.waveform import WaveformAPIView, WaveformListView
 from .views.export import ExportTaskAddView, AllExportStatusView, ExportStatusView, DeleteExportTaskView, RetryExportTaskView, ExportedVideoDownloadView
 from .views.external_transcription import (
     ExternalTranscriptionSubmitView,
-    ExternalTranscriptionStatusView, 
+    ExternalTranscriptionStatusView,
     ExternalTranscriptionResultView,
     ExternalTranscriptionListView,
     ExternalTranscriptionDeleteView
 )
+from .views.realtime_subtitles import RealtimeSubtitleView, RealtimeSubtitleStreamView
 from django.views.decorators.csrf import csrf_exempt,get_token,ensure_csrf_cookie
 from .tasks import SubtitleTaskStatusView
 from .views import stream_media
@@ -171,4 +172,9 @@ urlpatterns = [
     path('api/tasks/subtitle_generate/add', subtitles.SubtitleGenerationAddView.as_view()),
     path('api/tasks/subtitle_translation/add', subtitles.SubtitleTranslationAddView.as_view()),
     path('api/tasks/subtitle_generate/<int:video_id>/<str:action>', subtitles.SubtitleGenerationTaskView.as_view(), name='subtitle-task-action'),
+
+    # 🆕 实时字幕生成（逐句返回）
+    path('api/realtime_subtitle/start/<int:video_id>', RealtimeSubtitleView.as_view(), name='realtime_subtitle_start'),
+    path('api/realtime_subtitle/status/<str:task_id>', RealtimeSubtitleView.as_view(), name='realtime_subtitle_status'),
+    path('api/realtime_subtitle/stream/<str:task_id>', RealtimeSubtitleStreamView.as_view(), name='realtime_subtitle_stream'),
 ]

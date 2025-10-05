@@ -9,6 +9,7 @@ from utils.split_subtitle.main import optimise_srt
 from django.conf import settings  # 确保这个在顶部
 import hashlib
 from .views.set_setting import load_all_settings
+from utils.wsr.transcription_engine import transcribe_with_engine
 """
 该文件用于定义和 存储项目的 所有task，
 包括字幕撰写/翻译；
@@ -45,6 +46,20 @@ external_task_status = defaultdict(lambda: {
     "error_message": "",
 })
 
+# 🆕 实时字幕流状态跟踪（sentence-by-sentence）
+realtime_subtitle_status = defaultdict(lambda: {
+    "task_id": "",
+    "video_id": 0,
+    "filename": "",
+    "status": "Queued",  # Queued/Running/Completed/Failed
+    "total_entries": 0,
+    "completed_entries": 0,
+    "current_entry": None,  # 当前处理的字幕条目
+    "subtitle_entries": [],  # 已完成的字幕条目列表
+    "error_message": "",
+    "created_at": 0,
+})
+
 # 每个 video_id 对应 3 个阶段
 # stages = 0: 字级时间戳 1: 大模型优化 2: 翻译
 subtitle_task_status = defaultdict(lambda: {
@@ -62,6 +77,11 @@ subtitle_task_status = defaultdict(lambda: {
         "transcribe": 0,
         "optimize": 0,
         "translate": 0,
+    },
+    "stage_detail": {         # 各阶段详细进度信息
+        "transcribe": "",
+        "optimize": "",
+        "translate": "",
     },
     "stage_weights": {        # 各阶段权重（40:30:30）
         "transcribe": 0.40,   # 字幕生成占40%
@@ -90,7 +110,7 @@ FIXED_NUM_THREADS = 8
 
 
 # 更新任务列表中对应video id的字幕生成任务status
-def _update(video_id: int, stage: str, status: str, progress: int = None):
+def _update(video_id: int, stage: str, status: str, progress: int = None, detail: str = None):
     """
     更新字幕任务的阶段状态和进度
 
@@ -99,9 +119,16 @@ def _update(video_id: int, stage: str, status: str, progress: int = None):
         stage: 阶段名称 (transcribe/optimize/translate)
         status: 状态 (Queued/Running/Completed/Failed)
         progress: 该阶段进度百分比 (0-100)，可选
+        detail: 详细进度信息（如"Segment 2/6 (33%)"），可选
     """
     task = subtitle_task_status[video_id]
     task["stages"][stage] = status
+
+    # 更新详细进度信息
+    if detail is not None:
+        if "stage_detail" not in task:
+            task["stage_detail"] = {}
+        task["stage_detail"][stage] = detail
 
     # 更新阶段进度
     if progress is not None:
@@ -109,7 +136,7 @@ def _update(video_id: int, stage: str, status: str, progress: int = None):
     elif status == "Completed":
         task["stage_progress"][stage] = 100
     elif status == "Running" and task["stage_progress"][stage] == 0:
-        task["stage_progress"][stage] = 1  # Running时至少显示1%
+        task["stage_progress"][stage] = 2.5  # Running时至少显示2.5% (权重0.4时总进度为1%)
 
     # 🆕 计算总进度
     total = sum(
@@ -303,7 +330,31 @@ def generate_subtitles_for_video(video_id: int) -> None:
 
     # 1. 音频转录阶段
     def transcribe_cb(status):
-        _update(video_id, "transcribe", status)
+        """
+        处理转录进度回调
+        status可能是:
+        - 整数百分比: 0-100 (whisper.cpp实时进度)
+        - 字符串状态: "Running", "Completed", "Failed"
+        - 段级进度: "Segment 2/6 (33%)"
+        """
+        import re
+
+        # 检查是否为整数百分比 (whisper.cpp实时进度)
+        if isinstance(status, (int, float)):
+            _update(video_id, "transcribe", "Running",
+                   progress=int(status),
+                   detail=f"{int(status)}% transcribing...")
+        # 检查是否为段级进度信息
+        elif isinstance(status, str):
+            segment_match = re.match(r'Segment (\d+)/(\d+) \((\d+)%\)', status)
+            if segment_match:
+                completed, total, percent = segment_match.groups()
+                _update(video_id, "transcribe", "Running",
+                       progress=int(percent),
+                       detail=status)
+            else:
+                # 普通状态字符串
+                _update(video_id, "transcribe", status)
     print("start transcribing:", video_path)
     
     try:
@@ -337,8 +388,11 @@ def generate_subtitles_for_video(video_id: int) -> None:
         )
         timestamp=int(time.time()*1000)
         os.makedirs('work_dir/temp', exist_ok=True)
-        with open(f'work_dir/temp/{timestamp}.srt', 'w') as f:
+        # Debug: Check SRT content encoding before writing
+        print(f"[tasks.py] DEBUG: SRT content first 200 chars before writing: {repr(srt_content[:200])}")
+        with open(f'work_dir/temp/{timestamp}.srt', 'w', encoding='utf-8') as f:
             f.write(srt_content)
+        print(f"[tasks.py] SRT file saved to work_dir/temp/{timestamp}.srt with UTF-8 encoding")
         _update(video_id, "transcribe", "Completed")
         print(f"Transcription completed for video {video_id}, SRT content length: {len(srt_content)}")
     except Exception as exc:

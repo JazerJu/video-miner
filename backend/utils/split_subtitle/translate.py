@@ -296,7 +296,8 @@ def call_llm(prompt: str, use_cache: bool = True, api_key=None, base_url=None, m
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1
+            temperature=0.1,
+            max_tokens=8192  # Ensure sufficient tokens for long responses
         )
         result = response.choices[0].message.content
         

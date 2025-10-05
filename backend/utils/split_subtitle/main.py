@@ -420,7 +420,20 @@ def optimise_srt(
     # 将整个字幕合并为文本
     txt = asr_data.to_txt().replace("\n", "")
     total_word_count = count_words(txt)
-    print(f"[+] 合并后的文本长度: {total_word_count} 字")
+    print(f"[+] 待分割段落文本长度: {total_word_count} 字")
+
+    # 调试：打印合并后的文本前500字符
+    logger.debug(f"[DEBUG] 待分割文本前500字符: {txt[:500]}")
+
+    # 打印所有word-level时间戳字幕（用于调试）
+    logger.debug("[DEBUG] ========== Word-level Timestamps ==========")
+    logger.debug(f"[DEBUG] 总共 {len(asr_data.segments)} 个word segments")
+    for i, seg in enumerate(asr_data.segments[:20]):  # 只打印前20个
+        # start_time和end_time是毫秒，需要除以1000转换为秒
+        logger.debug(f"[DEBUG] Segment {i}: [{seg.start_time/1000:.2f}s - {seg.end_time/1000:.2f}s] '{seg.text}'")
+    if len(asr_data.segments) > 20:
+        logger.debug(f"[DEBUG] ... (还有 {len(asr_data.segments) - 20} 个segments)")
+    logger.debug("[DEBUG] ============================================")
 
     num_segments = determine_num_segments(
         total_word_count, threshold=SEGMENT_THRESHOLD
