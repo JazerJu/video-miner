@@ -652,34 +652,26 @@
 
           <!-- Transcription Engine Settings -->
           <div v-if="activeTab === 'transcription'" class="space-y-6">
+            <!-- Primary Engine Selection -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">音频转录模型选择</label>
+              <label class="block text-sm font-medium text-gray-700 mb-2">转录引擎</label>
               <select
-                v-model="settings.transcriptionMode"
+                v-model="settings.transcriptionPrimaryEngine"
                 class="w-full p-2 border border-gray-300 rounded-md"
               >
-                <option value="local">Faster Whisper (本地)</option>
-                <option value="remote">远程</option>
+                <option v-for="engine in allTranscriptionEngines" :key="engine.value" :value="engine.value">
+                  {{ engine.label }}
+                </option>
               </select>
-              <p class="mt-2 text-sm text-gray-500">选择转录模型类型：本地或远程</p>
             </div>
 
-            <!-- Local Engine & Model Selection -->
-            <div v-if="settings.transcriptionMode === 'local'" class="space-y-4">
-              <!-- Engine Selection -->
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">本地转录引擎</label>
-                <select
-                  v-model="settings.transcriptionPrimaryEngine"
-                  class="w-full p-2 border border-gray-300 rounded-md"
-                >
-                  <option value="faster_whisper">Faster-Whisper (Python)</option>
-                  <option value="whisper_cpp">Whisper.cpp (C++, 推荐)</option>
-                </select>
-                <p class="mt-2 text-xs text-gray-500">
-                  {{ settings.transcriptionPrimaryEngine === 'whisper_cpp'
-                     ? '✅ Whisper.cpp: 官方C++实现，Docker镜像小(~500MB)，支持CPU-only'
-                     : 'Faster-Whisper: Python实现，需要CUDA依赖，Docker镜像大(~2-8GB)' }}
+            <!-- Whisper.cpp Specific Settings -->
+            <div v-if="settings.transcriptionPrimaryEngine === 'whisper_cpp'" class="space-y-4 border-t pt-4">
+              <h4 class="text-md font-medium text-gray-800">Whisper.cpp 设置</h4>
+
+              <div class="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p class="text-sm text-blue-700">
+                  ✅ <strong>Whisper.cpp:</strong> 官方C++实现，Docker镜像小(~500MB)，支持CPU-only和GPU加速
                 </p>
               </div>
 
@@ -711,11 +703,60 @@
                 </label>
               </div>
 
+              <!-- Transcription Workers -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  并行转录线程数: {{ settings.transcriptionWorkers }}
+                </label>
+                <input
+                  type="range"
+                  v-model.number="settings.transcriptionWorkers"
+                  min="1"
+                  max="8"
+                  class="w-full"
+                />
+                <div class="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1 (单线程)</span>
+                  <span>2 (推荐)</span>
+                  <span>4</span>
+                  <span>8 (最大)</span>
+                </div>
+                <p class="mt-2 text-xs text-gray-500">
+                  多线程转录将长音频分段并行处理，提高转录速度。推荐2-4个线程。音频&lt;5分钟时自动使用单线程。
+                </p>
+              </div>
+
+              <!-- VAD Toggle -->
+              <div class="flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200">
+                <div>
+                  <span class="text-sm font-medium text-gray-700">🎙️ 启用VAD语音检测</span>
+                  <p class="text-xs text-gray-500 mt-1">
+                    {{ settings.useVad
+                       ? 'Silero VAD优化分段边界 (可能影响准确性)'
+                       : '禁用VAD，直接分段识别 (推荐)' }}
+                  </p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" v-model="settings.useVad" class="sr-only" />
+                  <div
+                    :class="[
+                      'w-11 h-6 rounded-full transition-colors',
+                      settings.useVad ? 'bg-blue-500' : 'bg-gray-300',
+                    ]"
+                  >
+                    <div
+                      :class="[
+                        'w-5 h-5 bg-white rounded-full shadow transform transition-transform',
+                        settings.useVad ? 'translate-x-5' : 'translate-x-0',
+                      ]"
+                    ></div>
+                  </div>
+                </label>
+              </div>
+
               <!-- Model Selection -->
               <div class="flex justify-between items-center mb-2">
-                <label class="block text-sm font-medium text-gray-700">
-                  {{ settings.transcriptionPrimaryEngine === 'whisper_cpp' ? 'GGML模型' : 'Whisper模型' }}
-                </label>
+                <label class="block text-sm font-medium text-gray-700">GGML模型</label>
                 <button
                   @click="loadAvailableModels"
                   class="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-sm"
@@ -733,9 +774,7 @@
                 </option>
               </select>
               <p class="mt-2 text-sm text-gray-500">
-                {{ settings.transcriptionPrimaryEngine === 'whisper_cpp'
-                   ? '使用 bash scripts/download_whisper_models.sh 下载GGML模型'
-                   : '选择用于字幕生成的Whisper模型' }}
+                使用 bash scripts/download_whisper_models.sh 下载GGML模型
               </p>
 
               <!-- Warning for distil-large-v3 -->
@@ -804,44 +843,6 @@
                   <p class="text-sm text-gray-700">📁 当前模型大小: {{ modelSizeInfo }}</p>
                 </div>
               </div>
-            </div>
-
-            <div v-if="settings.transcriptionMode === 'remote'">
-              <label class="block text-sm font-medium text-gray-700 mb-2">主要转录引擎选择</label>
-              <select
-                v-model="settings.transcriptionPrimaryEngine"
-                class="w-full p-2 border border-gray-300 rounded-md"
-              >
-                <option
-                  v-for="engine in transcriptionEngines"
-                  :key="engine.value"
-                  :value="engine.value"
-                >
-                  {{ engine.label }}
-                </option>
-              </select>
-              <p class="mt-2 text-sm text-gray-500">选择主要的音频转录引擎</p>
-            </div>
-            <div v-if="settings.transcriptionMode === 'remote'">
-              <label class="block text-sm font-medium text-gray-700 mb-2"
-                >备用转录引擎（可选）</label
-              >
-              <select
-                v-model="settings.transcriptionFallbackEngine"
-                class="w-full p-2 border border-gray-300 rounded-md"
-              >
-                <option value="">无</option>
-                <option
-                  v-for="engine in transcriptionEngines.filter(
-                    (e) => e.value !== settings.transcriptionPrimaryEngine,
-                  )"
-                  :key="engine.value"
-                  :value="engine.value"
-                >
-                  {{ engine.label }}
-                </option>
-              </select>
-              <p class="mt-2 text-sm text-gray-500">主要引擎失败时使用的备用引擎</p>
             </div>
 
             <!-- ElevenLabs Settings -->
@@ -1026,6 +1027,7 @@
               </div>
             </div>
 
+            <!-- Engine Info Section -->
             <div class="bg-blue-50 p-4 rounded-lg">
               <div class="flex items-start">
                 <div class="flex-shrink-0">
@@ -1048,22 +1050,19 @@
                   <div class="mt-2 text-sm text-blue-700">
                     <ul class="space-y-1">
                       <li>
-                        <strong>Faster-Whisper (本地):</strong> 无需API密钥，本地处理，隐私性好
+                        <strong>Whisper.cpp:</strong> 本地处理，无需API密钥，支持CPU/GPU加速，隐私性好
                       </li>
                       <li>
-                        <strong>ElevenLabs:</strong>
-                        高质量转录，支持多语言，需要API密钥,0.04元/分钟
+                        <strong>ElevenLabs:</strong> 高质量转录，支持多语言，需要API密钥，0.04元/分钟
                       </li>
                       <li>
                         <strong>阿里巴巴 DashScope:</strong> 中文效果佳，需要API密钥，0.012元/分钟
                       </li>
                       <li>
-                        <strong>OpenAI Whisper:</strong>
-                        OpenAI官方API，高质量，需要API密钥，0.04元/分钟
+                        <strong>OpenAI Whisper:</strong> OpenAI官方API，高质量，需要API密钥，0.04元/分钟
                       </li>
                       <li>
-                        <strong>远程VidGo字幕服务:</strong>
-                        连接到远程VidGo实例，无需API密钥，需要配置服务器地址
+                        <strong>远程VidGo字幕服务:</strong> 连接到远程VidGo实例，无需API密钥，需要配置服务器地址
                       </li>
                     </ul>
                   </div>
@@ -1383,9 +1382,8 @@ const providerOptions = [
   { label: 'Qwen', value: 'qwen' },
 ]
 
-const transcriptionEngines = [
-  { label: 'Faster-Whisper (本地)', value: 'faster_whisper' },
-  { label: 'Whisper.cpp (官方C++实现, CPU/CUDA)', value: 'whisper_cpp' },
+const allTranscriptionEngines = [
+  { label: 'Whisper.cpp (本地C++实现, CPU/GPU)', value: 'whisper_cpp' },
   { label: 'ElevenLabs Speech-to-Text', value: 'elevenlabs' },
   { label: '阿里巴巴 DashScope', value: 'alibaba' },
   { label: 'OpenAI Whisper API', value: 'openai_whisper' },
@@ -1440,11 +1438,11 @@ const settings = reactive<FrontendSettings>({
   // Media credentials
   bilibiliSessData: '',
   // Transcription Engine settings
-  transcriptionMode: 'local',
-  transcriptionPrimaryEngine: 'faster_whisper',
-  transcriptionFallbackEngine: '',
+  transcriptionPrimaryEngine: 'whisper_cpp',
   fwsrModel: 'large-v3',
-  useGpu: true,  // 🆕 GPU acceleration
+  useGpu: true,  // GPU acceleration
+  transcriptionWorkers: 2,  // Parallel workers for multi-threaded transcription
+  useVad: false,  // Voice Activity Detection (disabled by default for better accuracy)
   transcriptionElevenlabsApiKey: '',
   transcriptionElevenlabsModel: 'scribe_v1',
   transcriptionIncludePunctuation: true,
@@ -1468,33 +1466,21 @@ const modelSizeInfo = ref('')
 const showPreview = ref(false)
 const previewAspectRatio = ref<'16:9' | '3:4'>('16:9')
 
-// Computed properties for showing API key fields based on selected engines
+// Computed properties for showing API key fields based on selected engine
 const needsElevenlabsConfig = computed(() => {
-  return (
-    settings.transcriptionPrimaryEngine === 'elevenlabs' ||
-    settings.transcriptionFallbackEngine === 'elevenlabs'
-  )
+  return settings.transcriptionPrimaryEngine === 'elevenlabs'
 })
 
 const needsAlibabaConfig = computed(() => {
-  return (
-    settings.transcriptionPrimaryEngine === 'alibaba' ||
-    settings.transcriptionFallbackEngine === 'alibaba'
-  )
+  return settings.transcriptionPrimaryEngine === 'alibaba'
 })
 
 const needsOpenaiConfig = computed(() => {
-  return (
-    settings.transcriptionPrimaryEngine === 'openai_whisper' ||
-    settings.transcriptionFallbackEngine === 'openai_whisper'
-  )
+  return settings.transcriptionPrimaryEngine === 'openai_whisper'
 })
 
 const needsRemoteVidGoConfig = computed(() => {
-  return (
-    settings.transcriptionPrimaryEngine === 'remote_vidgo' ||
-    settings.transcriptionFallbackEngine === 'remote_vidgo'
-  )
+  return settings.transcriptionPrimaryEngine === 'remote_vidgo'
 })
 
 // Model management computed properties
@@ -1725,11 +1711,11 @@ const resetSettings = () => {
     // Media credentials
     bilibiliSessData: '',
     // Transcription Engine settings
-    transcriptionMode: 'local',
-    transcriptionPrimaryEngine: 'faster_whisper',
-    transcriptionFallbackEngine: '',
+    transcriptionPrimaryEngine: 'whisper_cpp',
     fwsrModel: 'large-v3',
-    useGpu: true,  // 🆕 GPU acceleration
+    useGpu: true,  // GPU acceleration
+    transcriptionWorkers: 2,  // Parallel workers
+    useVad: false,  // Voice Activity Detection
     transcriptionElevenlabsApiKey: '',
     transcriptionElevenlabsModel: 'scribe_v1',
     transcriptionIncludePunctuation: true,
@@ -1849,19 +1835,6 @@ watch(
   { deep: true, immediate: false },
 )
 
-// 监听转录模型类型变化，自动调整引擎选择
-watch(
-  () => settings.transcriptionMode,
-  (mode) => {
-    if (mode === 'local') {
-      // Keep current engine if it's valid for local mode
-      if (!['faster_whisper', 'whisper_cpp'].includes(settings.transcriptionPrimaryEngine)) {
-        settings.transcriptionPrimaryEngine = 'whisper_cpp'  // Default to whisper_cpp
-      }
-      settings.transcriptionFallbackEngine = ''
-    }
-  },
-)
 // 监听外文字幕样式变化，实时更新
 watch(
   [

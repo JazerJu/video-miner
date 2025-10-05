@@ -162,10 +162,10 @@ export interface ConfigData {
   }
   'Transcription Engine': {
     primary_engine: string
-    fallback_engine: string
-    transcription_mode: string
     fwsr_model: string
     use_gpu: string
+    transcription_workers: string
+    use_vad: string
     elevenlabs_api_key: string
     elevenlabs_model: string
     include_punctuation: string
@@ -230,10 +230,10 @@ export interface FrontendSettings {
   bilibiliSessData: string
   // Transcription Engine settings
   transcriptionPrimaryEngine: string
-  transcriptionFallbackEngine: string
-  transcriptionMode: string
   fwsrModel: string
-  useGpu: boolean  // 🆕 GPU acceleration toggle
+  useGpu: boolean  // GPU acceleration toggle
+  transcriptionWorkers: number  // Parallel workers for multi-threaded transcription
+  useVad: boolean  // Voice Activity Detection toggle
   transcriptionElevenlabsApiKey: string
   transcriptionElevenlabsModel: string
   transcriptionIncludePunctuation: boolean
@@ -335,11 +335,11 @@ export async function loadConfig(): Promise<FrontendSettings> {
       // Media credentials
       bilibiliSessData: data['Media Credentials']?.bilibili_sessdata || '',
       // Transcription Engine settings
-      transcriptionMode: data['Transcription Engine']?.transcription_mode || 'local',
       transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'whisper_cpp',
-      transcriptionFallbackEngine: data['Transcription Engine']?.fallback_engine || '',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
       useGpu: data['Transcription Engine']?.use_gpu === 'true',
+      transcriptionWorkers: parseInt(data['Transcription Engine']?.transcription_workers || '2'),
+      useVad: data['Transcription Engine']?.use_vad === 'true',
       transcriptionElevenlabsApiKey: data['Transcription Engine']?.elevenlabs_api_key || '',
       transcriptionElevenlabsModel: data['Transcription Engine']?.elevenlabs_model || 'scribe_v1',
       transcriptionIncludePunctuation: data['Transcription Engine']?.include_punctuation === 'true',
@@ -416,11 +416,11 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         bilibili_sessdata: settings.bilibiliSessData,
       },
       'Transcription Engine': {
-        transcription_mode: settings.transcriptionMode,
         primary_engine: settings.transcriptionPrimaryEngine,
-        fallback_engine: settings.transcriptionFallbackEngine,
         fwsr_model: settings.fwsrModel,
         use_gpu: settings.useGpu.toString(),
+        transcription_workers: settings.transcriptionWorkers.toString(),
+        use_vad: settings.useVad.toString(),
         elevenlabs_api_key: settings.transcriptionElevenlabsApiKey,
         elevenlabs_model: settings.transcriptionElevenlabsModel,
         include_punctuation: settings.transcriptionIncludePunctuation.toString(),

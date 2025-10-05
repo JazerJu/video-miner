@@ -33,3 +33,22 @@ foreign_bottom_distance = 100
 [Media Credentials]
 bilibili_sessdata = 91c63826%2C1771727167%2Cb15a2%2A81CjDvfTYMLigs5NAjQ81bnVvaYBLe9wVfcvqiPkgrV9xE8cPKmZgW31L4W3NOrD7mmnISVmdTbXRWLVl4cXJRRUpRNURVaXpRcDhHWXVSLUJZTmwtQ3MySGN5c1ZnOXVIUklDYzhaZmFadlFWbmliV1dPaUdiY2VIVmszejZ3anJjWXNCUGFoWDNBIIEC
 
+[Transcription Engine]
+primary_engine = whisper_cpp
+fwsr_model = large-v3
+use_gpu = true
+transcription_workers = 2
+use_vad = true
+elevenlabs_api_key = sk_46b546b32a037400fca5d192a29396337d7ad8b36b3aa52e
+elevenlabs_model = scribe_v1
+include_punctuation = true
+alibaba_api_key = sk-944471ea4aef486ca2a82b2adf26c0cc
+alibaba_model = paraformer-realtime-v2
+openai_api_key = sk-qTbd1AR4oMuP71ziRngmk3i0djrWVfLtuisvYKCH5B9jLz9g
+openai_base_url = https://api.chatanywhere.tech/v1
+
+[Remote VidGo Service]
+host =
+port = 8000
+use_ssl = false
+
