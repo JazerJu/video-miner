@@ -6,21 +6,22 @@ from spellchecker import SpellChecker  # 或使用 nltk.corpus.words
 def count_words(text: str) -> int:
     """
     统计混合文本内英文单词数、中文字符数、日文字符数和韩文字符数的总和
+    优化版本：不使用SpellChecker，直接统计所有字母组合为单词
     """
-    spell = SpellChecker()  # 默认使用英文词典
-    
+    # 统计CJK字符（每个字符算1个词）
     chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
     japanese_chars = len(re.findall(r'[\u3040-\u309f\u30a0-\u30ff\u31f0-\u31ff]', text))
     korean_chars = len(re.findall(r'[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]', text))
-    
-    # Remove CJK characters
+
+    # 移除CJK字符后统计英文单词
     english_text = re.sub(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\u31f0-\u31ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]', ' ', text)
-    
-    # 提取单词并检查是否在英文词典中
-    words = re.findall(r'\b[a-zA-Z]+\b', english_text.lower())
-    english_words = sum(1 for word in words if word in spell)
-    
-    return english_words + chinese_chars + japanese_chars + korean_chars
+
+    # 提取所有英文单词（2个字母以上，避免单字母噪声）
+    words = re.findall(r'\b[a-zA-Z]{2,}\b', english_text.lower())
+    english_words = len(words)
+
+    total = english_words + chinese_chars + japanese_chars + korean_chars
+    return total
 
 def is_cjk_char(char):
     """判断字符是否为CJK字符（中文、日文、韩文）"""
