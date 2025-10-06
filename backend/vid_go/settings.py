@@ -41,12 +41,12 @@ ALLOWED_HOSTS = __get_list('VIDGO_ALLOWED_HOSTS', ['*'])
 # 动态CORS和CSRF配置
 CORS_ALLOWED_ORIGINS = __get_list(
     'VIDGO_CORS_ALLOWED_ORIGINS',
-    ["http://localhost:4173", "http://127.0.0.1:4173"]  # 开发环境默认设置
+    ["http://localhost:4173","http://localhost:8000", "http://127.0.0.1:4173",]  # 开发环境默认设置
 )
 
 CSRF_TRUSTED_ORIGINS = __get_list(
     'VIDGO_CSRF_TRUSTED_ORIGINS',
-    ["http://localhost:4173", "http://127.0.0.1:4173"]  # 开发环境默认设置
+    ["http://localhost:4173", "http://localhost:8000", "http://127.0.0.1:4173"]  # 开发环境默认设置
 )
 
 # 全站 HTTPS 建议 - 仅在生产环境启用

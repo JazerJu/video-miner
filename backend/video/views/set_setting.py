@@ -85,6 +85,15 @@ def _ensure_ini():
             'port': '8000',
             'use_ssl': 'false'
         }
+        cfg['TTS settings'] = {
+            'dashscope_api_key': '',
+            'default_voice': 'longxiaochun_v2',
+            'default_model': 'cosyvoice-v2',
+            'request_timeout': '30',
+            'max_retries': '5',
+            'enable_checkpointing': 'true',
+            'checkpoint_interval': '10'
+        }
         with open(SETTINGS_FILE, 'w') as fp:
             cfg.write(fp)
 
@@ -94,14 +103,35 @@ def load_all_settings():
     _ensure_ini()
     cfg = configparser.ConfigParser(interpolation=None)
     cfg.read(SETTINGS_FILE)
-    
+
+    # Auto-add missing sections to existing config files
+    modified = False
+
+    # Check for TTS settings section
+    if not cfg.has_section('TTS settings'):
+        cfg['TTS settings'] = {
+            'dashscope_api_key': '',
+            'default_voice': 'longxiaochun_v2',
+            'default_model': 'cosyvoice-v2',
+            'request_timeout': '30',
+            'max_retries': '5',
+            'enable_checkpointing': 'true',
+            'checkpoint_interval': '10'
+        }
+        modified = True
+
+    # Save config if sections were added
+    if modified:
+        with open(SETTINGS_FILE, 'w') as fp:
+            cfg.write(fp)
+
     result = {}
     for section_name in cfg.sections():
         result[section_name] = dict(cfg[section_name])
-    
+
     # Add DEFAULT section
     result['DEFAULT'] = dict(cfg['DEFAULT'])
-    
+
     return result
 
 

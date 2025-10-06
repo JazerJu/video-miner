@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { VideoPlay, More, Delete, VideoCamera, EditPen } from '@element-plus/icons-vue'
-import { SquarePen, Play, Sparkles, Music } from 'lucide-vue-next'
+import { SquarePen, Play, Sparkles, Music, Mic } from 'lucide-vue-next'
 import { PictureFilled, Edit } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, ref, nextTick } from 'vue'
@@ -88,6 +88,57 @@ const confirmConvertHLS = (video: Video) => {
       }
     })
     .catch(() => {})
+}
+
+/** TTS Dialog State */
+const showTTSDialog = ref(false)
+const ttsForm = ref({ language: 'zh', voice: 'longxiaochun_v2' })
+const currentTTSVideo = ref<Video | null>(null)
+
+// Voice options list
+const voiceOptions = [
+  { label: '龙小淳 (知性积极女)', value: 'longxiaochun_v2' },
+  { label: 'Donna (美式英文女)', value: 'loongdonna_v2' },
+  { label: 'David (美式英文男)', value: 'loongdavid_v2' },
+  { label: 'Cally (美式英文女)', value: 'loongcally_v2' },
+  { label: 'Stella (飒爽利落女)', value: 'loongstella_v2' },
+  { label: '龙书 (沉稳青年男)', value: 'longshu_v2' },
+  { label: 'Bella (精准干练女)', value: 'loongbella_v2' },
+]
+
+/** Generate TTS voiceover for video */
+const generateTTSVoiceover = async (video: Video) => {
+  currentTTSVideo.value = video
+  ttsForm.value = { language: 'zh', voice: 'longxiaochun_v2' }
+  showTTSDialog.value = true
+  console.log(currentTTSVideo.value)
+  console.log("showTTSDialog is true")
+}
+
+/** Submit TTS generation */
+const submitTTSGeneration = async () => {
+  if (!currentTTSVideo.value) return
+  try {
+    const csrf = await getCSRFToken()
+    const res = await fetch(`${BACKEND}/api/tts/generate/${currentTTSVideo.value.id}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify({ language: ttsForm.value.language, voice: ttsForm.value.voice }),
+    })
+    const result = await res.json()
+    if (result.success) {
+      ElMessage.success(`TTS 任务已创建：${result.task_id}`)
+      showTTSDialog.value = false
+    } else if (result.error === 'no subtitle for this video') {
+      ElMessage.error('该视频没有对应语言的字幕，请先生成字幕')
+    } else {
+      ElMessage.error(result.error || 'TTS 生成失败')
+    }
+  } catch (err) {
+    ElMessage.error('网络错误，TTS 生成失败')
+    console.error('TTS generation error:', err)
+  }
 }
 
 const FALLBACK_IMG =
@@ -237,6 +288,9 @@ const modelChecked = computed({
                 <el-dropdown-item @click="emit('generate-subtitle', video)">
                   <Sparkles class="w-4 h-4 mr-2" /> 字幕操作
                 </el-dropdown-item>
+                <el-dropdown-item @click="generateTTSVoiceover(video)">
+                  <Mic class="w-4 h-4 mr-2" /> TTS 配音
+                </el-dropdown-item>
                 <el-dropdown-item @click="confirmConvertAudio(video)">
                   <Music class="w-4 h-4 mr-2" /> 转换音频
                 </el-dropdown-item>
@@ -361,6 +415,9 @@ const modelChecked = computed({
             <el-dropdown-item @click="emit('generate-subtitle', video)">
               <Sparkles class="w-4 h-4 mr-2" /> 字幕操作
             </el-dropdown-item>
+            <el-dropdown-item @click="generateTTSVoiceover(video)">
+              <Mic class="w-4 h-4 mr-2" /> TTS 配音
+            </el-dropdown-item>
 
             <el-dropdown-item @click="emit('delete', video)" divided class="text-red-500">
               <el-icon class="mr-2"><Delete /></el-icon> 删除
@@ -370,6 +427,31 @@ const modelChecked = computed({
       </el-dropdown>
     </div>
   </div>
+  <!-- TTS 配音 弹窗 -->
+  <el-dialog v-model="showTTSDialog" title="TTS 配音" width="30%" @close="showTTSDialog = false">
+    <el-form :model="ttsForm" label-width="80px">
+      <el-form-item label="语言">
+        <el-radio-group v-model="ttsForm.language">
+          <el-radio label="zh">中文</el-radio>
+          <el-radio label="en">英文</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="语音">
+        <el-select v-model="ttsForm.voice" placeholder="选择语音">
+          <el-option
+            v-for="opt in voiceOptions"
+            :key="opt.value"
+            :label="opt.label"
+            :value="opt.value">
+          </el-option>
+        </el-select>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="showTTSDialog = false">取消</el-button>
+      <el-button type="primary" @click="submitTTSGeneration">生成</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>

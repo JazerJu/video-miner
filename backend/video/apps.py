@@ -14,7 +14,7 @@ class VideoConfig(AppConfig):
         if getattr(self, "_worker_started", False):
             return
 
-        from .tasks import process_next_task, process_download_task, process_export_task
+        from .tasks import process_next_task, process_download_task, process_export_task, process_tts_task
 
         # ===== 线程池配置 =====
         # 根据 CPU 核心数动态计算
@@ -30,6 +30,9 @@ class VideoConfig(AppConfig):
 
         # 导出任务：CPU 密集（FFmpeg），建议等于 CPU 核心数
         export_pool_size = cpu_count
+
+        # TTS任务：CPU密集（音频合成 + FFmpeg），建议等于 CPU 核心数
+        tts_pool_size = cpu_count
 
         # 创建线程池
         subtitle_executor = ThreadPoolExecutor(
@@ -47,10 +50,16 @@ class VideoConfig(AppConfig):
             thread_name_prefix="export-worker"
         )
 
+        tts_executor = ThreadPoolExecutor(
+            max_workers=tts_pool_size,
+            thread_name_prefix="tts-worker"
+        )
+
         print(f"[ThreadPool] Subtitle workers: {subtitle_pool_size} (each creates 8 nested threads)")
         print(f"[ThreadPool] Download workers: {download_pool_size}")
         print(f"[ThreadPool] Export workers: {export_pool_size}")
-        print(f"[ThreadPool] Total estimated threads: ~{subtitle_pool_size * 8 + download_pool_size + export_pool_size + 12}")
+        print(f"[ThreadPool] TTS workers: {tts_pool_size}")
+        print(f"[ThreadPool] Total estimated threads: ~{subtitle_pool_size * 8 + download_pool_size + export_pool_size + tts_pool_size + 12}")
 
         # ===== 任务调度器 =====
         def _subtitle_dispatcher():
@@ -115,10 +124,30 @@ class VideoConfig(AppConfig):
                     print(f"Export dispatcher error: {e}")
                     time.sleep(5)
 
+        def _tts_dispatcher():
+            """TTS任务调度器"""
+            while True:
+                try:
+                    connection.close_if_unusable_or_obsolete()
+
+                    def task_wrapper():
+                        try:
+                            connection.close_if_unusable_or_obsolete()
+                            process_tts_task()
+                        except Exception as e:
+                            print(f"TTS task error: {e}")
+
+                    tts_executor.submit(task_wrapper)
+                    time.sleep(0.1 + random.random() * 0.1)
+                except Exception as e:
+                    print(f"TTS dispatcher error: {e}")
+                    time.sleep(5)
+
         # 启动调度器线程（守护线程）
         threading.Thread(target=_subtitle_dispatcher, daemon=True, name="subtitle-dispatcher").start()
         threading.Thread(target=_download_dispatcher, daemon=True, name="download-dispatcher").start()
         threading.Thread(target=_export_dispatcher, daemon=True, name="export-dispatcher").start()
+        threading.Thread(target=_tts_dispatcher, daemon=True, name="tts-dispatcher").start()
 
         self._worker_started = True
         print("[Workers] Background task dispatchers with thread pools started")

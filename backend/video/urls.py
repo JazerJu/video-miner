@@ -26,6 +26,7 @@ from .views.external_transcription import (
     ExternalTranscriptionDeleteView
 )
 from .views.realtime_subtitles import RealtimeSubtitleView, RealtimeSubtitleStreamView
+from .views.tts import TTSGenerateView, AllTTSStatusView, TTSStatusView, DeleteTTSTaskView, RetryTTSTaskView
 from django.views.decorators.csrf import csrf_exempt,get_token,ensure_csrf_cookie
 from .tasks import SubtitleTaskStatusView
 from .views import stream_media
@@ -172,6 +173,13 @@ urlpatterns = [
     path('api/tasks/subtitle_generate/add', subtitles.SubtitleGenerationAddView.as_view()),
     path('api/tasks/subtitle_translation/add', subtitles.SubtitleTranslationAddView.as_view()),
     path('api/tasks/subtitle_generate/<int:video_id>/<str:action>', subtitles.SubtitleGenerationTaskView.as_view(), name='subtitle-task-action'),
+
+    # TTS配音生成
+    path('api/tts/generate/<int:video_id>', TTSGenerateView.as_view(), name='tts_generate'),
+    path('api/tts/status', AllTTSStatusView.as_view(), name='tts_status_all'),
+    path('api/tts/<str:task_id>/status', TTSStatusView.as_view(), name='tts_status'),
+    path('api/tts/<str:task_id>/delete', DeleteTTSTaskView.as_view(), name='tts_delete'),
+    path('api/tts/<str:task_id>/retry', RetryTTSTaskView.as_view(), name='tts_retry'),
 
     # 🆕 实时字幕生成（逐句返回）
     path('api/realtime_subtitle/start/<int:video_id>', RealtimeSubtitleView.as_view(), name='realtime_subtitle_start'),
