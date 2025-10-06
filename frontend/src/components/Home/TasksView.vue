@@ -2,9 +2,8 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, More } from '@element-plus/icons-vue'
-import { getCSRFToken, getCookie } from '@/composables/GetCSRFToken'
+import { getCookie } from '@/composables/GetCSRFToken'
 import { useI18n } from 'vue-i18n'
-import { ExternalLink } from 'lucide-vue-next'
 
 interface TaskRow {
   id: number
@@ -497,13 +496,13 @@ onBeforeUnmount(() => {
         style="width: 100%; background: #334155"
       >
         <!-- 文件名 -->
-        <el-table-column prop="fileName" :label="t('filename')" min-width="220" />
+        <el-table-column prop="fileName" :label="t('filename')" width="400" />
 
         <!-- 🆕 总进度条（第二列） -->
-        <el-table-column :label="t('totalProgress')" width="200" align="center">
+        <el-table-column :label="t('totalProgress')" width="200">
           <template #default="{ row }">
-            <div class="flex items-center justify-center">
-              <div class="w-32 bg-gray-600 rounded-full h-3 mr-2">
+            <div class="flex items-center">
+              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
@@ -513,13 +512,13 @@ onBeforeUnmount(() => {
                   :style="{ width: `${row.totalProgress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold">{{ row.totalProgress.toFixed(1) }}%</span>
+              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.totalProgress.toFixed(1) }}%</span>
             </div>
           </template>
         </el-table-column>
 
         <!-- 字幕生成进度 -->
-        <el-table-column :label="t('subtitleGeneration')" min-width="160">
+        <el-table-column :label="t('subtitleGeneration')" min-width="120">
           <template #default="{ row }">
             <span
               class="status-dot"
@@ -533,7 +532,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 字幕优化进度 -->
-        <el-table-column :label="t('subtitleOptimization')" width="120" align="center">
+        <el-table-column :label="t('subtitleOptimization')" min-width="120">
           <template #default="{ row }">
             <span
               class="status-dot"
@@ -547,7 +546,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 翻译进度 -->
-        <el-table-column :label="t('translationProgress')" width="120" align="center">
+        <el-table-column :label="t('translationProgress')" min-width="120">
           <template #default="{ row }">
             <span
               class="status-dot"
@@ -561,7 +560,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 操作 -->
-        <el-table-column :label="t('operation')" width="180" align="center">
+        <el-table-column :label="t('operation')" width="80" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-cell">
               <el-dropdown
@@ -612,13 +611,13 @@ onBeforeUnmount(() => {
         style="width: 100%; background: #334155"
       >
         <!-- 文件名 -->
-        <el-table-column prop="fileName" :label="t('filename')" min-width="220" />
+        <el-table-column prop="fileName" :label="t('filename')" width="400" />
 
         <!-- 🆕 总进度条 -->
-        <el-table-column :label="t('totalProgress')" width="200" align="center">
+        <el-table-column :label="t('totalProgress')" width="200">
           <template #default="{ row }">
-            <div class="flex items-center justify-center">
-              <div class="w-32 bg-gray-600 rounded-full h-3 mr-2">
+            <div class="flex items-center">
+              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
@@ -628,13 +627,13 @@ onBeforeUnmount(() => {
                   :style="{ width: `${row.totalProgress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold">{{ row.totalProgress.toFixed(1) }}%</span>
+              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.totalProgress.toFixed(1) }}%</span>
             </div>
           </template>
         </el-table-column>
 
         <!-- 视频下载进度 -->
-        <el-table-column :label="t('videoDownloadProgress')" min-width="160">
+        <el-table-column :label="t('videoDownloadProgress')" min-width="120">
           <template #default="{ row }">
             <span
               class="status-dot"
@@ -648,7 +647,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 音频下载进度 -->
-        <el-table-column :label="t('audioDownloadProgress')" width="120" align="center">
+        <el-table-column :label="t('audioDownloadProgress')" min-width="120">
           <template #default="{ row }">
             <span
               class="status-dot"
@@ -662,7 +661,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 拼接进度 -->
-        <el-table-column :label="t('audioVideoMerge')" width="120" align="center">
+        <el-table-column :label="t('audioVideoMerge')" min-width="120">
           <template #default="{ row }">
             <span
               class="status-dot"
@@ -676,7 +675,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 操作 -->
-        <el-table-column label="操作" width="80" align="center">
+        <el-table-column label="操作" width="80" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-cell">
               <el-dropdown
@@ -727,13 +726,13 @@ onBeforeUnmount(() => {
         style="width: 100%; background: #334155"
       >
         <!-- 视频名称 -->
-        <el-table-column prop="videoName" :label="t('videoName')" min-width="220" />
+        <el-table-column prop="videoName" :label="t('videoName')" width="400" />
 
         <!-- 🆕 总进度（第二列） -->
-        <el-table-column :label="t('totalProgress')" width="200" align="center">
+        <el-table-column :label="t('totalProgress')" width="200">
           <template #default="{ row }">
-            <div class="flex items-center justify-center">
-              <div class="w-32 bg-gray-600 rounded-full h-3 mr-2">
+            <div class="flex items-center">
+              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
@@ -743,7 +742,7 @@ onBeforeUnmount(() => {
                   :style="{ width: `${row.progress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold">{{ row.progress }}%</span>
+              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.progress }}%</span>
             </div>
           </template>
         </el-table-column>
@@ -752,12 +751,11 @@ onBeforeUnmount(() => {
         <el-table-column
           prop="subtitleType"
           :label="t('subtitleType')"
-          width="120"
-          align="center"
+          min-width="120"
         />
 
         <!-- 导出状态 -->
-        <el-table-column :label="t('exportStatus')" min-width="140">
+        <el-table-column :label="t('exportStatus')" min-width="150">
           <template #default="{ row }">
             <div class="flex items-center">
               <span
@@ -769,7 +767,12 @@ onBeforeUnmount(() => {
                   error: row.status === 'Failed',
                 }"
               ></span>
-              <span class="ml-2 text-sm">{{ getStatusLabel(row.status) }}</span>
+              <span class="ml-2 text-sm">
+                <span v-if="row.status === 'Failed'" class="text-red-400">任务失败</span>
+                <span v-else-if="row.status === 'Running'" class="text-blue-400">进行中</span>
+                <span v-else-if="row.status === 'Completed'" class="text-green-400">已完成</span>
+                <span v-else>{{ getStatusLabel(row.status) }}</span>
+              </span>
             </div>
           </template>
         </el-table-column>
@@ -786,7 +789,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 操作 -->
-        <el-table-column label="操作" width="80" align="center">
+        <el-table-column label="操作" width="80" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-cell">
               <el-dropdown
@@ -844,13 +847,13 @@ onBeforeUnmount(() => {
         style="width: 100%; background: #334155"
       >
         <!-- 视频名称 -->
-        <el-table-column prop="videoName" label="视频名称" min-width="220" />
+        <el-table-column prop="videoName" label="视频名称" width="400" />
 
         <!-- 总进度条 -->
-        <el-table-column label="进度" width="200" align="center">
+        <el-table-column label="进度" width="200">
           <template #default="{ row }">
-            <div class="flex items-center justify-center">
-              <div class="w-32 bg-gray-600 rounded-full h-3 mr-2">
+            <div class="flex items-center">
+              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
@@ -860,13 +863,13 @@ onBeforeUnmount(() => {
                   :style="{ width: `${row.progress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold">{{ row.progress }}%</span>
+              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.progress }}%</span>
             </div>
           </template>
         </el-table-column>
 
         <!-- 语言 -->
-        <el-table-column prop="language" label="语言" width="100" align="center">
+        <el-table-column prop="language" label="语言" min-width="80">
           <template #default="{ row }">
             <span class="text-sm">
               {{ row.language === 'zh' ? '中文' : row.language === 'en' ? '英文' : row.language === 'jp' ? '日文' : row.language }}
@@ -875,10 +878,10 @@ onBeforeUnmount(() => {
         </el-table-column>
 
         <!-- 声音 -->
-        <el-table-column prop="voice" label="声音" width="120" align="center" />
+        <el-table-column prop="voice" label="声音" min-width="140" />
 
         <!-- 状态 -->
-        <el-table-column label="状态" min-width="140">
+        <el-table-column label="状态" min-width="150">
           <template #default="{ row }">
             <div class="flex items-center">
               <span
@@ -890,7 +893,12 @@ onBeforeUnmount(() => {
                   error: row.status === 'Failed',
                 }"
               ></span>
-              <span class="ml-2 text-sm">{{ getStatusLabel(row.status) }}</span>
+              <span class="ml-2 text-sm">
+                <span v-if="row.status === 'Failed'" class="text-red-400">任务失败</span>
+                <span v-else-if="row.status === 'Running'" class="text-blue-400">进行中</span>
+                <span v-else-if="row.status === 'Completed'" class="text-green-400">已完成</span>
+                <span v-else>{{ getStatusLabel(row.status) }}</span>
+              </span>
               <span v-if="row.status === 'Running' && row.totalSegments > 0" class="ml-2 text-xs text-gray-400">
                 ({{ row.completedSegments }}/{{ row.totalSegments }})
               </span>
@@ -912,7 +920,7 @@ onBeforeUnmount(() => {
         </el-table-column>
 
         <!-- 操作 -->
-        <el-table-column label="操作" width="80" align="center">
+        <el-table-column label="操作" width="80" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-cell">
               <el-dropdown

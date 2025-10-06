@@ -92,7 +92,10 @@ def _ensure_ini():
             'request_timeout': '30',
             'max_retries': '5',
             'enable_checkpointing': 'true',
-            'checkpoint_interval': '10'
+            'checkpoint_interval': '10',
+            'time_stretch_algorithm': 'librosa',
+            'time_stretch_quality': 'high',
+            'max_compression_ratio': '2.0'
         }
         with open(SETTINGS_FILE, 'w') as fp:
             cfg.write(fp)
@@ -116,7 +119,10 @@ def load_all_settings():
             'request_timeout': '30',
             'max_retries': '5',
             'enable_checkpointing': 'true',
-            'checkpoint_interval': '10'
+            'checkpoint_interval': '10',
+            'time_stretch_algorithm': 'librosa',
+            'time_stretch_quality': 'high',
+            'max_compression_ratio': '2.0'
         }
         modified = True
 

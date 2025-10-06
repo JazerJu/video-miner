@@ -1489,7 +1489,13 @@ def generate_tts_audio(task_id: str) -> None:
         max_retries = int(tts_settings.get('max_retries', '5'))
         enable_checkpointing = tts_settings.get('enable_checkpointing', 'true').lower() == 'true'
 
+        # Time-stretch configuration
+        time_stretch_algorithm = tts_settings.get('time_stretch_algorithm', 'librosa')
+        time_stretch_quality = tts_settings.get('time_stretch_quality', 'high')
+        max_compression_ratio = float(tts_settings.get('max_compression_ratio', '2.0'))
+
         print(f"[TTS] Config: max_retries={max_retries}, checkpointing={enable_checkpointing}")
+        print(f"[TTS] Time-stretch: algorithm={time_stretch_algorithm}, quality={time_stretch_quality}, max_ratio={max_compression_ratio}")
 
         # 创建输出目录
         tts_output_dir = 'work_dir/tts_output'
@@ -1519,7 +1525,10 @@ def generate_tts_audio(task_id: str) -> None:
             progress_callback=progress_callback,
             task_id=task_id,
             enable_checkpointing=enable_checkpointing,
-            max_retries_per_segment=max_retries
+            max_retries_per_segment=max_retries,
+            time_stretch_algorithm=time_stretch_algorithm,
+            time_stretch_quality=time_stretch_quality,
+            max_compression_ratio=max_compression_ratio
         )
 
         print(f"[TTS] Audio generation completed: {segment_count} segments, {duration_ms}ms")
