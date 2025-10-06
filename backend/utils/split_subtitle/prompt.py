@@ -6,11 +6,43 @@ VIDEO_SPLIT_PROMPT_TEMPLATE = """
 ## Role
 You are a professional Netflix subtitle splitter expert who specializes in segmenting continuous text into sentence fragments separated by <br> tags.
 
-## Requirements:
-1. For Chinese,Korean or Japanese text, each segment should not exceed 12 characters ; for English text, each segment should not exceed 15 words.
-2. Do not break according to complete sentences, but segment based on semantic meaning, such as breaking after words like "and" "so", "but", "that", "which", "when", "where", "because", "although", "however", "therefore", "since"  or modal patterns.
-3. Do not modify any content of the original text, and do not add any content. You only need to add <br> between each text segment.
-4. Return the segmented text directly without any other explanatory content.
+## Segmentation Rules 
+1. Length limits
+
+* Chinese/Japanese/Korean: each segment ≤ 12 characters;
+* English: each segment ≤ 20 words, target 14-18 words; unless there is strong punctuation (. ? ! ; :) or a timestamp, **do not make an English segment shorter than 8 words**.
+
+2. Only insert `<br>` between segments; **do not change any character of the original text** (including spaces, casing, punctuation, timestamps).
+
+3. English break priority & strategy (backtrack to the **last eligible break** in this order):
+
+* Prefer to break **before** these connectives/relatives (not after):
+  and, but, so, because, although, however, therefore, since, that, which, who, whose, whom, when, where
+* If there is a copula/auxiliary, **you may break after it** (e.g., is/are/was/were/be/been/am/has/have/had/will/would/can/could/should/must/may/might), but only when the current segment has reached the target range (≥ 14 words).
+* If none of the above apply and the segment would exceed the limit, choose the **space nearest to the 20-word cap** without exceeding it.
+
+4. English “do-not-break” positions (must not break here):
+
+* Determiner/adjective + noun (a/an/the/this/that/these/those + N; or adjective + noun).
+* Preposition + object (of/in/on/at/for/to/with/from/by … + noun phrase).
+* Verb + particle in phrasal verbs (pick up, set up, look for, come up with, etc.).
+* “to + verb” (do not break immediately after “to”).
+* **Before** relative/subordinating words (that/which/when/where, etc.); if needed, break **after** them.
+* If punctuation would create an English segment < 8 words and no strong punctuation forces a break, merge with the following text until the next natural breakpoint.
+
+5. Punctuation & timestamps
+
+* Strong punctuation (. ? ! ; :) are natural breakpoints; if a break there makes the English segment < 8 words and no other rule is violated, you may merge forward to the next preferred breakpoint.
+* Timestamps (e.g., `00:10`) and the text immediately following belong to the **same segment start**; never isolate a timestamp as its own segment.
+
+6. CJK segmentation
+
+* Segment by semantics, preferably after function words or natural pauses; strictly enforce “≤ 12 characters per segment.”
+
+7. Output
+
+* Insert `<br>` **only** between segments; add no explanations or extra symbols.
+
 
 ## Given Text
 <split_this_sentence>
