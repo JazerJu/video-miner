@@ -1,52 +1,88 @@
+# VidGo Configuration File Template
+# Copy this file to config.ini and fill in your API keys
+# The application will auto-generate config.ini with default values if it doesn't exist
+
 [DEFAULT]
-api_key = <Your-api-key>
-base_url = https://api.chatanywhere.tech/v1
-model="deepseek-v3"
+selected_model_provider = deepseek
+enable_thinking = true
+use_proxy = false
+deepseek_api_key = sk-your-deepseek-api-key-here
+deepseek_base_url = https://api.deepseek.com
+glm_api_key =
+glm_base_url = https://open.bigmodel.cn/api/paas/v4
+openai_api_key =
+openai_base_url = https://api.openai.com/v1
+qwen_api_key =
+qwen_base_url = https://dashscope.aliyuncs.com/compatible-mode/v1
 
 [Video watch]
 raw_language = zh
 
 [Subtitle settings]
-font_family = 微软雅黑
+font_family = 宋体
 preview_text = 这是字幕预设文本
-font_color = #fdfcfc
-font_size = 24
+font_color = #ea9749
+font_size = 18
 font_weight = 400
-background_color = #171616
+background_color = #000000
 border_radius = 4
-text_shadow = true
+text_shadow = false
+text_stroke = false
+text_stroke_color = #000000
+text_stroke_width = 2
 background_style = semi-transparent
-bottom_distance = 90
+bottom_distance = 80
 
 [Foreign Subtitle settings]
-foreign_font_family = 宋体
+foreign_font_family = Arial
 foreign_preview_text = This is foreign subtitle preview
 foreign_font_color = #ffffff
-foreign_font_size = 24
+foreign_font_size = 16
 foreign_font_weight = 400
 foreign_background_color = #000000
 foreign_border_radius = 4
 foreign_text_shadow = false
-foreign_background_style = solid
-foreign_bottom_distance = 100
+foreign_text_stroke = false
+foreign_text_stroke_color = #000000
+foreign_text_stroke_width = 2
+foreign_background_style = semi-transparent
+foreign_bottom_distance = 120
 
 [Media Credentials]
-bilibili_sessdata = 91c63826%2C1771727167%2Cb15a2%2A81CjDvfTYMLigs5NAjQ81bnVvaYBLe9wVfcvqiPkgrV9xE8cPKmZgW31L4W3NOrD7mmnISVmdTbXRWLVl4cXJRRUpRNURVaXpRcDhHWXVSLUJZTmwtQ3MySGN5c1ZnOXVIUklDYzhaZmFadlFWbmliV1dPaUdiY2VIVmszejZ3anJjWXNCUGFoWDNBIIEC
+bilibili_sessdata =
 
 [Transcription Engine]
 primary_engine = whisper_cpp
+fallback_engine =
+transcription_mode = local
 fwsr_model = large-v3
-use_gpu = true
-elevenlabs_api_key = sk_46b546b32a037400fca5d192a29396337d7ad8b36b3aa52e
+use_gpu = false
+elevenlabs_api_key =
 elevenlabs_model = scribe_v1
 include_punctuation = true
-alibaba_api_key = sk-944471ea4aef486ca2a82b2adf26c0cc
+alibaba_api_key =
 alibaba_model = paraformer-realtime-v2
-openai_api_key = sk-qTbd1AR4oMuP71ziRngmk3i0djrWVfLtuisvYKCH5B9jLz9g
-openai_base_url = https://api.chatanywhere.tech/v1
+openai_api_key =
+openai_base_url = https://api.openai.com/v1
 
 [Remote VidGo Service]
 host =
 port = 8000
 use_ssl = false
 
+[TTS settings]
+# Alibaba Cloud DashScope API key for CosyVoice-v2 TTS
+# Get your API key from: https://dashscope.console.aliyun.com/apiKey
+dashscope_api_key =
+# Default voice model (options: longxiaochun_v2, longyueyue_v2, etc.)
+default_voice = longxiaochun_v2
+# Default TTS model
+default_model = cosyvoice-v2
+
+# Audio duration adjustment settings
+# Time-stretch algorithm: librosa (phase vocoder), rubberband (formant-preserving), resample (changes pitch)
+time_stretch_algorithm = librosa
+# Quality for librosa: low, medium, high (higher = better quality but slower)
+time_stretch_quality = high
+# Maximum compression ratio before warning (e.g., 2.0 = 2x faster/slower)
+max_compression_ratio = 2.0

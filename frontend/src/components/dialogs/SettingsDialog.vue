@@ -650,6 +650,98 @@
             </div>
           </div>
 
+          <!-- OSS Service Settings -->
+          <div v-if="activeTab === 'oss'" class="space-y-6">
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <h4 class="text-sm font-medium text-blue-800 mb-2">Aliyun OSS 配置说明</h4>
+              <p class="text-sm text-blue-700">
+                配置 Aliyun OSS 凭证以启用音频克隆功能。上传的参考音频将存储在您的 OSS Bucket 中。
+              </p>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Access Key ID</label>
+              <input
+                v-model="settings.ossAccessKeyId"
+                type="text"
+                class="w-full p-2 border border-gray-300 rounded-md"
+                placeholder="输入您的 Aliyun Access Key ID"
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Access Key Secret</label>
+              <input
+                v-model="settings.ossAccessKeySecret"
+                type="password"
+                class="w-full p-2 border border-gray-300 rounded-md"
+                placeholder="输入您的 Aliyun Access Key Secret"
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Endpoint</label>
+              <input
+                v-model="settings.ossEndpoint"
+                type="text"
+                class="w-full p-2 border border-gray-300 rounded-md"
+                placeholder="oss-cn-beijing.aliyuncs.com"
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Bucket 名称</label>
+              <input
+                v-model="settings.ossBucket"
+                type="text"
+                class="w-full p-2 border border-gray-300 rounded-md"
+                placeholder="vidgo-test"
+              />
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Region</label>
+              <input
+                v-model="settings.ossRegion"
+                type="text"
+                class="w-full p-2 border border-gray-300 rounded-md"
+                placeholder="cn-beijing"
+              />
+            </div>
+
+            <div class="pt-4 border-t border-gray-200">
+              <p class="text-sm text-gray-500">
+                注意：Access Key Secret 将以加密形式存储。请确保使用具有适当权限的 RAM 用户凭证。
+              </p>
+            </div>
+          </div>
+
+          <!-- TTS Settings -->
+          <div v-if="activeTab === 'tts'" class="space-y-6">
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <h4 class="text-sm font-medium text-blue-800 mb-2">TTS 配音设置</h4>
+              <p class="text-sm text-blue-700">
+                配置 Alibaba Cloud DashScope 凭证以启用 TTS 配音生成功能。
+              </p>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">DashScope API Key</label>
+              <input
+                v-model="settings.dashscopeApiKey"
+                type="password"
+                class="w-full p-2 border border-gray-300 rounded-md"
+                placeholder="输入您的 DashScope API Key"
+              />
+            </div>
+
+            <div class="pt-4 border-t border-gray-200">
+              <p class="text-sm text-gray-500">
+                注意：API Key 将以加密形式存储。您可以在 <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank" class="text-blue-600 hover:underline">DashScope 控制台</a> 获取您的 API Key。
+              </p>
+            </div>
+          </div>
+
           <!-- Transcription Engine Settings -->
           <div v-if="activeTab === 'transcription'" class="space-y-6">
             <!-- Primary Engine Selection -->
@@ -1307,6 +1399,8 @@ const tabs = computed(() => [
   { id: 'subtitle', label: t('subtitleSettings') },
   { id: 'transcription', label: t('transcriptionSettings') },
   { id: 'media', label: t('mediaCredentials') },
+  { id: 'oss', label: 'OSS Service' },
+  { id: 'tts', label: 'TTS 配音' },
 ])
 
 const colorPresets = ['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00']

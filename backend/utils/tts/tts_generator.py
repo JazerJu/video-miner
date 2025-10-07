@@ -35,6 +35,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'split_subtitle'))
 from ASRData import ASRDataSeg, from_srt
 
+# Import voice cloning utilities
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.tts.voice_cloning import create_voice_from_audio, wait_for_voice_ready
+
 # Import time-stretch module for pitch-preserving audio adjustment
 from .audio_time_stretch import stretch_audio, get_available_algorithms
 
@@ -540,6 +544,9 @@ def synthesize_audio_from_srt(
     time_stretch_algorithm: str = 'librosa',
     time_stretch_quality: str = 'high',
     max_compression_ratio: float = 2.0,
+    # Audio clone parameters
+    audio_reference_url: Optional[str] = None,
+    reference_text: Optional[str] = None,
 ) -> Tuple[int, int]:
     """
     Main function: Synthesize audio from SRT subtitle file
@@ -549,6 +556,7 @@ def synthesize_audio_from_srt(
     - Dynamic rate limiting
     - Graceful degradation on failures
     - Partial result export
+    - Audio clone support for custom voice models
 
     Args:
         srt_path: Path to SRT file
@@ -565,6 +573,8 @@ def synthesize_audio_from_srt(
         time_stretch_algorithm: Time-stretch algorithm ('librosa', 'rubberband', 'resample')
         time_stretch_quality: Quality for librosa ('low', 'medium', 'high')
         max_compression_ratio: Maximum compression ratio before warning
+        audio_reference_url: Optional URL to reference audio for voice cloning
+        reference_text: Optional text content of reference audio
 
     Returns:
         Tuple of (segment_count, total_duration_ms)
@@ -610,6 +620,27 @@ def synthesize_audio_from_srt(
 
     # Track failed segments
     failed_segments = []
+
+    # Handle audio cloning if reference URL is provided
+    if audio_reference_url:
+        try:
+            print(f"[TTS] Creating voice model from audio reference: {audio_reference_url}")
+            cloned_voice_id = create_voice_from_audio(
+                audio_url=audio_reference_url,
+                reference_text=reference_text or "",
+                voice_name=f"clone_{task_id or 'custom'}",
+                model=model
+            )
+
+            # Wait for voice model to be ready
+            if wait_for_voice_ready(cloned_voice_id):
+                voice = cloned_voice_id
+                print(f"[TTS] Using cloned voice ID: {voice}")
+            else:
+                print(f"[TTS] Warning: Voice model may not be ready, using default voice")
+        except Exception as e:
+            print(f"[TTS] Failed to create voice from audio reference: {e}")
+            print(f"[TTS] Falling back to default voice: {voice}")
 
     timeline = silent_segment(0)
     cursor_ms = 0

@@ -95,6 +95,8 @@ interface TTSTaskInfo {
   completed_segments: number
   output_file: string
   error_message: string
+  use_audio_clone?: boolean
+  audio_reference_url?: string
 }
 
 import { BACKEND } from '@/composables/ConfigAPI'
@@ -198,7 +200,7 @@ async function fetchTTSTasks() {
       id: id,
       videoName: info.video_name,
       language: info.language,
-      voice: info.voice,
+      voice: info.use_audio_clone ? 'self_defined' : info.voice,
       status: info.status,
       progress: info.progress,
       completedSegments: info.completed_segments,
@@ -878,7 +880,7 @@ onBeforeUnmount(() => {
         </el-table-column>
 
         <!-- 声音 -->
-        <el-table-column prop="voice" label="声音" min-width="140" />
+        <el-table-column prop="voice" label="音色" min-width="140" />
 
         <!-- 状态 -->
         <el-table-column label="状态" min-width="150">

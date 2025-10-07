@@ -1516,6 +1516,11 @@ def generate_tts_audio(task_id: str) -> None:
         # 调用TTS生成器（带重试和检查点支持）
         from utils.tts.tts_generator import synthesize_audio_from_srt
 
+        # 获取音频克隆参数（如果有的话）
+        use_audio_clone = task.get("use_audio_clone", False)
+        audio_reference_url = task.get("audio_reference_url", None)
+        reference_text = task.get("reference_text", None)
+
         task["progress"] = 10
         segment_count, duration_ms = synthesize_audio_from_srt(
             srt_path=srt_path,
@@ -1528,7 +1533,9 @@ def generate_tts_audio(task_id: str) -> None:
             max_retries_per_segment=max_retries,
             time_stretch_algorithm=time_stretch_algorithm,
             time_stretch_quality=time_stretch_quality,
-            max_compression_ratio=max_compression_ratio
+            max_compression_ratio=max_compression_ratio,
+            audio_reference_url=audio_reference_url if use_audio_clone else None,
+            reference_text=reference_text if use_audio_clone else None
         )
 
         print(f"[TTS] Audio generation completed: {segment_count} segments, {duration_ms}ms")
@@ -1548,7 +1555,10 @@ def generate_tts_audio(task_id: str) -> None:
 
         # 生成输出文件名
         output_filename = f"{os.path.splitext(video.url)[0]}_{language}.mp4"
-        output_path = os.path.join(tts_output_dir, output_filename)
+        # 保存到 media/saved_video/ 目录以便前端访问
+        saved_video_dir = os.path.join(settings.MEDIA_ROOT, 'saved_video')
+        os.makedirs(saved_video_dir, exist_ok=True)
+        output_path = os.path.join(saved_video_dir, output_filename)
 
         # FFmpeg命令：替换视频的音频轨道
         ffmpeg_cmd = [

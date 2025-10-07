@@ -97,6 +97,13 @@ def _ensure_ini():
             'time_stretch_quality': 'high',
             'max_compression_ratio': '2.0'
         }
+        cfg['OSS Service'] = {
+            'oss_access_key_id': '',
+            'oss_access_key_secret': '',
+            'oss_endpoint': 'oss-cn-beijing.aliyuncs.com',
+            'oss_bucket': 'vidgo-test',
+            'oss_region': 'cn-beijing'
+        }
         with open(SETTINGS_FILE, 'w') as fp:
             cfg.write(fp)
 
@@ -123,6 +130,17 @@ def load_all_settings():
             'time_stretch_algorithm': 'librosa',
             'time_stretch_quality': 'high',
             'max_compression_ratio': '2.0'
+        }
+        modified = True
+
+    # Check for OSS settings section
+    if not cfg.has_section('OSS Service'):
+        cfg['OSS Service'] = {
+            'oss_access_key_id': '',
+            'oss_access_key_secret': '',
+            'oss_endpoint': 'oss-cn-beijing.aliyuncs.com',
+            'oss_bucket': 'vidgo-test',
+            'oss_region': 'cn-beijing'
         }
         modified = True
 

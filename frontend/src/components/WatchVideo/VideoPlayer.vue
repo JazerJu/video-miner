@@ -4,6 +4,7 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import videojs from 'video.js'
 import type Player from 'video.js/dist/types/player'
 import { ChapterAPI } from '@/composables/ChapterAPI'
+import { useLanguageTracks, type LanguageTrack } from '@/composables/LanguageTracksAPI'
 import { Settings } from 'lucide-vue-next'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
 
@@ -21,6 +22,11 @@ const emit = defineEmits<{
 
 // 使用字幕样式composable
 const { subtitleSettings, loadSubtitleSettings, injectGlobalSubtitleStyles, cleanup: cleanupSubtitleStyles } = useSubtitleStyle()
+
+// 使用语言轨道composable
+const { fetchLanguageTracks, isLoading: languageTracksLoading, error: languageTracksError } = useLanguageTracks()
+const languageTracks = ref<LanguageTrack[]>([])
+const currentLanguageTrack = ref<string | null>(null)
 
 const TRACK_PREFIX = 'dynamic-vtt-'
 
@@ -636,6 +642,7 @@ onMounted(async () => {
   createVideoSpeedControl()
   createPlayModeToggleControl()
   createChapterDisplay()
+  createLanguageSwitchControl()
 
   // Setup hotkeys
   hotkeyCleanup = setupHotkeys()
@@ -680,6 +687,7 @@ onMounted(async () => {
         'VideoSpeedControl',
         'PlayModeToggleControl',
         'VideoSettingsControl',
+        'LanguageSwitchControl',
         'audioTrackButton',
         'ShareButton',
         'hlsQualitySelector',
@@ -910,12 +918,236 @@ const loadChapters = async () => {
   }
 }
 
-// Watch for videoId changes and reload chapters
+// Load language tracks function
+const loadLanguageTracks = async () => {
+  if (props.videoId && props.videoId > 0) {
+    try {
+      const tracks = await fetchLanguageTracks(props.videoId)
+      if (tracks) {
+        languageTracks.value = tracks
+        console.log(`[VideoPlayer] Loaded ${tracks.length} language tracks:`, tracks)
+
+        // Add language tracks to Video.js player
+        if (player && tracks.length > 0) {
+          addLanguageTracksToPlayer(tracks)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load language tracks:', error)
+    }
+  }
+}
+
+// Add language tracks to Video.js player
+const addLanguageTracksToPlayer = (tracks: LanguageTrack[]) => {
+  if (!player) return
+
+  // Store the tracks for manual switching
+  languageTracks.value = tracks
+
+  // Set the default language track (prefer original language if available)
+  if (tracks.length > 0) {
+    const originalTrack = tracks.find(t => t.type === 'original')
+    const defaultTrack = originalTrack || tracks[0]
+    currentLanguageTrack.value = defaultTrack.code
+  }
+
+  // Update the custom LanguageSwitchControl component
+  const languageSwitchControl = player.getChild('controlBar')?.getChild('LanguageSwitchControl')
+  if (languageSwitchControl && typeof (languageSwitchControl as any).updateTracks === 'function') {
+    (languageSwitchControl as any).updateTracks(tracks)
+  }
+
+  // Show/hide default audio track button (we prefer our custom control)
+  const audioTrackButton = player.getChild('controlBar')?.getChild('audioTrackButton')
+  if (audioTrackButton) {
+    audioTrackButton.hide() // Hide default button since we have custom one
+  }
+}
+
+// Switch language track
+const switchLanguageTrack = (languageCode: string) => {
+  if (!player) return
+
+  const track = languageTracks.value.find(t => t.code === languageCode)
+  if (track) {
+    // Get current playback time
+    const currentTime = player.currentTime()
+    const isPaused = player.paused()
+
+    // Save current playback state
+    const playbackRate = player.playbackRate()
+    const volume = player.volume()
+
+    // Switch to new source
+    player.src(track.url)
+
+    // Wait for source to be loaded, then restore playback state
+    player.one('canplay', () => {
+      player.currentTime(currentTime)
+      player.playbackRate(playbackRate)
+      player.volume(volume)
+      if (!isPaused) {
+        player.play().catch(err => {
+          console.warn('Auto-play failed after language switch:', err)
+        })
+      }
+    })
+
+    currentLanguageTrack.value = languageCode
+    console.log(`[VideoPlayer] Switched language to: ${track.name} (${languageCode})`)
+  }
+}
+
+// Create custom language switch control
+const createLanguageSwitchControl = () => {
+  const vjsComponent = videojs.getComponent('Component')
+
+  class LanguageSwitchControl extends vjsComponent {
+    declare player_: Player
+    declare tracks: LanguageTrack[]
+
+    constructor(player: Player, options?: any) {
+      super(player, options)
+      this.tracks = []
+    }
+
+    createEl() {
+      const el = videojs.dom.createEl('div', {
+        className: 'vjs-language-switch-control vjs-control',
+        title: '切换语言轨道',
+      })
+
+      const icon = videojs.dom.createEl('div', {
+        className: 'vjs-icon-placeholder',
+      })
+      icon.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m5 8 6 6"/>
+          <path d="m4 14 6-6 2-3"/>
+          <path d="M2 5h12"/>
+          <path d="M7 2h1"/>
+          <path d="m22 22-5-10-5 10"/>
+          <path d="M14 18h6"/>
+        </svg>
+      `
+
+      const text = videojs.dom.createEl('span', {
+        className: 'vjs-language-text',
+        textContent: '语言',
+      })
+
+      el.appendChild(icon)
+      el.appendChild(text)
+
+      el.addEventListener('click', () => {
+        this.showLanguageMenu()
+      })
+
+      return el
+    }
+
+    updateTracks(tracks: LanguageTrack[]) {
+      this.tracks = tracks
+      const el = this.el() as HTMLElement
+
+      if (tracks.length > 1) {
+        el.style.display = 'flex'
+        const currentTrack = tracks.find(t => t.code === currentLanguageTrack.value)
+        const textEl = el.querySelector('.vjs-language-text') as HTMLElement
+        if (textEl) {
+          textEl.textContent = currentTrack ? currentTrack.name : '语言'
+        }
+      } else {
+        el.style.display = 'none'
+      }
+    }
+
+    showLanguageMenu() {
+      if (this.tracks.length <= 1) return
+
+      // Create language menu
+      const menu = videojs.dom.createEl('div', {
+        className: 'vjs-language-menu',
+      })
+
+      this.tracks.forEach(track => {
+        const item = videojs.dom.createEl('div', {
+          className: `vjs-language-item ${track.code === currentLanguageTrack.value ? 'vjs-selected' : ''}`,
+          textContent: track.name,
+        })
+
+        item.addEventListener('click', (e) => {
+          e.stopPropagation()
+          switchLanguageTrack(track.code)
+          this.updateTracks(this.tracks)
+          document.body.removeChild(menu)
+        })
+
+        menu.appendChild(item)
+      })
+
+      // Position menu near the button
+      const buttonRect = (this.el() as HTMLElement).getBoundingClientRect()
+      const menuEl = menu as HTMLElement
+      menuEl.style.position = 'fixed'
+      menuEl.style.top = `${buttonRect.bottom + 5}px`
+      menuEl.style.left = `${buttonRect.left}px`
+      menuEl.style.zIndex = '9999'
+
+      // Style the menu
+      menuEl.style.backgroundColor = 'rgba(0, 0, 0, 0.9)'
+      menuEl.style.borderRadius = '4px'
+      menuEl.style.padding = '4px 0'
+      menuEl.style.minWidth = '120px'
+
+      // Style menu items
+      const items = menu.querySelectorAll('.vjs-language-item') as NodeListOf<HTMLElement>
+      items.forEach(item => {
+        item.style.padding = '8px 12px'
+        item.style.cursor = 'pointer'
+        item.style.color = 'white'
+        item.style.fontSize = '14px'
+
+        item.addEventListener('mouseenter', () => {
+          item.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'
+        })
+
+        item.addEventListener('mouseleave', () => {
+          item.style.backgroundColor = 'transparent'
+        })
+
+        if (item.classList.contains('vjs-selected')) {
+          item.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
+        }
+      })
+
+      document.body.appendChild(menu)
+
+      // Hide menu when clicking outside
+      const hideMenu = (e: MouseEvent) => {
+        if (!menu.contains(e.target as Node)) {
+          document.body.removeChild(menu)
+          document.removeEventListener('click', hideMenu)
+        }
+      }
+
+      setTimeout(() => {
+        document.addEventListener('click', hideMenu)
+      }, 100)
+    }
+  }
+
+  videojs.registerComponent('LanguageSwitchControl', LanguageSwitchControl)
+}
+
+// Watch for videoId changes and reload chapters and language tracks
 watch(
   () => props.videoId,
   () => {
     if (props.videoId) {
       loadChapters()
+      loadLanguageTracks()
     }
   },
   { immediate: false },

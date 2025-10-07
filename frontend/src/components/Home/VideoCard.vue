@@ -92,24 +92,98 @@ const confirmConvertHLS = (video: Video) => {
 
 /** TTS Dialog State */
 const showTTSDialog = ref(false)
-const ttsForm = ref({ language: 'zh', voice: 'longxiaochun_v2' })
+const ttsForm = ref({
+  language: 'zh',
+  voice: 'longxiaochun_v2',
+  useAudioClone: false,
+  audioReferenceText: ''
+})
 const currentTTSVideo = ref<Video | null>(null)
+const audioFileInput = ref<HTMLInputElement | null>(null)
+const audioReferenceUrl = ref<string | null>(null)
+const isUploadingAudio = ref(false)
 
-// Voice options list
-const voiceOptions = [
-  { label: '龙小淳 (知性积极女)', value: 'longxiaochun_v2' },
-  { label: 'Donna (美式英文女)', value: 'loongdonna_v2' },
-  { label: 'David (美式英文男)', value: 'loongdavid_v2' },
-  { label: 'Cally (美式英文女)', value: 'loongcally_v2' },
-  { label: 'Stella (飒爽利落女)', value: 'loongstella_v2' },
-  { label: '龙书 (沉稳青年男)', value: 'longshu_v2' },
-  { label: 'Bella (精准干练女)', value: 'loongbella_v2' },
-]
+/** Upload reference audio file to OSS */
+const uploadReferenceAudio = async (file: File) => {
+  if (!file) return
+
+  // Validate file type - more comprehensive check for audio files
+  const allowedTypes = ['audio/wav', 'audio/mp3', 'audio/m4a', 'audio/mp4', 'audio/x-m4a', 'audio/mpeg']
+  const allowedExtensions = ['.wav', '.mp3', '.m4a']
+
+  // Check both MIME type and file extension
+  const isValidMimeType = allowedTypes.includes(file.type)
+  const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase()
+  const isValidExtension = allowedExtensions.includes(fileExtension)
+
+  if (!isValidMimeType && !isValidExtension) {
+    ElMessage.error('只支持 WAV/MP3/M4A 格式的音频文件')
+    return
+  }
+
+  // Validate file size (max 10MB)
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('音频文件大小不能超过 10MB')
+    return
+  }
+
+  isUploadingAudio.value = true
+  try {
+    const formData = new FormData()
+    formData.append('audio_file', file)
+    if (ttsForm.value.audioReferenceText) {
+      formData.append('reference_text', ttsForm.value.audioReferenceText)
+    }
+
+    const csrf = await getCSRFToken()
+    const res = await fetch(`${BACKEND}/api/tts/audio_upload`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-CSRFToken': csrf },
+      body: formData,
+    })
+
+    const result = await res.json()
+    if (result.success) {
+      audioReferenceUrl.value = result.audio_url
+      ElMessage.success('音频上传成功')
+    } else {
+      ElMessage.error(result.error || '音频上传失败')
+    }
+  } catch (err) {
+    ElMessage.error('网络错误，音频上传失败')
+    console.error('Audio upload error:', err)
+  } finally {
+    isUploadingAudio.value = false
+  }
+}
+
+/** Trigger file input click */
+const triggerAudioFileInput = () => {
+  if (audioFileInput.value) {
+    audioFileInput.value.click()
+  }
+}
+
+/** Handle audio file selection */
+const handleAudioFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const files = target.files
+  if (files && files.length > 0) {
+    uploadReferenceAudio(files[0])
+  }
+}
 
 /** Generate TTS voiceover for video */
 const generateTTSVoiceover = async (video: Video) => {
   currentTTSVideo.value = video
-  ttsForm.value = { language: 'zh', voice: 'longxiaochun_v2' }
+  ttsForm.value = {
+    language: 'zh',
+    voice: 'longxiaochun_v2',
+    useAudioClone: false,
+    audioReferenceText: ''
+  }
+  audioReferenceUrl.value = null
   showTTSDialog.value = true
   console.log(currentTTSVideo.value)
   console.log("showTTSDialog is true")
@@ -118,13 +192,32 @@ const generateTTSVoiceover = async (video: Video) => {
 /** Submit TTS generation */
 const submitTTSGeneration = async () => {
   if (!currentTTSVideo.value) return
+
+  // Validate audio clone requirements
+  if (ttsForm.value.useAudioClone && !audioReferenceUrl.value) {
+    ElMessage.error('请先上传参考音频文件')
+    return
+  }
+
   try {
     const csrf = await getCSRFToken()
+    const requestBody: any = {
+      language: ttsForm.value.language,
+      voice: ttsForm.value.voice
+    }
+
+    // Add audio clone parameters if enabled
+    if (ttsForm.value.useAudioClone && audioReferenceUrl.value) {
+      requestBody.use_audio_clone = true
+      requestBody.audio_reference_url = audioReferenceUrl.value
+      requestBody.reference_text = ttsForm.value.audioReferenceText
+    }
+
     const res = await fetch(`${BACKEND}/api/tts/generate/${currentTTSVideo.value.id}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-      body: JSON.stringify({ language: ttsForm.value.language, voice: ttsForm.value.voice }),
+      body: JSON.stringify(requestBody),
     })
     const result = await res.json()
     if (result.success) {
@@ -427,8 +520,17 @@ const modelChecked = computed({
       </el-dropdown>
     </div>
   </div>
+  <!-- Hidden file input for audio upload -->
+  <input
+    ref="audioFileInput"
+    type="file"
+    accept="audio/wav,audio/mp3,audio/m4a,audio/mp4"
+    style="display: none"
+    @change="handleAudioFileChange"
+  />
+
   <!-- TTS 配音 弹窗 -->
-  <el-dialog v-model="showTTSDialog" title="TTS 配音" width="30%" @close="showTTSDialog = false">
+  <el-dialog v-model="showTTSDialog" title="TTS 配音" width="40%" @close="showTTSDialog = false">
     <el-form :model="ttsForm" label-width="80px">
       <el-form-item label="语言">
         <el-radio-group v-model="ttsForm.language">
@@ -446,10 +548,58 @@ const modelChecked = computed({
           </el-option>
         </el-select>
       </el-form-item>
+
+      <!-- 音频克隆功能 -->
+      <el-form-item label="音频克隆">
+        <el-switch
+          v-model="ttsForm.useAudioClone"
+          active-text="使用自定义音色"
+        />
+        <div class="text-xs text-gray-500 mt-1">
+          上传参考音频文件克隆音色（建议10-20秒，至少5秒连续人声）
+        </div>
+      </el-form-item>
+
+      <!-- 音频文件上传和参考文本 -->
+      <template v-if="ttsForm.useAudioClone">
+        <el-form-item label="参考音频">
+          <div class="w-full">
+            <el-button
+              type="primary"
+              @click="triggerAudioFileInput"
+              :loading="isUploadingAudio"
+              size="small"
+            >
+              {{ audioReferenceUrl ? '重新上传' : '选择音频文件' }}
+            </el-button>
+            <div v-if="audioReferenceUrl" class="text-sm text-green-600 mt-1">
+              ✓ 音频已上传
+            </div>
+            <div v-if="isUploadingAudio" class="text-sm text-blue-600 mt-1">
+              上传中...
+            </div>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="参考文本">
+          <el-input
+            v-model="ttsForm.audioReferenceText"
+            type="textarea"
+            :rows="2"
+            placeholder="请输入参考音频的文本内容（可选但推荐）"
+          />
+        </el-form-item>
+      </template>
     </el-form>
     <template #footer>
       <el-button @click="showTTSDialog = false">取消</el-button>
-      <el-button type="primary" @click="submitTTSGeneration">生成</el-button>
+      <el-button
+        type="primary"
+        @click="submitTTSGeneration"
+        :disabled="ttsForm.useAudioClone && !audioReferenceUrl"
+      >
+        生成
+      </el-button>
     </template>
   </el-dialog>
 </template>

@@ -241,6 +241,14 @@ export interface FrontendSettings {
   remoteVidGoHost: string
   remoteVidGoPort: string
   remoteVidGoUseSsl: boolean
+  // OSS Service settings
+  ossAccessKeyId: string
+  ossAccessKeySecret: string
+  ossEndpoint: string
+  ossBucket: string
+  ossRegion: string
+  // TTS settings
+  dashscopeApiKey: string
 }
 
 export async function loadConfig(): Promise<FrontendSettings> {
@@ -347,6 +355,14 @@ export async function loadConfig(): Promise<FrontendSettings> {
       remoteVidGoHost: data['Remote VidGo Service']?.host || '',
       remoteVidGoPort: data['Remote VidGo Service']?.port || '8000',
       remoteVidGoUseSsl: data['Remote VidGo Service']?.use_ssl === 'true',
+      // OSS Service settings
+      ossAccessKeyId: data['OSS Service']?.oss_access_key_id || '',
+      ossAccessKeySecret: data['OSS Service']?.oss_access_key_secret || '',
+      ossEndpoint: data['OSS Service']?.oss_endpoint || 'oss-cn-beijing.aliyuncs.com',
+      ossBucket: data['OSS Service']?.oss_bucket || 'vidgo-test',
+      ossRegion: data['OSS Service']?.oss_region || 'cn-beijing',
+      // TTS settings
+      dashscopeApiKey: data['TTS settings']?.dashscope_api_key || '',
     }
   } catch (error) {
     console.error('Error loading config:', error)
@@ -425,6 +441,16 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         host: settings.remoteVidGoHost,
         port: settings.remoteVidGoPort,
         use_ssl: settings.remoteVidGoUseSsl.toString(),
+      },
+      'OSS Service': {
+        oss_access_key_id: settings.ossAccessKeyId,
+        oss_access_key_secret: settings.ossAccessKeySecret,
+        oss_endpoint: settings.ossEndpoint,
+        oss_bucket: settings.ossBucket,
+        oss_region: settings.ossRegion,
+      },
+      'TTS settings': {
+        dashscope_api_key: settings.dashscopeApiKey,
       },
     }
 
