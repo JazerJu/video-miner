@@ -36,6 +36,8 @@ backend/staticfiles/
 # backend/video/migrations/
 # backend/accounts/migrations/
 backend/test/
+backend/logs/
+backend/scripts/
 backend/work_dir/
 backend/media/
 *.mp4

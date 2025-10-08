@@ -5,7 +5,7 @@ import videojs from 'video.js'
 import type Player from 'video.js/dist/types/player'
 import { ChapterAPI } from '@/composables/ChapterAPI'
 import { useLanguageTracks, type LanguageTrack } from '@/composables/LanguageTracksAPI'
-import { Settings } from 'lucide-vue-next'
+import { Languages } from 'lucide-vue-next'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
 
 const props = defineProps<{
@@ -638,7 +638,7 @@ onMounted(async () => {
   // Register custom components
   createEditableTimeDisplay()
   createCameraSnapshotControl()
-  createVideoSettingsControl()
+  createLanguageControl()
   createVideoSpeedControl()
   createPlayModeToggleControl()
   createChapterDisplay()
@@ -686,7 +686,7 @@ onMounted(async () => {
         'CameraSnapshotControl',
         'VideoSpeedControl',
         'PlayModeToggleControl',
-        'VideoSettingsControl',
+        'LanguageControl',
         'LanguageSwitchControl',
         'audioTrackButton',
         'ShareButton',
@@ -838,6 +838,28 @@ onMounted(async () => {
       })
     }
   })
+
+  // Load language tracks function
+  const loadLanguageTracks = async () => {
+    if (!props.videoId) return
+
+    try {
+      console.log(`[VideoPlayer] Loading language tracks for video ${props.videoId}`)
+      const tracks = await fetchLanguageTracks(props.videoId)
+      if (tracks) {
+        languageTracks.value = tracks.filter(track => track.type === 'tts')
+        console.log(`[VideoPlayer] Loaded ${languageTracks.value.length} TTS language tracks`, languageTracks.value)
+      }
+    } catch (error) {
+      console.error('[VideoPlayer] Failed to load language tracks:', error)
+    }
+  }
+
+  // Load language tracks if video ID is provided
+  if (props.videoId) {
+    loadLanguageTracks()
+  }
+
   console.log(props.blobUrls)
   updateSubtitleTracks(player, props.blobUrls)
 
@@ -1726,16 +1748,16 @@ function createCameraSnapshotControl() {
   return CameraSnapshotControl
 }
 
-// Custom Video Settings Control Component
-function createVideoSettingsControl() {
+// Custom Language Control Component
+function createLanguageControl() {
   const vjsComponent = videojs.getComponent('Component')
 
-  class VideoSettingsControl extends vjsComponent {
+  class LanguageControl extends vjsComponent {
     dropdownVisible: boolean
 
     constructor(player: any, options: any) {
       super(player, options)
-      this.addClass('vjs-settings-control')
+      this.addClass('vjs-language-control')
       this.addClass('vjs-control')
       this.addClass('vjs-button')
       this.dropdownVisible = false
@@ -1779,9 +1801,9 @@ function createVideoSettingsControl() {
     }
 
     createDropdown() {
-      console.log('[VideoSettings] Creating settings dropdown menu')
+      console.log('[LanguageControl] Creating language dropdown menu')
       const dropdown = videojs.dom.createEl('div', {
-        className: 'settings-dropdown',
+        className: 'language-dropdown',
         style: `
           position: absolute;
           bottom: 100%;
@@ -1797,75 +1819,182 @@ function createVideoSettingsControl() {
         `,
       })
 
-      // Background play option - only keep this one since play mode is handled by separate control
-      const backgroundPlayItem = videojs.dom.createEl('div', {
-        className: 'settings-dropdown-item',
+      // Create language options from available tracks
+      const availableTracks = languageTracks.value
+
+      // Always add original video option
+      const originalItem = videojs.dom.createEl('div', {
+        className: 'language-dropdown-item',
         style: `
           padding: 8px 16px;
           cursor: pointer;
-          color: white;
+          color: ${currentLanguageTrack.value === null ? '#4CAF50' : 'white'};
           font-size: 12px;
           transition: background-color 0.2s;
           display: flex;
           align-items: center;
           justify-content: space-between;
+          ${currentLanguageTrack.value === null ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
         `,
       })
 
-      const backgroundPlayLabel = videojs.dom.createEl('span', {
-        textContent: '后台播放'
+      const originalLabel = videojs.dom.createEl('span', {
+        textContent: '原片'
       })
 
-      const backgroundPlayToggle = videojs.dom.createEl('span', {
-        className: 'toggle-indicator',
-        textContent: isBackgroundPlayEnabled.value ? '✓' : '',
+      const originalIndicator = videojs.dom.createEl('span', {
+        className: 'language-indicator',
+        textContent: currentLanguageTrack.value === null ? '✓' : '',
         style: `
-          color: ${isBackgroundPlayEnabled.value ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
+          color: ${currentLanguageTrack.value === null ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
           font-weight: bold;
         `
       })
 
-      backgroundPlayItem.appendChild(backgroundPlayLabel)
-      backgroundPlayItem.appendChild(backgroundPlayToggle)
+      originalItem.appendChild(originalLabel)
+      originalItem.appendChild(originalIndicator)
 
-      // Add hover effect
-      this.addHoverEffect(backgroundPlayItem as HTMLElement)
-
-      // Add click handler
-      backgroundPlayItem.addEventListener('click', (e) => {
-        e.stopPropagation()
-        this.toggleBackgroundPlay()
-        this.updateToggleIndicator(backgroundPlayToggle as HTMLElement, isBackgroundPlayEnabled.value)
+      // Add click handler for original video
+      originalItem.addEventListener('click', () => {
+        this.switchToOriginal()
+        this.hideDropdown()
       })
 
-      dropdown.appendChild(backgroundPlayItem)
+      dropdown.appendChild(originalItem)
+
+      // Add TTS language options
+      availableTracks.forEach((track) => {
+        if (track.type === 'tts') {
+          const languageItem = videojs.dom.createEl('div', {
+            className: 'language-dropdown-item',
+            style: `
+              padding: 8px 16px;
+              cursor: pointer;
+              color: ${currentLanguageTrack.value === track.code ? '#4CAF50' : 'white'};
+              font-size: 12px;
+              transition: background-color 0.2s;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              ${currentLanguageTrack.value === track.code ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
+            `,
+          })
+
+          const languageLabel = videojs.dom.createEl('span', {
+            textContent: track.name
+          })
+
+          const languageIndicator = videojs.dom.createEl('span', {
+            className: 'language-indicator',
+            textContent: currentLanguageTrack.value === track.code ? '✓' : '',
+            style: `
+              color: ${currentLanguageTrack.value === track.code ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
+              font-weight: bold;
+            `
+          })
+
+          languageItem.appendChild(languageLabel)
+          languageItem.appendChild(languageIndicator)
+
+          // Add click handler for language switching
+          languageItem.addEventListener('click', () => {
+            this.switchToLanguage(track)
+            this.hideDropdown()
+          })
+
+          dropdown.appendChild(languageItem)
+        }
+      })
+
+      // Add hover effect
+      dropdown.addEventListener('mouseover', (e) => {
+        const target = e.target as HTMLElement
+        if (target.classList.contains('language-dropdown-item')) {
+          target.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
+        }
+      })
+
+      dropdown.addEventListener('mouseout', (e) => {
+        const target = e.target as HTMLElement
+        if (target.classList.contains('language-dropdown-item')) {
+          // Restore original background color based on selection state
+          const hasIndicator = target.querySelector('.language-indicator')?.textContent === '✓'
+          target.style.backgroundColor = hasIndicator ? 'rgba(76, 175, 80, 0.2)' : 'transparent'
+        }
+      })
 
       return dropdown
     }
 
-    addHoverEffect(item: HTMLElement) {
-      item.addEventListener('mouseenter', () => {
-        item.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
-      })
+    switchToOriginal() {
+      console.log('[LanguageControl] Switching to original video')
+      const player = this.player()
+      if (player && props.src) {
+        // Get current playback state
+        const currentTime = player.currentTime()
+        const isPaused = player.paused()
+        const volume = player.volume()
+        const playbackRate = player.playbackRate()
 
-      item.addEventListener('mouseleave', () => {
-        item.style.backgroundColor = 'transparent'
-      })
+        // Switch to original source
+        player.src(props.src)
+
+        // Wait for source to be loaded, then restore playback state
+        player.one('canplay', () => {
+          player?.currentTime(currentTime)
+          player?.playbackRate(playbackRate)
+          player?.volume(volume)
+          if (!isPaused) {
+            const playPromise = player?.play()
+            if (playPromise) {
+              playPromise.catch(err => {
+                console.warn('Auto-play failed after switching to original:', err)
+              })
+            }
+          }
+        })
+
+        currentLanguageTrack.value = null
+        console.log('[LanguageControl] Switched to original video')
+      }
     }
 
-    updateToggleIndicator(toggle: HTMLElement, isEnabled: boolean) {
-      toggle.textContent = isEnabled ? '✓' : ''
-      toggle.style.color = isEnabled ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'
-    }
+    switchToLanguage(track: LanguageTrack) {
+      console.log(`[LanguageControl] Switching to language: ${track.name} (${track.code})`)
+      const player = this.player()
+      if (player) {
+        // Get current playback state
+        const currentTime = player.currentTime()
+        const isPaused = player.paused()
+        const volume = player.volume()
+        const playbackRate = player.playbackRate()
 
-    toggleBackgroundPlay() {
-      isBackgroundPlayEnabled.value = !isBackgroundPlayEnabled.value
-      console.log(`[VideoSettings] Background play: ${isBackgroundPlayEnabled.value ? 'enabled' : 'disabled'}`)
+        // Switch to new source
+        player.src(track.url)
+
+        // Wait for source to be loaded, then restore playback state
+        player.one('canplay', () => {
+          player?.currentTime(currentTime)
+          player?.playbackRate(playbackRate)
+          player?.volume(volume)
+          if (!isPaused) {
+            const playPromise = player?.play()
+            if (playPromise) {
+              playPromise.catch(err => {
+                console.warn('Auto-play failed after language switch:', err)
+              })
+            }
+          }
+        })
+
+        currentLanguageTrack.value = track.code
+        console.log(`[LanguageControl] Switched language to: ${track.name} (${track.code})`)
+      }
     }
 
     createEl() {
       const el = videojs.dom.createEl('div', {
-        className: 'vjs-settings-control vjs-control vjs-button',
+        className: 'vjs-language-control vjs-control vjs-button',
         style: `
           position: relative;
           color: white;
@@ -1880,14 +2009,18 @@ function createVideoSettingsControl() {
           width: auto;
           height: auto;
         `,
-        title: 'Video settings',
+        title: '语言切换',
       })
 
-      // Create Settings icon
+      // Create Languages icon
       el.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
-          <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/>
-          <circle cx="12" cy="12" r="3"/>
+          <path d="m5 8 6 6"/>
+          <path d="m4 14 6-6 7-7"/>
+          <path d="m21 15-5-5"/>
+          <path d="m9 21 3-3"/>
+          <path d="m14 8 4-4"/>
+          <path d="m15 13 6-6"/>
         </svg>
       `
 
@@ -1895,8 +2028,8 @@ function createVideoSettingsControl() {
     }
   }
 
-  videojs.registerComponent('VideoSettingsControl', VideoSettingsControl)
-  return VideoSettingsControl
+  videojs.registerComponent('LanguageControl', LanguageControl)
+  return LanguageControl
 }
 
 // Custom Video Speed Control Component
