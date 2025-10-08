@@ -362,6 +362,7 @@ def transcribe_audio(
             stderr=subprocess.PIPE,
             text=True,
             encoding='utf-8',
+            errors='replace',  # Replace invalid UTF-8 sequences
             cwd=str(Path(binary_path).parent),
             env=env
         )

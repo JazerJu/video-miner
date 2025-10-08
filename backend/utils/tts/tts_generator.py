@@ -47,7 +47,7 @@ from .audio_time_stretch import stretch_audio, get_available_algorithms
 DEFAULT_MODEL = "cosyvoice-v2"
 DEFAULT_VOICE = "longxiaochun_v2"
 TARGET_SAMPLE_RATE = 22050  # CosyVoice-v2 sample rate
-TTS_REQUEST_INTERVAL = 0.5  # Base rate limiting (seconds)
+TTS_REQUEST_INTERVAL = 0.5  # Legacy: will be overridden by config
 
 # Retry configuration
 MAX_RETRIES = 5
@@ -126,10 +126,19 @@ class DynamicRateLimiter:
             self.current_interval * 0.9
         )
 
-    def record_failure(self):
+    def record_failure(self, error_message: str = ""):
         """Record failed API call and adjust interval"""
         self.consecutive_failures += 1
         self.recent_failures.append(time.time())
+
+        # Check for specific 418 error and handle aggressively
+        if "418" in error_message or "InvalidParameter" in error_message:
+            print(f"🚨 Detected 418/InvalidParameter error - applying aggressive backoff")
+            # 418 错误需要更长的等待时间
+            self.circuit_open = True
+            self.circuit_open_until = time.time() + 60  # 1 分钟暂停
+            self.current_interval = min(10.0, self.base_interval * 5)  # 大幅增加间隔
+            return
 
         # Remove old failures (older than 60s)
         cutoff = time.time() - 60
@@ -446,9 +455,9 @@ def tts_bytes_cosyvoice(
         return callback.audio_data.getvalue()
 
     except Exception as e:
-        # Record failure for rate limiter
+        # Record failure for rate limiter with error message
         if rate_limiter:
-            rate_limiter.record_failure()
+            rate_limiter.record_failure(str(e))
 
         print(f"❌ TTS synthesis exception: {e}")
         raise
@@ -579,8 +588,8 @@ def synthesize_audio_from_srt(
     Returns:
         Tuple of (segment_count, total_duration_ms)
     """
-    # Initialize rate limiter
-    rate_limiter = DynamicRateLimiter()
+    # Initialize rate limiter with configured interval
+    rate_limiter = DynamicRateLimiter(base_interval=2.0)  # 使用更安全的2秒间隔
 
     # Load and merge SRT
     with open(srt_path, 'r', encoding='utf-8') as f:

@@ -12,6 +12,8 @@ const props = defineProps<{
   src: string
   blobUrls?: (string | undefined)[] // [ zhUrl?, bothUrl?, enUrl? ] Also can be null.
   videoId?: number // Add video ID for chapter loading
+  rawLang?: string // Original language of the video (e.g., 'en', 'zh')
+  videoName?: string // Original video filename for URL construction
 }>()
 const emit = defineEmits<{ 
   (e: 'time-update', t: number): void
@@ -26,7 +28,7 @@ const { subtitleSettings, loadSubtitleSettings, injectGlobalSubtitleStyles, clea
 // 使用语言轨道composable
 const { fetchLanguageTracks, isLoading: languageTracksLoading, error: languageTracksError } = useLanguageTracks()
 const languageTracks = ref<LanguageTrack[]>([])
-const currentLanguageTrack = ref<string | null>(null)
+const currentLanguageTrack = ref<{ code: string; name: string; type?: string } | null>(null)
 
 const TRACK_PREFIX = 'dynamic-vtt-'
 
@@ -687,7 +689,6 @@ onMounted(async () => {
         'VideoSpeedControl',
         'PlayModeToggleControl',
         'LanguageControl',
-        'LanguageSwitchControl',
         'audioTrackButton',
         'ShareButton',
         'hlsQualitySelector',
@@ -971,7 +972,7 @@ const addLanguageTracksToPlayer = (tracks: LanguageTrack[]) => {
   if (tracks.length > 0) {
     const originalTrack = tracks.find(t => t.type === 'original')
     const defaultTrack = originalTrack || tracks[0]
-    currentLanguageTrack.value = defaultTrack.code
+    currentLanguageTrack.value = { code: defaultTrack.code, name: defaultTrack.name, type: defaultTrack.type }
   }
 
   // Update the custom LanguageSwitchControl component
@@ -1019,7 +1020,7 @@ const switchLanguageTrack = (languageCode: string) => {
       }
     })
 
-    currentLanguageTrack.value = languageCode
+    currentLanguageTrack.value = { code: languageCode, name: track.name || languageCode, type: 'subtitle' }
     console.log(`[VideoPlayer] Switched language to: ${track.name} (${languageCode})`)
   }
 }
@@ -1078,7 +1079,7 @@ const createLanguageSwitchControl = () => {
 
       if (tracks.length > 1) {
         el.style.display = 'flex'
-        const currentTrack = tracks.find(t => t.code === currentLanguageTrack.value)
+        const currentTrack = tracks.find(t => t.code === currentLanguageTrack.value?.code)
         const textEl = el.querySelector('.vjs-language-text') as HTMLElement
         if (textEl) {
           textEl.textContent = currentTrack ? currentTrack.name : '语言'
@@ -1098,7 +1099,7 @@ const createLanguageSwitchControl = () => {
 
       this.tracks.forEach(track => {
         const item = videojs.dom.createEl('div', {
-          className: `vjs-language-item ${track.code === currentLanguageTrack.value ? 'vjs-selected' : ''}`,
+          className: `vjs-language-item ${track.code === currentLanguageTrack.value?.code ? 'vjs-selected' : ''}`,
           textContent: track.name,
         })
 
@@ -1862,33 +1863,74 @@ function createLanguageControl() {
 
       dropdown.appendChild(originalItem)
 
-      // Add TTS language options
-      availableTracks.forEach((track) => {
-        if (track.type === 'tts') {
+      // Add TTS language options (intelligent generation)
+      const addTTSOptions = () => {
+        if (!props.src || !props.rawLang) return
+
+        console.log('[LanguageControl] Adding TTS options - src:', props.src, 'rawLang:', props.rawLang)
+
+        // Generate intelligent TTS options based on original language
+        const originalLang = props.rawLang.toLowerCase()
+
+        // Define available TTS languages based on original language
+        const ttsLanguages = []
+
+        if (originalLang === 'en') {
+          ttsLanguages.push({ code: 'zh', name: '中文' })
+        } else if (originalLang === 'zh') {
+          ttsLanguages.push({ code: 'en', name: 'English' })
+        } else {
+          // For other languages, offer both English and Chinese
+          ttsLanguages.push({ code: 'en', name: 'English' })
+          ttsLanguages.push({ code: 'zh', name: '中文' })
+        }
+
+        console.log('[LanguageControl] Generated TTS languages:', ttsLanguages)
+
+        // Check for existing API TTS tracks to avoid duplicates
+        const existingTTSCodes = new Set()
+        availableTracks.forEach((track) => {
+          if (track.type === 'tts') {
+            existingTTSCodes.add(track.code)
+          }
+        })
+
+        console.log('[LanguageControl] Existing TTS codes from API:', Array.from(existingTTSCodes))
+
+        // Add TTS language options to dropdown
+        ttsLanguages.forEach((ttsLang) => {
+          // Skip if this is the same as original language or duplicate with existing API tracks
+          if (ttsLang.code === originalLang || existingTTSCodes.has(ttsLang.code)) {
+            console.log('[LanguageControl] Skipping TTS language:', ttsLang.code, '- same as original or duplicate')
+            return
+          }
+
+          console.log('[LanguageControl] Adding TTS option:', ttsLang)
+
           const languageItem = videojs.dom.createEl('div', {
             className: 'language-dropdown-item',
             style: `
               padding: 8px 16px;
               cursor: pointer;
-              color: ${currentLanguageTrack.value === track.code ? '#4CAF50' : 'white'};
+              color: ${currentLanguageTrack.value?.code === ttsLang.code ? '#4CAF50' : 'white'};
               font-size: 12px;
               transition: background-color 0.2s;
               display: flex;
               align-items: center;
               justify-content: space-between;
-              ${currentLanguageTrack.value === track.code ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
+              ${currentLanguageTrack.value?.code === ttsLang.code ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
             `,
           })
 
           const languageLabel = videojs.dom.createEl('span', {
-            textContent: track.name
+            textContent: ttsLang.name
           })
 
           const languageIndicator = videojs.dom.createEl('span', {
             className: 'language-indicator',
-            textContent: currentLanguageTrack.value === track.code ? '✓' : '',
+            textContent: currentLanguageTrack.value?.code === ttsLang.code ? '✓' : '',
             style: `
-              color: ${currentLanguageTrack.value === track.code ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
+              color: ${currentLanguageTrack.value?.code === ttsLang.code ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
               font-weight: bold;
             `
           })
@@ -1898,6 +1940,64 @@ function createLanguageControl() {
 
           // Add click handler for language switching
           languageItem.addEventListener('click', () => {
+            console.log('[LanguageControl] TTS language clicked:', ttsLang)
+            console.log('[LanguageControl] Props:', { src: props.src, rawLang: props.rawLang })
+
+            // Create a synthetic track object for TTS
+            const syntheticTrack = {
+              code: ttsLang.code,
+              name: ttsLang.name,
+              type: 'tts' as const,
+              url: ''  // Will be constructed by switchToLanguage
+            }
+            console.log('[LanguageControl] Created synthetic track:', syntheticTrack)
+            this.switchToLanguage(syntheticTrack)
+            this.hideDropdown()
+          })
+
+          dropdown.appendChild(languageItem)
+        })
+      }
+
+      // Add API-provided TTS tracks (if any)
+      availableTracks.forEach((track) => {
+        if (track.type === 'tts') {
+          console.log('[LanguageControl] Adding API TTS track:', track)
+
+          const languageItem = videojs.dom.createEl('div', {
+            className: 'language-dropdown-item',
+            style: `
+              padding: 8px 16px;
+              cursor: pointer;
+              color: ${currentLanguageTrack.value?.code === track.code ? '#4CAF50' : 'white'};
+              font-size: 12px;
+              transition: background-color 0.2s;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              ${currentLanguageTrack.value?.code === track.code ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
+            `,
+          })
+
+          const languageLabel = videojs.dom.createEl('span', {
+            textContent: track.name
+          })
+
+          const languageIndicator = videojs.dom.createEl('span', {
+            className: 'language-indicator',
+            textContent: currentLanguageTrack.value?.code === track.code ? '✓' : '',
+            style: `
+              color: ${currentLanguageTrack.value?.code === track.code ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
+              font-weight: bold;
+            `
+          })
+
+          languageItem.appendChild(languageLabel)
+          languageItem.appendChild(languageIndicator)
+
+          // Add click handler for language switching
+          languageItem.addEventListener('click', () => {
+            console.log('[LanguageControl] API TTS track clicked:', track)
             this.switchToLanguage(track)
             this.hideDropdown()
           })
@@ -1922,6 +2022,9 @@ function createLanguageControl() {
           target.style.backgroundColor = hasIndicator ? 'rgba(76, 175, 80, 0.2)' : 'transparent'
         }
       })
+
+      // Add intelligent TTS language options
+      addTTSOptions()
 
       return dropdown
     }
@@ -1960,7 +2063,11 @@ function createLanguageControl() {
     }
 
     switchToLanguage(track: LanguageTrack) {
+      console.log(`[LanguageControl] switchToLanguage called with track:`, track)
       console.log(`[LanguageControl] Switching to language: ${track.name} (${track.code})`)
+      console.log('[LanguageControl] Track type:', track.type)
+      console.log('[LanguageControl] Track URL:', track.url)
+
       const player = this.player()
       if (player) {
         // Get current playback state
@@ -1969,8 +2076,48 @@ function createLanguageControl() {
         const volume = player.volume()
         const playbackRate = player.playbackRate()
 
+        let videoUrl = track.url
+
+        // If this is an intelligent language switch and we have video metadata,
+        // try to construct the URL based on original video MD5 hash
+        const shouldConstructIntelligentUrl = (track.type === 'tts' || !track.url) && props.src && props.rawLang
+        console.log('[LanguageControl] Should construct intelligent URL:', shouldConstructIntelligentUrl)
+        console.log('[LanguageControl] Condition check:', {
+          trackType: track.type,
+          hasUrl: !!track.url,
+          src: props.src,
+          rawLang: props.rawLang
+        })
+
+        if (shouldConstructIntelligentUrl) {
+          // Extract MD5 hash from original video URL
+          // Expected format: /media/video/{md5_hash}.mp4 or http://host/media/video/{md5_hash}.mp4
+          const srcUrl = props.src
+          const md5Match = srcUrl.match(/\/([^\/]+)\.mp4$/)
+          if (md5Match) {
+            const md5Hash = md5Match[1]
+            const targetLang = track.code
+
+            // Construct intelligent URL: /media/video/{md5_hash}_{targetLang}.mp4
+            const intelligentUrl = `/media/video/${md5Hash}_${targetLang}.mp4`
+
+            console.log('[LanguageControl] Constructing intelligent URL:', intelligentUrl)
+            console.log('[LanguageControl] Extracted MD5 hash:', md5Hash)
+            console.log('[LanguageControl] Target language:', targetLang)
+            console.log('[LanguageControl] Original video src:', srcUrl)
+            console.log('[LanguageControl] Original video - rawLang:', props.rawLang)
+
+            // Use intelligent URL instead of API URL
+            videoUrl = intelligentUrl
+          } else {
+            console.warn('[LanguageControl] Could not extract MD5 hash from src:', srcUrl)
+            console.warn('[LanguageControl] Falling back to original track URL or empty')
+          }
+        }
+
         // Switch to new source
-        player.src(track.url)
+        console.log('[LanguageControl] Switching to language version:', track.name, 'URL:', videoUrl)
+        player.src(videoUrl)
 
         // Wait for source to be loaded, then restore playback state
         player.one('canplay', () => {
@@ -1987,7 +2134,7 @@ function createLanguageControl() {
           }
         })
 
-        currentLanguageTrack.value = track.code
+        currentLanguageTrack.value = { code: track.code, name: track.name, type: track.type }
         console.log(`[LanguageControl] Switched language to: ${track.name} (${track.code})`)
       }
     }
