@@ -177,6 +177,16 @@ export interface ConfigData {
     port: string
     use_ssl: string
   }
+  'OSS Service': {
+    oss_access_key_id: string
+    oss_access_key_secret: string
+    oss_endpoint: string
+    oss_bucket: string
+    oss_region: string
+  }
+  'TTS settings': {
+    dashscope_api_key: string
+  }
 }
 
 export interface FrontendSettings {
@@ -356,13 +366,13 @@ export async function loadConfig(): Promise<FrontendSettings> {
       remoteVidGoPort: data['Remote VidGo Service']?.port || '8000',
       remoteVidGoUseSsl: data['Remote VidGo Service']?.use_ssl === 'true',
       // OSS Service settings
-      ossAccessKeyId: data['OSS Service']?.oss_access_key_id || '',
-      ossAccessKeySecret: data['OSS Service']?.oss_access_key_secret || '',
-      ossEndpoint: data['OSS Service']?.oss_endpoint || 'oss-cn-beijing.aliyuncs.com',
-      ossBucket: data['OSS Service']?.oss_bucket || 'vidgo-test',
-      ossRegion: data['OSS Service']?.oss_region || 'cn-beijing',
+      ossAccessKeyId: data['OSS Service']?.oss_access_key_id ?? '',
+      ossAccessKeySecret: data['OSS Service']?.oss_access_key_secret ?? '',
+      ossEndpoint: data['OSS Service']?.oss_endpoint ?? '',
+      ossBucket: data['OSS Service']?.oss_bucket ?? '',
+      ossRegion: data['OSS Service']?.oss_region ?? '',
       // TTS settings
-      dashscopeApiKey: data['TTS settings']?.dashscope_api_key || '',
+      dashscopeApiKey: data['TTS settings']?.dashscope_api_key ?? '',
     }
   } catch (error) {
     console.error('Error loading config:', error)

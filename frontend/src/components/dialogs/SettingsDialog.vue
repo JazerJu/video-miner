@@ -1496,6 +1496,14 @@ const settings = reactive<FrontendSettings>({
   remoteVidGoHost: '',
   remoteVidGoPort: '8000',
   remoteVidGoUseSsl: false,
+  // OSS Service settings
+  ossAccessKeyId: '',
+  ossAccessKeySecret: '',
+  ossEndpoint: '',
+  ossBucket: '',
+  ossRegion: '',
+  // TTS settings
+  dashscopeApiKey: '',
 })
 
 const loading = ref(false)

@@ -108,6 +108,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
     'video',
     'accounts',
     'corsheaders', 
@@ -145,6 +146,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'vid_go.wsgi.application'
+ASGI_APPLICATION = 'vid_go.asgi.application'
 
 
 # 数据库配置

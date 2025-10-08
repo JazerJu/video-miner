@@ -6,7 +6,10 @@ ffmpeg-python
 opencv-python-headless
 Pillow
 openai
+# ASGI server support
 gunicorn
+# Channels for WebSocket handling
+channels>=4.0
 # Audio processing for TTS time-stretching
 librosa>=0.10.0
 soundfile>=0.12.0

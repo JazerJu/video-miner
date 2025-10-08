@@ -20,6 +20,7 @@ import StreamMediaCard from '@/components/Home/StreamMediaCard.vue'
 import EnhancedSubtitleDialog from '@/components/dialogs/EnhancedSubtitleDialog.vue' // ← 新增
 import SettingsDialog from '@/components/dialogs/SettingsDialog.vue'
 import ThumbnailDialog from '@/components/dialogs/ThumbnailDialog.vue' // ← 新增
+import RealtimeTranscriptionDialog from '@/components/dialogs/RealtimeTranscriptionDialog.vue' // ← 新增实时转录对话框
 import { useThumbnail } from '@/composables/thumbnail'
 import { useHiddenCategories } from '@/composables/useHiddenCategories'
 import { HistoryAPI } from '@/composables/HistoryAPI'
@@ -369,6 +370,11 @@ async function batchConcat() {
 }
 const showBatchMoveDialog = ref(false)
 const showBatchMoveToCollectionDialog = ref(false)
+const showRealtimeTranscriptionDialog = ref(false)
+
+function handleOpenRealtimeTranscription() {
+  showRealtimeTranscriptionDialog.value = true
+}
 async function onBatchMoved() {
   const ids = [...selectedIds.value] // 1️⃣ 复制一份待删列表
   selectedIds.value = [] // 清空勾选，让批量栏立即消失
@@ -859,6 +865,7 @@ onMounted(() => {
             <!-- 录音转写卡片 -->
             <div
               class="feature-card-hover bg-gradient-to-br from-gray-800/80 via-slate-700/80 to-blue-800/80 backdrop-blur-md rounded-2xl p-8 cursor-pointer border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 max-w-xs text-center"
+              @click="handleOpenRealtimeTranscription"
             >
               <div
                 class="w-16 h-16 mx-auto rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 bg-opacity-20 flex items-center justify-center mb-4"
@@ -1253,6 +1260,11 @@ onMounted(() => {
         </form>
       </div>
     </div>
+
+    <!-- 实时转录对话框 -->
+    <RealtimeTranscriptionDialog
+      v-model="showRealtimeTranscriptionDialog"
+    />
   </div>
 </template>
 

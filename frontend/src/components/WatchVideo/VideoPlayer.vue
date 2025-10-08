@@ -984,13 +984,16 @@ const switchLanguageTrack = (languageCode: string) => {
 
     // Wait for source to be loaded, then restore playback state
     player.one('canplay', () => {
-      player.currentTime(currentTime)
-      player.playbackRate(playbackRate)
-      player.volume(volume)
+      player?.currentTime(currentTime)
+      player?.playbackRate(playbackRate)
+      player?.volume(volume)
       if (!isPaused) {
-        player.play().catch(err => {
-          console.warn('Auto-play failed after language switch:', err)
-        })
+        const playPromise = player?.play()
+        if (playPromise) {
+          playPromise.catch(err => {
+            console.warn('Auto-play failed after language switch:', err)
+          })
+        }
       }
     })
 

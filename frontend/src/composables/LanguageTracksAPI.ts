@@ -27,11 +27,12 @@ export function useLanguageTracks() {
       isLoading.value = true
       error.value = null
 
+      const csrf = await getCSRFToken()
       const response = await fetch(`/api/video/${videoId}/languages`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRFToken': getCSRFToken(),
+          'X-CSRFToken': csrf,
         },
         credentials: 'include',
       })

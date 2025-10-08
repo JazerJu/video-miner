@@ -103,6 +103,15 @@ const audioFileInput = ref<HTMLInputElement | null>(null)
 const audioReferenceUrl = ref<string | null>(null)
 const isUploadingAudio = ref(false)
 
+// TTS voice options
+const voiceOptions = [
+  { label: '龙小春 (女声)', value: 'longxiaochun_v2' },
+  { label: '龙悦悦 (女声)', value: 'longyueyue_v2' },
+  { label: '龙傲雪 (女声)', value: 'longaoxue_v2' },
+  { label: '龙景宇 (男声)', value: 'longjingyu_v2' },
+  { label: '龙泽涛 (男声)', value: 'longzetao_v2' }
+]
+
 /** Upload reference audio file to OSS */
 const uploadReferenceAudio = async (file: File) => {
   if (!file) return
