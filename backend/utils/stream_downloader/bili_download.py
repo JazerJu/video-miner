@@ -153,8 +153,6 @@ def get_video_info(bvid: str = None, avid: str = None) -> dict:
     resp = requests.get(url, headers=headers)
     resp.raise_for_status()
     data = resp.json()['data']
-    with open('miaowu.txt', 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)   # ① obj ② fp
     pic_url = data['pic']
     title = data['title']
     duration = data['duration']
@@ -164,8 +162,7 @@ def get_video_info(bvid: str = None, avid: str = None) -> dict:
         bvid = data['bvid']
     return {'pic_url': pic_url,'owner':owner,'duration':duration, 'title': title,'bvid': bvid}
 
-# 保存 JSON 到文件
-
+# 保存 RESP-JSON 到文件
 def save_json_to_file(json_string: str, file_path: str):
     with open(file_path, 'w', encoding='utf-8') as f:
         f.write(json_string)
@@ -206,7 +203,6 @@ def get_video_url(bvid: str, cid: int, sessdata: str) -> dict:
     return json_data
 
 # 解析流媒体链接
-
 def parse_video_url(raw_vid_json: dict) -> dict:
     data = raw_vid_json.get('data', {}).get('dash', {})
     videos = data.get('video', [])

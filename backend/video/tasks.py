@@ -785,7 +785,9 @@ def download_bilibili_video(task_id: str):
     with download_status_lock:
         task = download_status[task_id]
         bvid,cid, url, title =task["bvid"], task["cid"], task["url"], task["title"]
-    
+        # ✅ 优先使用任务状态中存储的duration（前端传递的单P时长）
+        duration_seconds = task.get("duration")
+
     # Read Bilibili sessdata from config using load_all_settings function
     try:
         settings_data = load_all_settings()
@@ -794,18 +796,52 @@ def download_bilibili_video(task_id: str):
     except Exception as e:
         print(f"Error loading settings: {e}")
         sessdata = ''  # fallback to empty string if there's an error
-    
-    # 获取视频基本信息，包括缩略图URL和时长
+
+    # 获取视频基本信息（缩略图）
+    # ❌ 注意：get_video_info() 返回的 duration 是所有分P的总时长，不能使用！
+    """
+    错误示例 - get_video_info()返回的是总时长：
+    {
+        "pic_url": "http://i1.hdslb.com/bfs/archive/7384dbaa8e3012a818d022cd55213d4a9b83da53.jpg",
+        "owner": "常春藤中英字幕课",
+        "duration": 37804,  # ❌ 这是所有16个分P的总时长（10个小时）
+        "title": "从零开始构建 Linux 系统 | Build a LinuxFromScratch System",
+        "bvid": "BV1bhaizSEr2"
+    }
+
+    正确方案 - 使用 get_cid() 中每个分P的 duration：
+    [
+        {"cid": 123, "duration": 1975, "part": "Part 1"},  # ✅ 单P时长
+        {"cid": 456, "duration": 2292, "part": "Part 2"},  # ✅ 单P时长
+        ...
+    ]
+    """
     try:
+        # 如果任务状态中没有duration，则通过cid匹配获取真实的单P时长（降级方案）
+        if duration_seconds is None:
+            from utils.stream_downloader.bili_download import get_cid
+            print(f"[Fallback] Duration not provided, fetching via cid matching for cid={cid}")
+            cids, data = get_cid(bvid=bvid)
+            # 通过cid匹配找到对应的分P数据
+            for item in data:
+                if item['cid'] == cid:
+                    duration_seconds = item.get('duration', 0)
+                    print(f"[Fallback] Matched cid={cid}, duration={duration_seconds}s")
+                    break
+            else:
+                print(f"[Warning] cid={cid} not found in pagelist, using 0")
+                duration_seconds = 0
+
+        # 获取缩略图URL（仍需调用video_info，但不使用其duration字段）
         video_info = get_video_info(bvid=bvid)
         thumbnail_url = video_info.get('pic_url', '')
-        duration_seconds = video_info.get('duration', 0)
         print(f"Thumbnail URL: {thumbnail_url}")
-        print(f"Video duration: {duration_seconds} seconds")
+        print(f"Video duration (single part): {duration_seconds}s")
     except Exception as e:
         print(f"Failed to get video info: {e}")
         thumbnail_url = ''
-        duration_seconds = 0
+        if duration_seconds is None:
+            duration_seconds = 0
     
     video_file,audio_file,output_file,urls=get_direct_media_link(bvid,cid=cid,title=title,sessdata=sessdata)
 
@@ -908,7 +944,7 @@ def download_bilibili_video(task_id: str):
     
     # 格式化视频时长
     formatted_duration = format_duration(duration_seconds) if duration_seconds > 0 else None
-    
+    print(f"formatted_duration:{formatted_duration} seconds")
     # 处理流程完成后不需要再次设置merge状态
     # 保存到Video数据库中
     Video.objects.create(

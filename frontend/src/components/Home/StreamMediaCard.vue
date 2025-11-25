@@ -131,6 +131,10 @@ async function confirmDownload() {
     selectedParts.value.length === 0
       ? allCids.value
       : selectedParts.value.map((idx) => requestVideo.value!.video_data[idx].part)
+  const durations =
+    selectedParts.value.length === 0
+      ? requestVideo.value!.video_data.map((item) => item.duration)
+      : selectedParts.value.map((idx) => requestVideo.value!.video_data[idx].duration)
   const filename = requestVideo.value.title
   // 调用后端 ↓↓↓
   try {
@@ -147,6 +151,7 @@ async function confirmDownload() {
         bvid: requestVideo.value.bvid,
         cids: cids,
         parts: parts,
+        durations: durations,
         filename: filename,
       }),
     })

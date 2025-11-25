@@ -133,7 +133,7 @@ def get_whisper_cpp_paths(use_gpu: bool = None) -> Dict[str, str]:
             whisper_cpp_dir / "main-cuda",
             whisper_cpp_dir / "vulkan" / "bin" / "whisper-cli",  # Vulkan构建输出
         ])
-    # CPU作为fallback
+    # CPU作为fallback和首选（当use_gpu=false时）
     candidate_bins.append(whisper_cpp_dir / "main-cpu")
 
     # 选择二进制
@@ -153,6 +153,12 @@ def get_whisper_cpp_paths(use_gpu: bool = None) -> Dict[str, str]:
             has_cuda = (detected_gpu_type == 'cuda')
             gpu_type = detected_gpu_type
             print(f"[whisper.cpp] ✅ 选中GPU版本: {bin_path.name} (类型: {detected_gpu_type.upper()})")
+            break
+        elif not use_gpu and 'cpu' in bin_path.name:
+            # CPU模式：优先选择明确标记为CPU的二进制
+            selected_bin = bin_path
+            gpu_type = 'cpu'
+            print(f"[whisper.cpp] ℹ️  选中CPU版本: {bin_path.name}")
             break
         elif not use_gpu and not has_gpu:
             # CPU模式：选择第一个不支持GPU的

@@ -198,12 +198,13 @@ class DownloadActionView(View):
         if "bilibili" in url:
             bvid  = payload.get('bvid')
             cids = payload.get('cids',"1111")
-            parts = payload.get('parts')   
+            parts = payload.get('parts')
+            durations = payload.get('durations', [])  # 前端传递的duration列表
             filename = payload.get('filename')
             if not bvid:
                 return HttpResponseBadRequest('Missing "bvid"')
             # 调用B站 api下载视频
-            return self.enqueue_download_task(request,bvid,cids,parts,filename)
+            return self.enqueue_download_task(request,bvid,cids,parts,durations,filename)
         elif "youtube" in url:
             video_id = payload.get('bvid')  # YouTube video ID stored in bvid field
             filename = payload.get('filename')
@@ -220,8 +221,9 @@ class DownloadActionView(View):
             return self.enqueue_podcast_download_task(request, url, episode_id, filename)
         else:
             return JsonResponse({'error': 'Unsupported URL platform'}, status=400)
-    def enqueue_download_task(self, request,bvid, cids: list,parts,filename):
-        # sessdata不在这里传入，默认已经最新
+    def enqueue_download_task(self, request,bvid, cids: list,parts,durations,filename):
+        # B站下载任务创建，项目中第一个流媒体实现，函数名enqueue_download_task,没有bili.
+        # sessdata不在这里传入，默认已经最新。
         # sessdata=config.sessdata
         # 2. 构造视频完整页面 URL（可选）
         url = f"https://www.bilibili.com/video/{bvid}"
@@ -231,15 +233,20 @@ class DownloadActionView(View):
         for idx,cid in enumerate(cids,start=1):
             task_id_per_cid=str(task_id)+str(idx)
             title=f"{filename}-p{idx}-{parts[idx-1]}"
+
+            # 获取当前分P的duration（优先使用前端传递的，如果没有则为None由后端获取）
+            duration = durations[idx-1] if idx-1 < len(durations) else None
+
             with download_status_lock:
                 download_status[task_id_per_cid] = {
                     "bvid": bvid,
                     "title":title,
                     "url":  url,
                     "cid": cid,
+                    "duration": duration,  # 存储duration到任务状态
                     **_new_download_status(),
                 }
-            print(idx,cid,filename)
+            print(f"Task {idx}: cid={cid}, duration={duration}s")
 
             # 4. 推送到后台队列
             download_queue.put(task_id_per_cid)

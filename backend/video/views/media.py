@@ -116,8 +116,9 @@ class MediaActionView(View):
                 print(f"[MediaActionView] Invalid time parameter: {time_param}")
                 initial_seek_time = None
         
-        # Memory limit configuration
-        CHUNK_SIZE = 8192 * 8  # 64KB chunks - adjust based on your needs
+        # Memory limit configuration - Optimized for large files (>1GB)
+        # 2MB chunks significantly reduce I/O operations: 1.5GB file = 750 I/O ops (vs 24576 with 64KB)
+        CHUNK_SIZE = 2 * 1024 * 1024  # 2MB chunks for efficient streaming
         MAX_RANGE_SIZE = 100 * 1024 * 1024  # Max 100MB per range request
         
         print(f"[MediaActionView] Serving video: {filename}")
@@ -230,8 +231,8 @@ class MediaActionView(View):
         content_type, _ = mimetypes.guess_type(file_path)
         content_type = content_type or "application/octet-stream"
         
-        # Memory limit configuration  
-        CHUNK_SIZE = 8192 * 4  # 32KB chunks for audio
+        # Memory limit configuration - Optimized for audio streaming
+        CHUNK_SIZE = 512 * 1024  # 512KB chunks for efficient audio streaming
         MAX_RANGE_SIZE = 10 * 1024 * 1024  # Max 10MB per range request
 
         range_header = request.headers.get("Range")

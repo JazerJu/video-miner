@@ -28,6 +28,7 @@ from .views.external_transcription import (
 from .views.realtime_subtitles import RealtimeSubtitleView, RealtimeSubtitleStreamView
 from .views.tts import TTSGenerateView, AllTTSStatusView, TTSStatusView, DeleteTTSTaskView, RetryTTSTaskView, VideoLanguageTracksView
 from .views.tts_audio_upload import TTSAudioUploadView
+from .views.extract_insights import extract_insights
 from django.views.decorators.csrf import csrf_exempt,get_token,ensure_csrf_cookie
 from .tasks import SubtitleTaskStatusView
 from .views import stream_media
@@ -190,4 +191,7 @@ urlpatterns = [
     path('api/realtime_subtitle/start/<int:video_id>', RealtimeSubtitleView.as_view(), name='realtime_subtitle_start'),
     path('api/realtime_subtitle/status/<str:task_id>', RealtimeSubtitleView.as_view(), name='realtime_subtitle_status'),
     path('api/realtime_subtitle/stream/<str:task_id>', RealtimeSubtitleStreamView.as_view(), name='realtime_subtitle_stream'),
+
+    # 🆕 智能内容提取（待办事项和关键要点）
+    path('api/extract_insights', extract_insights, name='extract_insights'),
 ]
