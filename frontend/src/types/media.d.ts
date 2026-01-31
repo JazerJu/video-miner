@@ -14,6 +14,7 @@ export interface Video {
   length: string
   last_modified: string
   description: string
+  tags?: string[]
   type: 'video' // Type discriminator for union types
 }
 
