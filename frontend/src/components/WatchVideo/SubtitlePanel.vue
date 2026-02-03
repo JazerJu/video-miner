@@ -17,9 +17,6 @@ const {
   fetchSubtitle,
 } = useSubtitles()
 
-const editingOriginalText = ref<string>('') // to store the pre-edit text
-const editingIndex = ref<number>(-1)
-
 // parse & read subtitles
 const uploadSubtitles = (event: Event): void => {
   const input = event.target as HTMLInputElement // Get precise type
@@ -62,46 +59,16 @@ const uploadSubtitles = (event: Event): void => {
   reader.readAsText(file)
 }
 
-const editSubtitle = (i: number): void => {
-  // Save original text of the subtitle being edited
-  editingOriginalText.value = subtitles.value[i].text
-  editingIndex.value = i
-}
-
 // 使用v-model代理，保持与TabbedPanel的状态同步
 const showTranslationProxy = computed({
   get: () => props.showTranslation ?? false,
   set: (value: boolean) => emit('update:showTranslation', value),
 })
 const autoScroll = ref(false)
+const compactMode = ref(false)
 
 // Enhanced subtitle dialog state
 const showEnhancedSubtitleDialog = ref(false)
-
-const saveSubtitle = async (i: number) => {
-  editingIndex.value = -1
-
-  // 根据当前显示的是原文还是译文，决定修改哪个字幕数组和推送到哪个语言
-  const currentSubtitles = showTranslationProxy.value ? foreignSub : subtitles
-  const targetLang = showTranslationProxy.value
-    ? userInterfaceLanguage.value
-    : props.rawLang || 'zh'
-
-  // 检查当前字幕内容是否改变
-  const hasChanged = currentSubtitles.value[i].text !== editingOriginalText.value
-
-  if (hasChanged) {
-    console.log(`检测到字幕变化，保存到 ${targetLang} 语言...`)
-    try {
-      await linkSubtitles(props.id, targetLang, currentSubtitles)
-      console.log('字幕上传成功')
-    } catch (error) {
-      console.error('字幕上传失败:', error)
-    }
-  } else {
-    console.log('字幕内容未改变，跳过上传')
-  }
-}
 
 const props = defineProps<{
   currentTime: number
@@ -157,6 +124,16 @@ onMounted(async () => {
   } catch (error) {
     console.warn('Failed to load user config, using default zh:', error)
     userInterfaceLanguage.value = 'zh'
+  }
+
+  // Load compact mode preference from localStorage
+  try {
+    const savedCompactMode = localStorage.getItem('subtitleCompactMode')
+    if (savedCompactMode !== null) {
+      compactMode.value = savedCompactMode === 'true'
+    }
+  } catch (error) {
+    console.warn('Failed to load compact mode preference:', error)
   }
 
   // Set loading state to prevent race conditions
@@ -324,6 +301,8 @@ watch(
 // 用于实现文本的自动滚动 //
 // ① 用数组收集 v-for 产生的行元素
 const rowRefs = ref<(HTMLElement | null)[]>([])
+// 字幕列表容器的 ref
+const subtitlesContainerRef = ref<HTMLElement | null>(null)
 
 // 计算全局字幕索引（考虑章节分组）
 const globalActiveIndex = computed(() => {
@@ -345,33 +324,50 @@ const globalActiveIndex = computed(() => {
   return -1
 })
 
-// ③ 当活动索引变化 ⇒ 滚动（使用全局索引）
+// ③ 当活动索引变化 ⇒ 仅在容器内部滚动，不影响页面
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+
+// Watch compact mode changes and save to localStorage
+watch(compactMode, (newValue) => {
+  try {
+    localStorage.setItem('subtitleCompactMode', newValue.toString())
+  } catch (error) {
+    console.warn('Failed to save compact mode preference:', error)
+  }
+})
+
 watch(globalActiveIndex, (idx, oldIdx) => {
   if (!autoScroll.value || idx === -1 || idx === oldIdx) return
-  
+
   // Clear previous scroll timeout to prevent multiple scroll operations
   if (scrollTimeout) {
     clearTimeout(scrollTimeout)
   }
-  
+
   // Debounce scroll operations to make them smoother
   scrollTimeout = setTimeout(() => {
     nextTick(() => {
+      const container = subtitlesContainerRef.value
       const el = rowRefs.value[idx]
-      if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      }
+      if (!container || !el) return
+
+      // 计算元素相对于容器的偏移位置
+      const containerRect = container.getBoundingClientRect()
+      const elRect = el.getBoundingClientRect()
+
+      // 计算元素在容器内的相对位置
+      const elRelativeTop = elRect.top - containerRect.top + container.scrollTop
+
+      // 计算居中滚动位置：元素顶部 - 容器高度的一半 + 元素高度的一半
+      const scrollTop = elRelativeTop - containerRect.height / 2 + elRect.height / 2
+
+      // 仅滚动容器内部，不影响页面
+      container.scrollTo({
+        top: Math.max(0, scrollTop),
+        behavior: 'smooth',
+      })
     })
   }, 100) // 100ms debounce delay
-})
-
-// ④ 当切换原文/译文时，取消编辑状态
-watch(showTranslationProxy, () => {
-  if (editingIndex.value !== -1) {
-    editingIndex.value = -1 // 取消编辑状态
-    console.log('切换语言显示，取消编辑状态')
-  }
 })
 
 // 根据章节分组字幕
@@ -471,39 +467,64 @@ function handleSubtitleDialogSubmitted() {
                 </label>
               </el-dropdown-item>
 
-              <!-- Language Toggle Option -->
-              <el-dropdown-item>
-                <div class="flex items-center space-x-3">
-                  <span class="text-sm text-slate-600 font-medium">原文</span>
-                  <el-switch
-                    v-model="showTranslationProxy"
-                    active-color="#3b82f6"
-                    inactive-color="#475569"
-                    size="small"
-                  />
-                  <span class="text-sm text-slate-600 font-medium">翻译</span>
-                </div>
-              </el-dropdown-item>
-            </el-dropdown-menu>
+               <!-- Language Toggle Option -->
+               <el-dropdown-item>
+                 <div class="flex items-center space-x-3">
+                   <span class="text-sm text-slate-600 font-medium">原文</span>
+                   <el-switch
+                     v-model="showTranslationProxy"
+                     active-color="#3b82f6"
+                     inactive-color="#475569"
+                     size="small"
+                   />
+                   <span class="text-sm text-slate-600 font-medium">翻译</span>
+                 </div>
+               </el-dropdown-item>
+
+               <!-- Compact Mode Toggle Option -->
+               <el-dropdown-item>
+                 <div class="flex items-center justify-between w-full">
+                   <span class="text-sm text-slate-600 font-medium">紧凑模式</span>
+                   <el-switch
+                     v-model="compactMode"
+                     active-color="#10b981"
+                     inactive-color="#475569"
+                     size="small"
+                   />
+                 </div>
+               </el-dropdown-item>
+             </el-dropdown-menu>
           </template>
         </el-dropdown>
       </div>
     </div>
 
     <!-- List -->
-    <div class="max-h-96 overflow-y-auto space-y-3 custom-scrollbar">
+    <div
+      ref="subtitlesContainerRef"
+      :class="[
+        'overflow-y-auto custom-scrollbar',
+        compactMode ? 'max-h-[384px] space-y-1' : 'max-h-96 space-y-3'
+      ]"
+    >
       <!-- 按章节分组显示字幕 -->
       <template v-for="(group, groupIndex) in subtitlesByChapter" :key="groupIndex">
         <!-- 章节分隔符 -->
         <div v-if="group.chapter" class="relative">
           <!-- 亮色分隔线 -->
           <div
-            class="h-5 bg-gradient-to-r from-emerald-500 via-blue-500 to-purple-500 rounded-lg opacity-80 shadow-lg border border-white/20"
+            :class="[
+              'bg-gradient-to-r from-emerald-500 via-blue-500 to-purple-500 rounded-lg opacity-80 shadow-lg border border-white/20',
+              compactMode ? 'h-3' : 'h-5'
+            ]"
           ></div>
           <!-- 章节名称 -->
           <div class="absolute inset-0 flex items-center justify-center">
             <span
-              class="bg-slate-800/95 px-4 py-1 rounded-full text-sm font-semibold text-white shadow-lg border border-slate-600/50 backdrop-blur-sm"
+              :class="[
+                'font-semibold text-white shadow-lg border border-slate-600/50 backdrop-blur-sm rounded-full',
+                compactMode ? 'bg-slate-800/95 px-2 py-0.5 text-[10px]' : 'bg-slate-800/95 px-4 py-1 text-sm'
+              ]"
             >
               {{ group.chapter.title }}
             </span>
@@ -513,11 +534,17 @@ function handleSubtitleDialogSubmitted() {
         <!-- 前置内容标识 (在第一个章节之前的字幕) -->
         <div v-else-if="groupIndex === 0 && group.subtitles.length > 0" class="relative">
           <div
-            class="h-5 bg-gradient-to-r from-gray-500 via-slate-600 to-gray-500 rounded-lg opacity-60 shadow-lg border border-white/10"
+            :class="[
+              'bg-gradient-to-r from-gray-500 via-slate-600 to-gray-500 rounded-lg opacity-60 shadow-lg border border-white/10',
+              compactMode ? 'h-3' : 'h-5'
+            ]"
           ></div>
           <div class="absolute inset-0 flex items-center justify-center">
             <span
-              class="bg-slate-800/95 px-4 py-1 rounded-full text-sm font-medium text-slate-300 shadow-lg border border-slate-600/50 backdrop-blur-sm"
+              :class="[
+                'font-medium text-slate-300 shadow-lg border border-slate-600/50 backdrop-blur-sm rounded-full',
+                compactMode ? 'bg-slate-800/95 px-2 py-0.5 text-[10px]' : 'bg-slate-800/95 px-4 py-1 text-sm'
+              ]"
             >
               开场内容
             </span>
@@ -539,60 +566,28 @@ function handleSubtitleDialogSubmitted() {
             }
           "
           @click="emit('seek', s.start)"
-          @dblclick="
-            editSubtitle(
-              // 计算在原始数组中的索引
-              (showTranslationProxy ? foreignSub : subtitles).findIndex(
-                (sub) => sub.start === s.start && sub.text === s.text,
-              ),
-            )
-          "
-          class="p-4 rounded-xl cursor-pointer hover:bg-slate-700/30 transition-all duration-200 border-l-4 backdrop-blur-sm"
-          :class="
+          :class="[
+            'rounded-xl cursor-pointer hover:bg-slate-700/30 transition-all duration-200 border-l-4 backdrop-blur-sm',
+            compactMode ? 'p-2' : 'p-4',
             isActive(s)
               ? 'border-blue-500 bg-blue-900/30 shadow-lg'
               : 'border-slate-600/30 hover:border-slate-500/50'
-          "
+          ]"
         >
-          <div
-            v-if="
-              editingIndex ===
-              (showTranslationProxy ? foreignSub : subtitles).findIndex(
-                (sub) => sub.start === s.start && sub.text === s.text,
-              )
-            "
-            class="space-y-2"
-          >
-            <div class="flex justify-between items-center">
-              <span class="text-xs font-mono text-blue-400 bg-slate-700/50 px-2 py-1 rounded-md">{{
-                formatTime(s.start)
-              }}</span>
-              <button
-                @click.stop="
-                  saveSubtitle(
-                    (showTranslationProxy ? foreignSub : subtitles).findIndex(
-                      (sub) => sub.start === s.start && sub.text === s.text,
-                    ),
-                  )
-                "
-                class="text-xs text-green-400 hover:text-green-300 bg-green-600/20 hover:bg-green-600/30 px-3 py-1 rounded-lg transition-colors"
-              >
-                保存
-              </button>
-            </div>
-            <textarea
-              v-model="s.text"
-              @click.stop
-              class="w-full resize-none bg-slate-700/50 border border-slate-600/50 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400"
-              rows="2"
-            ></textarea>
-          </div>
-          <div v-else class="flex items-start gap-3">
+          <div :class="['flex items-start', compactMode ? 'gap-2' : 'gap-3']">
             <span
-              class="text-xs font-mono text-blue-400 bg-slate-700/50 px-2 py-1 rounded-md whitespace-nowrap"
-              >{{ formatTime(s.start) }}</span
+              :class="[
+                'font-mono text-blue-400 bg-slate-700/50 rounded-md whitespace-nowrap',
+                compactMode ? 'text-[10px] px-1 py-0.5' : 'text-xs px-2 py-1'
+              ]"
+            >{{ formatTime(s.start) }}</span
             >
-            <p class="text-slate-200 leading-relaxed flex-1">{{ s.text }}</p>
+            <p
+              :class="[
+                'flex-1',
+                compactMode ? 'text-sm leading-tight text-slate-200' : 'text-slate-200 leading-relaxed'
+              ]"
+            >{{ s.text }}</p>
           </div>
         </div>
       </template>

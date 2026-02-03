@@ -1,14 +1,14 @@
 import { ref } from 'vue'
-import type { Video, Collection } from '@/types/media'
+import type { Video } from '@/types/media'
 
 export function useThumbnail() {
   const showThumbnailDialog = ref(false)
   const currentVideo = ref<Video | null>(null)
-  const thumbnailTarget = ref<Video | Collection | null>(null)
+  const thumbnailTarget = ref<Video | null>(null)
 
-  function onEditThumbnail(target: Video | Collection) {
+  function onEditThumbnail(target: Video) {
     console.log('onEditThumbnail called with target:', target)
-    currentVideo.value = target as Video
+    currentVideo.value = target
     thumbnailTarget.value = target
     showThumbnailDialog.value = true
   }

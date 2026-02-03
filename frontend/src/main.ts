@@ -15,6 +15,7 @@ import zh from '@/locales/zh'
 import ElementPlus from 'element-plus'
 import enEl from 'element-plus/es/locale/lang/en'
 import zhEl from 'element-plus/es/locale/lang/zh-cn'
+import { notification } from '@/composables/useNotification'
 
 import 'element-plus/dist/index.css'
 import '@/assets/tailwind.css' // <-  if you keep Tailwind
@@ -50,6 +51,9 @@ app.config.errorHandler = (err, instance, info) => {
 app.use(i18n)
 app.use(ElementPlus, { locale: i18n.global.locale.value === 'zh' ? zhEl : enEl })
 app.use(router)
+
+app.config.globalProperties.$notify = notification
+app.provide('notification', notification)
 
 // 挂载应用并暴露到全局，方便调试和外部访问
 const vueApp = app.mount('#app')

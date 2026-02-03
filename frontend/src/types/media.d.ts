@@ -3,32 +3,26 @@
 export interface Category {
   id: number
   name: string
-  items: MediaItem[] | Null
+  items: Video[] | Null
 }
 
 export interface Video {
   id: number
   name: string
-  thumbnail: string
+  thumbnail: string  // 缩略图文件名
+  thumbnail_url?: string  // 后端返回的完整缩略图字段
   url: string
   length: string
+  video_length_seconds?: number
+  file_size?: number
+  file_created_time?: string
   last_modified: string
   description: string
   tags?: string[]
   type: 'video' // Type discriminator for union types
+  categoryId?: number | null
+  categoryName?: string | null
 }
-
-export interface Collection {
-  id: number
-  name: string
-  videos: Video[]
-  type: 'collection' // Type discriminator for union types
-  thumbnail: string
-  cover?: string
-  last_modified: string
-}
-
-export type MediaItem = Video | Collection // Union type for folder display
 
 export interface VideoInfoData {
   id: number
@@ -39,6 +33,7 @@ export interface VideoInfoData {
   videoLength: string
   lastModified: string
   rawLang?: string // raw_lang from backend ('en', 'zh', 'jp')
+  last_played_time?: number
 }
 
 // Task Items
@@ -62,7 +57,6 @@ export interface RequestVideo {
   url: string
   title: string
   thumbnail: string
-  collectionCount: number
   duration: number
   owner: string
   /** List of all video parts/episodes */

@@ -1,12 +1,20 @@
 <!-- 视频播放器核心组件 -->
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { generateVTT } from '@/composables/Buildvtt'
+import { useSubtitles } from '@/composables/useSubtitles'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import videojs from 'video.js'
 import type Player from 'video.js/dist/types/player'
 import { ChapterAPI } from '@/composables/ChapterAPI'
 import { useLanguageTracks, type LanguageTrack } from '@/composables/LanguageTracksAPI'
 import { Languages } from 'lucide-vue-next'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
+import { ElDropdown, ElDropdownMenu, ElDropdownItem, ElSwitch, ElButton, ElIcon } from 'element-plus'
+import { ArrowDown, Check, Setting } from '@element-plus/icons-vue'
+import { useMediaFiles } from '@/composables/useMediaFiles'
+
+const { fetchSubtitle } = useSubtitles()
+const { checkDubbingFile, checkSubtitleExistence } = useMediaFiles()
 
 const props = defineProps<{
   src: string
@@ -14,21 +22,245 @@ const props = defineProps<{
   videoId?: number // Add video ID for chapter loading
   rawLang?: string // Original language of the video (e.g., 'en', 'zh')
   videoName?: string // Original video filename for URL construction
+  showChapterMarkers?: boolean // Control chapter marker visibility
 }>()
-const emit = defineEmits<{ 
+
+const dubbingLang = ref<string | null>(null)
+const subtitleLang = ref<string | null>(null)
+const isBilingual = ref(false)
+const availableDubbings = ref<Record<string, boolean>>({})
+const availableSubtitles = ref<Record<string, boolean>>({})
+const playerReady = ref(false)
+
+const checkFiles = async () => {
+  if (!props.src || !props.videoId) return
+  
+  // Check dubbings
+  const langs = ['zh', 'en', 'ja']
+  for (const lang of langs) {
+    if (lang !== props.rawLang) {
+      availableDubbings.value[lang] = await checkDubbingFile(props.src, lang)
+    }
+  }
+  
+  // Check subtitles
+  for (const lang of langs) {
+    availableSubtitles.value[lang] = await checkSubtitleExistence(props.videoId, lang)
+  }
+}
+
+const loadSubtitleSettings = async () => {
+  // Placeholder for loading settings from local storage or API
+  console.log('Loading subtitle settings...')
+}
+
+const injectGlobalSubtitleStyles = () => {
+  const style = document.createElement('style')
+  style.id = 'vidgo-subtitle-styles'
+  style.textContent = `
+    .video-js .vjs-text-track-display div {
+      font-family: "Microsoft YaHei", sans-serif;
+      text-shadow: 0 0 4px rgba(0,0,0,0.8);
+    }
+  `
+  if (!document.getElementById('vidgo-subtitle-styles')) {
+    document.head.appendChild(style)
+  }
+}
+
+const emit = defineEmits<{
   (e: 'time-update', t: number): void
   (e: 'autoplay-next'): void
   (e: 'autoplay-settings-changed', enabled: boolean): void
   (e: 'fullscreen-change', isFullscreen: boolean): void
+  (e: 'open-subtitle-settings'): void
 }>()
 
-// 使用字幕样式composable
-const { subtitleSettings, loadSubtitleSettings, injectGlobalSubtitleStyles, cleanup: cleanupSubtitleStyles } = useSubtitleStyle()
+const handleDubbingChange = (command: string | null) => {
+  dubbingLang.value = command
+  if (command === null) {
+    // Switch to original
+    if (player) {
+        const currentTime = player.currentTime()
+        const isPaused = player.paused()
+        const volume = player.volume()
+        const playbackRate = player.playbackRate()
+        
+        player.src(props.src)
+        
+        player.one('canplay', () => {
+            player?.currentTime(currentTime)
+            player?.volume(volume)
+            player?.playbackRate(playbackRate)
+            if (!isPaused) player?.play()
+        })
+    }
+  } else {
+    // Switch to dubbed
+    const match = props.src.match(/\/([^\/]+)\.mp4$/)
+    if (match) {
+        const md5 = match[1]
+        const dubbedUrl = props.src.replace(`${md5}.mp4`, `${md5}_${command}.mp4`)
+        if (player) {
+            const currentTime = player.currentTime()
+            const isPaused = player.paused()
+            const volume = player.volume()
+            const playbackRate = player.playbackRate()
+            
+            player.src(dubbedUrl)
+            
+            player.one('canplay', () => {
+                player?.currentTime(currentTime)
+                player?.volume(volume)
+                player?.playbackRate(playbackRate)
+                if (!isPaused) player?.play()
+            })
+        }
+    }
+  }
+}
 
-// 使用语言轨道composable
-const { fetchLanguageTracks, isLoading: languageTracksLoading, error: languageTracksError } = useLanguageTracks()
-const languageTracks = ref<LanguageTrack[]>([])
-const currentLanguageTrack = ref<{ code: string; name: string; type?: string } | null>(null)
+const handleSubtitleChange = async (command: string | null) => {
+    subtitleLang.value = command
+    
+    if (command && player) {
+        const trackId = `dynamic-vtt-${command}`
+        const tracks = Array.from(player.textTracks() as any)
+        let track = tracks.find((t: any) => t.id === trackId)
+        
+        // If track not found by ID, check if it matches Primary/Translation
+        if (!track) {
+             if (command === props.rawLang) {
+                track = tracks.find((t: any) => t.id === 'dynamic-vtt-Primary')
+             } else {
+                // Check if Translation track matches this language?
+                // We don't know the language of Translation track easily without checking SubtitlePanel state.
+                // But we can try to fetch and add a specific track for this language.
+             }
+        }
+
+        if (!track) {
+            // Fetch and add
+            try {
+                if (props.videoId) {
+                    const subs = await fetchSubtitle(props.videoId, command)
+                    if (subs && subs.length > 0) {
+                        const vttUrl = generateVTT(command as any, [subs])
+                        player.addRemoteTextTrack({
+                            id: trackId,
+                            kind: 'subtitles',
+                            label: command,
+                            language: command,
+                            src: vttUrl,
+                            default: false
+                        })
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load subtitle:', e)
+            }
+        }
+    }
+    
+    updateSubtitleDisplay()
+}
+
+const toggleBilingual = (val: boolean) => {
+    isBilingual.value = val
+    updateSubtitleDisplay()
+}
+
+const updateSubtitleDisplay = () => {
+    if (!player) return
+    
+    // Hide all tracks first
+    const tracks = Array.from(player.textTracks() as any)
+    tracks.forEach((t: any) => t.mode = 'hidden')
+    
+    if (!subtitleLang.value) return // Off
+
+    // Logic:
+    // If bilingual is ON: show 'both' track if available, else show single track
+    // If bilingual is OFF: show single track
+    
+    // We rely on updateSubtitleTracks to have added the tracks with specific IDs or labels
+    // The existing updateSubtitleTracks adds:
+    // id: dynamic-vtt-Primary (index 0)
+    // id: dynamic-vtt-Translation (index 1)
+    // id: dynamic-vtt-Both (index 2)
+    
+    // But wait, the existing logic assumes:
+    // Primary = props.blobUrls[0] (usually Chinese/Original)
+    // Translation = props.blobUrls[1] (usually English/UserLang)
+    // Both = props.blobUrls[2]
+    
+    // If I select "English" (which might be Translation), I want to show Translation track.
+    // If I select "Chinese" (Primary), I want Primary track.
+    // If I select "Japanese", and it's not in blobUrls, I can't show it unless I fetch it.
+    
+    // CURRENT LIMITATION: I can only switch between what's loaded in blobUrls.
+    // blobUrls comes from SubtitlePanel.
+    // SubtitlePanel loads Primary (rawLang) and Translation (userLang).
+    // If user selects a 3rd language, it won't work with current architecture unless I update SubtitlePanel.
+    
+    // For now, I will map the selection to the available tracks.
+    // 'zh' -> Primary (if rawLang is zh) or Translation (if userLang is zh)
+    // 'en' -> Primary (if rawLang is en) or Translation (if userLang is en)
+    
+    // To make this robust, I should probably just toggle the tracks based on what they contain.
+    // But I don't know what language 'Primary' is without checking props.rawLang.
+    
+    // Let's assume:
+    // Primary = props.rawLang (default 'zh')
+    // Translation = 'en' (or whatever user set)
+    
+    // If I select 'zh':
+    // If rawLang == 'zh', show Primary.
+    // Else if userLang == 'zh', show Translation.
+    
+    // If isBilingual is true:
+    // Show 'Both' track.
+    
+    if (isBilingual.value) {
+        const bothTrack = tracks.find((t: any) => t.id === 'dynamic-vtt-Both') as any
+        if (bothTrack) {
+            bothTrack.mode = 'showing'
+            return
+        }
+    }
+    
+    // Single language
+    // Find track with matching language
+    // video.js tracks have .language property.
+    // updateSubtitleTracks sets .language to 'primary' or 'translation'.
+    // This is not standard language code.
+    
+    // I need to know which track corresponds to which language.
+    // props.rawLang is Primary.
+    // I don't know Translation language easily here (it's in SubtitlePanel).
+    
+    // HACK: Just try to match standard codes if possible, or fallback to Primary/Translation logic.
+    // Since I can't easily change SubtitlePanel right now, I will implement a simplified logic:
+    // If subtitleLang is 'zh', try to find a track that is Chinese.
+    // But the tracks are labeled '原文', '译文'.
+    
+    // I will modify updateSubtitleTracks to set the correct language code if possible, 
+    // OR I will just assume:
+    // If subtitleLang == props.rawLang -> Primary
+    // Else -> Translation
+    
+    let targetId = ''
+    if (subtitleLang.value === props.rawLang) {
+        targetId = 'dynamic-vtt-Primary'
+    } else {
+        targetId = 'dynamic-vtt-Translation'
+    }
+    
+    const track = tracks.find((t: any) => t.id === targetId) as any
+    if (track) {
+        track.mode = 'showing'
+    }
+}
 
 const TRACK_PREFIX = 'dynamic-vtt-'
 
@@ -200,6 +432,9 @@ const currentChapter = ref<Chapter | null>(null)
 const isAutoPlayEnabled = ref(false)
 const isBackgroundPlayEnabled = ref(false)
 
+// Chapter marker visibility state (from prop with default)
+const showChapterMarkers = computed(() => props.showChapterMarkers ?? true)
+
 // Hotkey and hint system
 const currentSubtitleTrack = ref(0)
 const hotkeyHintVisible = ref(false)
@@ -212,7 +447,7 @@ defineExpose({
   seek: (t: number) => player?.currentTime(t),
   pause: () => player?.pause(),
   play: () => player?.play(),
-  currentTime: getCurrentTime,
+  currentTime: () => player?.currentTime() ?? 0,
 })
 
 function updateSubtitleTracks(player: Player | null, urls: (string | undefined)[] | undefined) {
@@ -309,7 +544,7 @@ function updateSubtitleTracks(player: Player | null, urls: (string | undefined)[
 }
 
 // Hotkey functionality
-function setupHotkeys() {
+function setupHotkeys(): () => void {
   const handleKeydown = (e: KeyboardEvent) => {
     // Only handle hotkeys if no input elements are focused and no modals/dropdowns are open
     const activeElement = document.activeElement
@@ -322,43 +557,30 @@ function setupHotkeys() {
     
     if (isInputFocused || isDropdownOpen || !player) return
 
-    switch (e.key) {
+    switch (e.key.toLowerCase()) {
       case ' ':
         e.preventDefault()
         togglePlayPause()
         showHotkeyHint(player.paused() ? 'Space - Paused' : 'Space - Playing')
         break
-      case 'ArrowLeft':
+      case 'arrowleft':
         e.preventDefault()
         seekBySeconds(-5)
         showHotkeyHint('← -5s')
         break
-      case 'ArrowRight':
+      case 'arrowright':
         e.preventDefault()
         seekBySeconds(5)
         showHotkeyHint('→ +5s')
         break
       case 'f':
-      case 'F':
-        // Only handle F key for fullscreen if Ctrl is not pressed
-        // This allows Ctrl+F to pass through for subtitle search
-        if (!e.ctrlKey && !e.metaKey) {
-          e.preventDefault()
-          toggleFullscreen()
-          showHotkeyHint(player.isFullscreen() ? 'F - Fullscreen' : 'F - Windowed')
-        }
+        e.preventDefault()
+        toggleFullscreen()
+        showHotkeyHint(player.isFullscreen() ? 'F - Exit Fullscreen' : 'F - Enter Fullscreen')
         break
-      case 'c':
-      case 'C':
-        // Only handle C key for subtitle cycling if Ctrl is not pressed
-        // This allows Ctrl+C to pass through for copy functionality
-        if (!e.ctrlKey && !e.metaKey) {
-          e.preventDefault()
-          cycleSubtitles()
-        }
-        break
-    }
-  }
+// Removed C key handler
+    } // Switch statement closing
+   } // handleKeydown function closing
 
   document.addEventListener('keydown', handleKeydown)
   
@@ -393,47 +615,15 @@ function togglePlayPause() {
   }
 }
 
-function cycleSubtitles() {
+function handleVideoDoubleClick(e: MouseEvent) {
   if (!player) return
-  
-  const textTracks = player.textTracks()
-  const availableTracks: any[] = []
-  
-  // Find all subtitle tracks - convert TextTrackList to array
-  const trackArray = Array.from(textTracks as any) as any[]
-  for (const track of trackArray) {
-    if ((track as any).kind === 'subtitles') {
-      availableTracks.push(track)
-    }
-  }
-  
-  if (availableTracks.length === 0) {
-    showHotkeyHint('C - No subtitles available')
-    return
-  }
-  
-  // Turn off all tracks first
-  for (const track of trackArray) {
-    if ((track as any).kind === 'subtitles') {
-      (track as any).mode = 'hidden'
-    }
-  }
-  
-  // Cycle to next track or turn off if at the end
-  const totalTracks = availableTracks.length + 1 // +1 for "off" state
-  currentSubtitleTrack.value = (currentSubtitleTrack.value + 1) % totalTracks
-  
-  if (currentSubtitleTrack.value === 0) {
-    // "Off" state - all subtitles hidden
-    showHotkeyHint('C - Subtitles: Off')
-  } else {
-    // Enable specific track
-    const trackIndex = currentSubtitleTrack.value - 1
-    const track = availableTracks[trackIndex]
-    track.mode = 'showing'
-    showHotkeyHint(`C - ${track.label}`)
-  }
+  e.preventDefault()
+  e.stopPropagation()
+  togglePlayPause()
+  showHotkeyHint(player.paused() ? 'Paused' : 'Playing')
 }
+
+// Removed cycleSubtitles
 
 function showHotkeyHint(text: string) {
   hotkeyHintText.value = text
@@ -629,6 +819,25 @@ function setupBackgroundPlay() {
 }
 
 /* ---------- mount ---------- */
+// Custom Vue Control Bar Component
+const createVueControlBarComponent = () => {
+  const vjsComponent = videojs.getComponent('Component')
+  class VueControlBarComponent extends vjsComponent {
+    constructor(player: Player, options?: any) {
+      super(player, options)
+      this.addClass('vjs-vue-control-bar-component')
+    }
+    createEl() {
+      return videojs.dom.createEl('div', {
+        id: 'vue-custom-controls',
+        className: 'vjs-vue-custom-controls',
+        style: 'display: flex; align-items: center; height: 100%; margin-right: 10px;'
+      })
+    }
+  }
+  videojs.registerComponent('VueControlBarComponent', VueControlBarComponent)
+}
+
 let hotkeyCleanup: (() => void) | null = null
 
 onMounted(async () => {
@@ -640,11 +849,9 @@ onMounted(async () => {
   // Register custom components
   createEditableTimeDisplay()
   createCameraSnapshotControl()
-  createLanguageControl()
   createVideoSpeedControl()
-  createPlayModeToggleControl()
-  createChapterDisplay()
-  createLanguageSwitchControl()
+  createLoopCountControl()
+  createVueControlBarComponent()
 
   // Setup hotkeys
   hotkeyCleanup = setupHotkeys()
@@ -654,49 +861,43 @@ onMounted(async () => {
     preload: 'metadata',
     responsive: true,
     language: 'zh-CN',
-    fill: true, // another option is fluid:true, It will let videojs to define its css width and height.
-    // Enable experimental features and improved codec handling
+    fill: true,
     experimentalSvgIcons: true,
     html5: {
-      // Force HTML5 native video element handling for better codec support
       nativeAudioTracks: false,
       nativeVideoTracks: false,
-      // Override MIME type validation to be more permissive
       overrideNative: true,
     },
-    // Add crossorigin to prevent canvas taint
     crossorigin: 'anonymous',
-    // Add debug logging for source selection
     debug: true,
+    userActions: {
+      doubleClick: false, // Disable Video.js default double-click fullscreen
+    },
     controlBar: {
-      children: [
-        'playToggle',
-        'EditableCurrentTimeDisplay',
-        'timeDivider',
-        'durationDisplay',
-        'progressControl',
-        'skipBackward',
-        'skipForward',
-        'ChapterDisplay',
-        'liveDisplay',
-        'seekToLive',
-        'remainingTimeDisplay',
-        'customControlSpacer',
-        'playbackRateMenuButton',
-        'descriptionsButton',
-        'subsCapsButton', // 保留字幕按钮，但会禁用其样式设置功能
-        'CameraSnapshotControl',
-        'VideoSpeedControl',
-        'PlayModeToggleControl',
-        'LanguageControl',
-        'audioTrackButton',
-        'ShareButton',
-        'hlsQualitySelector',
-        'QualitySelector',
-        'volumePanel',
-        'pictureInPictureToggle',
-        'fullscreenToggle',
-      ],
+        children: [
+          'playToggle',
+          'EditableCurrentTimeDisplay',
+          'timeDivider',
+          'durationDisplay',
+          'progressControl',
+          'skipBackward',
+          'skipForward',
+          'remainingTimeDisplay',
+          'customControlSpacer',
+          'playbackRateMenuButton',
+          'descriptionsButton',
+          // 'subsCapsButton', // Removed - using unified dropdown instead
+          'CameraSnapshotControl',
+          'VideoSpeedControl',
+          'LoopCountControl',
+          'VueControlBarComponent',
+          'audioTrackButton',
+          'ShareButton',
+          'hlsQualitySelector',
+          'QualitySelector',
+          'volumePanel',
+          'fullscreenToggle',
+        ],
       skipButtons: {
         forward: 5,
         backward: 5,
@@ -726,8 +927,7 @@ onMounted(async () => {
         retryCount: errorRetryCount
       })
       
-      // Try progressive fallback strategies for unsupported media
-      if (playerError.code === 4 && errorRetryCount < maxRetries) { // MEDIA_ERR_SRC_NOT_SUPPORTED
+      if (playerError.code === 4 && errorRetryCount < maxRetries) {
         errorRetryCount++
         console.log(`[VideoPlayer] Attempting source recovery ${errorRetryCount}/${maxRetries}`)
         
@@ -735,24 +935,21 @@ onMounted(async () => {
         let fallbackSources: Array<{ src: string; type: string }> = []
         
         if (errorRetryCount === 1) {
-          // First retry: basic MIME type without codec specification
           fallbackSources = [
             { src: props.src, type: basicMimeType },
-            { src: props.src, type: 'video/mp4' }, // Universal fallback
+            { src: props.src, type: 'video/mp4' },
             { src: props.src, type: 'video/webm' }
           ]
         } else if (errorRetryCount === 2 && basicMimeType === 'video/x-matroska') {
-          // Second retry for MKV: try as MP4 (some servers misidentify containers)
           fallbackSources = [
             { src: props.src, type: 'video/mp4; codecs="hvc1.1.6.L93.B0"' },
             { src: props.src, type: 'video/mp4; codecs="avc1.64001F"' },
             { src: props.src, type: 'video/mp4' }
           ]
         } else if (errorRetryCount === 3) {
-          // Final retry: completely generic
           fallbackSources = [
             { src: props.src, type: 'application/octet-stream' },
-            { src: props.src, type: '' } // Let browser decide
+            { src: props.src, type: '' }
           ]
         }
         
@@ -761,14 +958,12 @@ onMounted(async () => {
           player?.src(fallbackSources)
         }
       } else if (playerError.code === 4 && errorRetryCount >= maxRetries) {
-        // Show user-friendly error message
         console.error('[VideoPlayer] All source recovery attempts failed')
         showMediaError('这个视频文件无法播放。可能是编码格式不被浏览器支持，或文件已损坏。')
       }
     }
   })
 
-  // Log successful source selection
   player.on('loadstart', () => {
     console.log('[VideoPlayer] Video source loading started')
   })
@@ -777,30 +972,14 @@ onMounted(async () => {
     console.log('[VideoPlayer] Video can play - codec supported!')
   })
 
-  let chapterDisplayComponent: any = null
-
   player.on('timeupdate', () => {
     const t = player!.currentTime()
     if (typeof t === 'number') {
       emit('time-update', t)
-      const oldChapter = currentChapter.value
       updateCurrentChapter(t)
-
-      // Update chapter display when chapter changes or component is found for first time
-      if (!chapterDisplayComponent) {
-        chapterDisplayComponent = player!.getChild('controlBar')?.getChild('ChapterDisplay')
-      }
-      
-      if (chapterDisplayComponent && typeof (chapterDisplayComponent as any).updateContent === 'function') {
-        // Update if chapter changed or if it's the first time
-        if (oldChapter?.id !== currentChapter.value?.id) {
-          (chapterDisplayComponent as any).updateContent()
-        }
-      }
     }
   })
 
-  // Handle video end event for autoplay functionality
   player.on('ended', () => {
     console.log('[VideoPlayer] Video ended, checking autoplay settings')
     if (isAutoPlayEnabled.value) {
@@ -811,25 +990,17 @@ onMounted(async () => {
     }
   })
 
-  // Initialize chapter markers when ready
   player.ready(() => {
     setTimeout(() => {
-      chapterDisplayComponent = player!.getChild('controlBar')?.getChild('ChapterDisplay')
-      if (chapterDisplayComponent && typeof (chapterDisplayComponent as any).updateContent === 'function') {
-        updateCurrentChapter(player!.currentTime() || 0)
-        ;(chapterDisplayComponent as any).updateContent()
-      }
       addChapterMarkers()
     }, 100)
     
-    // Add fullscreen change event listeners for iOS compatibility
     player!.on('fullscreenchange', () => {
       const isFullscreen = player!.isFullscreen()
       console.log('[VideoPlayer] Fullscreen change:', isFullscreen)
       emit('fullscreen-change', !!isFullscreen)
     })
     
-    // Also listen to native fullscreen events for better iOS support
     const videoElement = player!.el().querySelector('video')
     if (videoElement) {
       videoElement.addEventListener('webkitfullscreenchange', () => {
@@ -840,43 +1011,17 @@ onMounted(async () => {
     }
   })
 
-  // Load language tracks function
-  const loadLanguageTracks = async () => {
-    if (!props.videoId) return
-
-    try {
-      console.log(`[VideoPlayer] Loading language tracks for video ${props.videoId}`)
-      const tracks = await fetchLanguageTracks(props.videoId)
-      if (tracks) {
-        languageTracks.value = tracks.filter(track => track.type === 'tts')
-        console.log(`[VideoPlayer] Loaded ${languageTracks.value.length} TTS language tracks`, languageTracks.value)
-      }
-    } catch (error) {
-      console.error('[VideoPlayer] Failed to load language tracks:', error)
-    }
-  }
-
-  // Load language tracks if video ID is provided
-  if (props.videoId) {
-    loadLanguageTracks()
-  }
-
   console.log(props.blobUrls)
   updateSubtitleTracks(player, props.blobUrls)
 
-  // 禁用Video.js原生字幕样式设置，只保留字幕开关功能
   if (player) {
     player.ready(() => {
       setTimeout(() => {
         if (!player) return
-        
-        // 找到字幕按钮并禁用样式设置功能
         const subsCapsButton = player.getChild('controlBar')?.getChild('subsCapsButton')
         if (subsCapsButton) {
-          // 获取字幕菜单
           const menu = (subsCapsButton as any).menu
           if (menu) {
-            // 隐藏字幕样式设置按钮
             const menuItems = menu.children()
             menuItems.forEach((item: any) => {
               if (item.hasClass && item.hasClass('vjs-texttrack-settings')) {
@@ -884,15 +1029,11 @@ onMounted(async () => {
                 item.el().style.display = 'none'
               }
             })
-            
-            // 移除样式设置菜单项
             const settingsMenuItem = menu.el().querySelector('.vjs-texttrack-settings')
             if (settingsMenuItem) {
               settingsMenuItem.remove()
             }
           }
-          
-          // 直接从DOM中移除设置按钮
           const controlBar = player.getChild('controlBar')?.el()
           if (controlBar) {
             const settingsButton = controlBar.querySelector('.vjs-texttrack-settings')
@@ -905,16 +1046,22 @@ onMounted(async () => {
     })
   }
 
-  // Setup background play functionality
   setupBackgroundPlay()
 
-  // Load chapters if videoId is provided
   if (props.videoId) {
     loadChapters()
   }
 
-  // 确保字幕样式正确应用
   injectGlobalSubtitleStyles()
+  
+  await checkFiles()
+  playerReady.value = true
+})
+
+// Watch for showChapterMarkers prop changes
+watch(() => props.showChapterMarkers, () => {
+  console.log(`[VideoPlayer] showChapterMarkers changed to: ${showChapterMarkers.value}`)
+  addChapterMarkers()
 })
 
 // Load chapters function
@@ -925,15 +1072,10 @@ const loadChapters = async () => {
       chapters.value = loadedChapters
       console.log(`[VideoPlayer] Loaded ${loadedChapters.length} chapters:`, loadedChapters.map(c => ({ id: c.id, title: c.title, startTime: c.startTime, endTime: c.endTime })))
       console.log('[VideoPlayer] Full chapter data:', loadedChapters)
-      
+
       // Update current chapter after loading new chapters
       if (player) {
         updateCurrentChapter(player.currentTime() || 0)
-        // Also update the chapter display component
-        const chapterDisplayComponent = player.getChild('controlBar')?.getChild('ChapterDisplay')
-        if (chapterDisplayComponent && typeof (chapterDisplayComponent as any).updateContent === 'function') {
-          (chapterDisplayComponent as any).updateContent()
-        }
       }
     } catch (error) {
       console.error('Failed to load chapters:', error)
@@ -941,239 +1083,17 @@ const loadChapters = async () => {
   }
 }
 
-// Load language tracks function
-const loadLanguageTracks = async () => {
-  if (props.videoId && props.videoId > 0) {
-    try {
-      const tracks = await fetchLanguageTracks(props.videoId)
-      if (tracks) {
-        languageTracks.value = tracks
-        console.log(`[VideoPlayer] Loaded ${tracks.length} language tracks:`, tracks)
+// Removed unused language track functions
 
-        // Add language tracks to Video.js player
-        if (player && tracks.length > 0) {
-          addLanguageTracksToPlayer(tracks)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load language tracks:', error)
-    }
-  }
-}
-
-// Add language tracks to Video.js player
-const addLanguageTracksToPlayer = (tracks: LanguageTrack[]) => {
-  if (!player) return
-
-  // Store the tracks for manual switching
-  languageTracks.value = tracks
-
-  // Set the default language track (prefer original language if available)
-  if (tracks.length > 0) {
-    const originalTrack = tracks.find(t => t.type === 'original')
-    const defaultTrack = originalTrack || tracks[0]
-    currentLanguageTrack.value = { code: defaultTrack.code, name: defaultTrack.name, type: defaultTrack.type }
-  }
-
-  // Update the custom LanguageSwitchControl component
-  const languageSwitchControl = player.getChild('controlBar')?.getChild('LanguageSwitchControl')
-  if (languageSwitchControl && typeof (languageSwitchControl as any).updateTracks === 'function') {
-    (languageSwitchControl as any).updateTracks(tracks)
-  }
-
-  // Show/hide default audio track button (we prefer our custom control)
-  const audioTrackButton = player.getChild('controlBar')?.getChild('audioTrackButton')
-  if (audioTrackButton) {
-    audioTrackButton.hide() // Hide default button since we have custom one
-  }
-}
-
-// Switch language track
-const switchLanguageTrack = (languageCode: string) => {
-  if (!player) return
-
-  const track = languageTracks.value.find(t => t.code === languageCode)
-  if (track) {
-    // Get current playback time
-    const currentTime = player.currentTime()
-    const isPaused = player.paused()
-
-    // Save current playback state
-    const playbackRate = player.playbackRate()
-    const volume = player.volume()
-
-    // Switch to new source
-    player.src(track.url)
-
-    // Wait for source to be loaded, then restore playback state
-    player.one('canplay', () => {
-      player?.currentTime(currentTime)
-      player?.playbackRate(playbackRate)
-      player?.volume(volume)
-      if (!isPaused) {
-        const playPromise = player?.play()
-        if (playPromise) {
-          playPromise.catch(err => {
-            console.warn('Auto-play failed after language switch:', err)
-          })
-        }
-      }
-    })
-
-    currentLanguageTrack.value = { code: languageCode, name: track.name || languageCode, type: 'subtitle' }
-    console.log(`[VideoPlayer] Switched language to: ${track.name} (${languageCode})`)
-  }
-}
-
-// Create custom language switch control
-const createLanguageSwitchControl = () => {
-  const vjsComponent = videojs.getComponent('Component')
-
-  class LanguageSwitchControl extends vjsComponent {
-    declare player_: Player
-    declare tracks: LanguageTrack[]
-
-    constructor(player: Player, options?: any) {
-      super(player, options)
-      this.tracks = []
-    }
-
-    createEl() {
-      const el = videojs.dom.createEl('div', {
-        className: 'vjs-language-switch-control vjs-control',
-        title: '切换语言轨道',
-      })
-
-      const icon = videojs.dom.createEl('div', {
-        className: 'vjs-icon-placeholder',
-      })
-      icon.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m5 8 6 6"/>
-          <path d="m4 14 6-6 2-3"/>
-          <path d="M2 5h12"/>
-          <path d="M7 2h1"/>
-          <path d="m22 22-5-10-5 10"/>
-          <path d="M14 18h6"/>
-        </svg>
-      `
-
-      const text = videojs.dom.createEl('span', {
-        className: 'vjs-language-text',
-        textContent: '语言',
-      })
-
-      el.appendChild(icon)
-      el.appendChild(text)
-
-      el.addEventListener('click', () => {
-        this.showLanguageMenu()
-      })
-
-      return el
-    }
-
-    updateTracks(tracks: LanguageTrack[]) {
-      this.tracks = tracks
-      const el = this.el() as HTMLElement
-
-      if (tracks.length > 1) {
-        el.style.display = 'flex'
-        const currentTrack = tracks.find(t => t.code === currentLanguageTrack.value?.code)
-        const textEl = el.querySelector('.vjs-language-text') as HTMLElement
-        if (textEl) {
-          textEl.textContent = currentTrack ? currentTrack.name : '语言'
-        }
-      } else {
-        el.style.display = 'none'
-      }
-    }
-
-    showLanguageMenu() {
-      if (this.tracks.length <= 1) return
-
-      // Create language menu
-      const menu = videojs.dom.createEl('div', {
-        className: 'vjs-language-menu',
-      })
-
-      this.tracks.forEach(track => {
-        const item = videojs.dom.createEl('div', {
-          className: `vjs-language-item ${track.code === currentLanguageTrack.value?.code ? 'vjs-selected' : ''}`,
-          textContent: track.name,
-        })
-
-        item.addEventListener('click', (e) => {
-          e.stopPropagation()
-          switchLanguageTrack(track.code)
-          this.updateTracks(this.tracks)
-          document.body.removeChild(menu)
-        })
-
-        menu.appendChild(item)
-      })
-
-      // Position menu near the button
-      const buttonRect = (this.el() as HTMLElement).getBoundingClientRect()
-      const menuEl = menu as HTMLElement
-      menuEl.style.position = 'fixed'
-      menuEl.style.top = `${buttonRect.bottom + 5}px`
-      menuEl.style.left = `${buttonRect.left}px`
-      menuEl.style.zIndex = '9999'
-
-      // Style the menu
-      menuEl.style.backgroundColor = 'rgba(0, 0, 0, 0.9)'
-      menuEl.style.borderRadius = '4px'
-      menuEl.style.padding = '4px 0'
-      menuEl.style.minWidth = '120px'
-
-      // Style menu items
-      const items = menu.querySelectorAll('.vjs-language-item') as NodeListOf<HTMLElement>
-      items.forEach(item => {
-        item.style.padding = '8px 12px'
-        item.style.cursor = 'pointer'
-        item.style.color = 'white'
-        item.style.fontSize = '14px'
-
-        item.addEventListener('mouseenter', () => {
-          item.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'
-        })
-
-        item.addEventListener('mouseleave', () => {
-          item.style.backgroundColor = 'transparent'
-        })
-
-        if (item.classList.contains('vjs-selected')) {
-          item.style.backgroundColor = 'rgba(255, 255, 255, 0.3)'
-        }
-      })
-
-      document.body.appendChild(menu)
-
-      // Hide menu when clicking outside
-      const hideMenu = (e: MouseEvent) => {
-        if (!menu.contains(e.target as Node)) {
-          document.body.removeChild(menu)
-          document.removeEventListener('click', hideMenu)
-        }
-      }
-
-      setTimeout(() => {
-        document.addEventListener('click', hideMenu)
-      }, 100)
-    }
-  }
-
-  videojs.registerComponent('LanguageSwitchControl', LanguageSwitchControl)
-}
+// Removed LanguageSwitchControl
 
 // Watch for videoId changes and reload chapters and language tracks
 watch(
   () => props.videoId,
-  () => {
+  async () => {
     if (props.videoId) {
       loadChapters()
-      loadLanguageTracks()
+      await checkFiles()
     }
   },
   { immediate: false },
@@ -1196,9 +1116,10 @@ watch(
 // whenever the video URL changes
 watch(
   () => props.src,
-  (src) => {
+  async (src) => {
     const sources = getVideoSources(src)
     player?.src(sources)
+    await checkFiles()
   },
 )
 watch(
@@ -1253,8 +1174,8 @@ function updateCurrentChapter(time: number) {
 
 // Add chapter markers to progress bar
 function addChapterMarkers() {
-  console.log(`[VideoPlayer] addChapterMarkers called - player: ${!!player}, chapters: ${chapters.value.length}`)
-  
+  console.log(`[VideoPlayer] addChapterMarkers called - player: ${!!player}, chapters: ${chapters.value.length}, showMarkers: ${showChapterMarkers.value}`)
+
   if (!player || chapters.value.length === 0) {
     console.log(`[VideoPlayer] Early return - player: ${!!player}, chapters: ${chapters.value.length}`)
     return
@@ -1280,6 +1201,12 @@ function addChapterMarkers() {
     .el()
     .querySelectorAll('.chapter-marker, .chapter-gap, .chapter-hover-zone')
   existingMarkers.forEach((marker) => marker.remove())
+
+  // If markers are hidden, don't add new ones
+  if (!showChapterMarkers.value) {
+    console.log('[VideoPlayer] Chapter markers are hidden, skipping marker creation')
+    return
+  }
 
   // Keep default Video.js tooltip behavior (show only time)
   // No custom tooltip modifications needed - Video.js will handle time display automatically
@@ -1324,7 +1251,7 @@ function addChapterMarkers() {
     seekBar.el().appendChild(marker)
     console.log(`[VideoPlayer] Marker added for chapter "${chapter.title}" at ${percentage.toFixed(1)}%`)
   })
-  
+
   console.log(`[VideoPlayer] Total markers added: ${chapters.value.length - 1}`)
 }
 
@@ -1749,435 +1676,7 @@ function createCameraSnapshotControl() {
   return CameraSnapshotControl
 }
 
-// Custom Language Control Component
-function createLanguageControl() {
-  const vjsComponent = videojs.getComponent('Component')
-
-  class LanguageControl extends vjsComponent {
-    dropdownVisible: boolean
-
-    constructor(player: any, options: any) {
-      super(player, options)
-      this.addClass('vjs-language-control')
-      this.addClass('vjs-control')
-      this.addClass('vjs-button')
-      this.dropdownVisible = false
-
-      // Add click handler for dropdown
-      this.on('click', this.toggleDropdown.bind(this))
-
-      // Close dropdown when clicking outside
-      document.addEventListener('click', (e) => {
-        const element = this.el()
-        if (element && !element.contains(e.target as Node)) {
-          this.hideDropdown()
-        }
-      })
-    }
-
-    toggleDropdown() {
-      if (this.dropdownVisible) {
-        this.hideDropdown()
-      } else {
-        this.showDropdown()
-      }
-    }
-
-    showDropdown() {
-      this.dropdownVisible = true
-      let dropdown = this.el().querySelector('.settings-dropdown')
-      if (!dropdown) {
-        dropdown = this.createDropdown()
-        this.el().appendChild(dropdown)
-      }
-      ;(dropdown as HTMLElement).style.display = 'block'
-    }
-
-    hideDropdown() {
-      this.dropdownVisible = false
-      const dropdown = this.el().querySelector('.settings-dropdown')
-      if (dropdown) {
-        ;(dropdown as HTMLElement).style.display = 'none'
-      }
-    }
-
-    createDropdown() {
-      console.log('[LanguageControl] Creating language dropdown menu')
-      const dropdown = videojs.dom.createEl('div', {
-        className: 'language-dropdown',
-        style: `
-          position: absolute;
-          bottom: 100%;
-          left: 50%;
-          transform: translateX(-50%);
-          background: rgba(0, 0, 0, 0.63);
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          border-radius: 4px;
-          min-width: 160px;
-          z-index: 1000;
-          margin-bottom: 5.6px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.21);
-        `,
-      })
-
-      // Create language options from available tracks
-      const availableTracks = languageTracks.value
-
-      // Always add original video option
-      const originalItem = videojs.dom.createEl('div', {
-        className: 'language-dropdown-item',
-        style: `
-          padding: 8px 16px;
-          cursor: pointer;
-          color: ${currentLanguageTrack.value === null ? '#4CAF50' : 'white'};
-          font-size: 12px;
-          transition: background-color 0.2s;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          ${currentLanguageTrack.value === null ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
-        `,
-      })
-
-      const originalLabel = videojs.dom.createEl('span', {
-        textContent: '原片'
-      })
-
-      const originalIndicator = videojs.dom.createEl('span', {
-        className: 'language-indicator',
-        textContent: currentLanguageTrack.value === null ? '✓' : '',
-        style: `
-          color: ${currentLanguageTrack.value === null ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
-          font-weight: bold;
-        `
-      })
-
-      originalItem.appendChild(originalLabel)
-      originalItem.appendChild(originalIndicator)
-
-      // Add click handler for original video
-      originalItem.addEventListener('click', () => {
-        this.switchToOriginal()
-        this.hideDropdown()
-      })
-
-      dropdown.appendChild(originalItem)
-
-      // Add TTS language options (intelligent generation)
-      const addTTSOptions = () => {
-        if (!props.src || !props.rawLang) return
-
-        console.log('[LanguageControl] Adding TTS options - src:', props.src, 'rawLang:', props.rawLang)
-
-        // Generate intelligent TTS options based on original language
-        const originalLang = props.rawLang.toLowerCase()
-
-        // Define available TTS languages based on original language
-        const ttsLanguages = []
-
-        if (originalLang === 'en') {
-          ttsLanguages.push({ code: 'zh', name: '中文' })
-        } else if (originalLang === 'zh') {
-          ttsLanguages.push({ code: 'en', name: 'English' })
-        } else {
-          // For other languages, offer both English and Chinese
-          ttsLanguages.push({ code: 'en', name: 'English' })
-          ttsLanguages.push({ code: 'zh', name: '中文' })
-        }
-
-        console.log('[LanguageControl] Generated TTS languages:', ttsLanguages)
-
-        // Check for existing API TTS tracks to avoid duplicates
-        const existingTTSCodes = new Set()
-        availableTracks.forEach((track) => {
-          if (track.type === 'tts') {
-            existingTTSCodes.add(track.code)
-          }
-        })
-
-        console.log('[LanguageControl] Existing TTS codes from API:', Array.from(existingTTSCodes))
-
-        // Add TTS language options to dropdown
-        ttsLanguages.forEach((ttsLang) => {
-          // Skip if this is the same as original language or duplicate with existing API tracks
-          if (ttsLang.code === originalLang || existingTTSCodes.has(ttsLang.code)) {
-            console.log('[LanguageControl] Skipping TTS language:', ttsLang.code, '- same as original or duplicate')
-            return
-          }
-
-          console.log('[LanguageControl] Adding TTS option:', ttsLang)
-
-          const languageItem = videojs.dom.createEl('div', {
-            className: 'language-dropdown-item',
-            style: `
-              padding: 8px 16px;
-              cursor: pointer;
-              color: ${currentLanguageTrack.value?.code === ttsLang.code ? '#4CAF50' : 'white'};
-              font-size: 12px;
-              transition: background-color 0.2s;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              ${currentLanguageTrack.value?.code === ttsLang.code ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
-            `,
-          })
-
-          const languageLabel = videojs.dom.createEl('span', {
-            textContent: ttsLang.name
-          })
-
-          const languageIndicator = videojs.dom.createEl('span', {
-            className: 'language-indicator',
-            textContent: currentLanguageTrack.value?.code === ttsLang.code ? '✓' : '',
-            style: `
-              color: ${currentLanguageTrack.value?.code === ttsLang.code ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
-              font-weight: bold;
-            `
-          })
-
-          languageItem.appendChild(languageLabel)
-          languageItem.appendChild(languageIndicator)
-
-          // Add click handler for language switching
-          languageItem.addEventListener('click', () => {
-            console.log('[LanguageControl] TTS language clicked:', ttsLang)
-            console.log('[LanguageControl] Props:', { src: props.src, rawLang: props.rawLang })
-
-            // Create a synthetic track object for TTS
-            const syntheticTrack = {
-              code: ttsLang.code,
-              name: ttsLang.name,
-              type: 'tts' as const,
-              url: ''  // Will be constructed by switchToLanguage
-            }
-            console.log('[LanguageControl] Created synthetic track:', syntheticTrack)
-            this.switchToLanguage(syntheticTrack)
-            this.hideDropdown()
-          })
-
-          dropdown.appendChild(languageItem)
-        })
-      }
-
-      // Add API-provided TTS tracks (if any)
-      availableTracks.forEach((track) => {
-        if (track.type === 'tts') {
-          console.log('[LanguageControl] Adding API TTS track:', track)
-
-          const languageItem = videojs.dom.createEl('div', {
-            className: 'language-dropdown-item',
-            style: `
-              padding: 8px 16px;
-              cursor: pointer;
-              color: ${currentLanguageTrack.value?.code === track.code ? '#4CAF50' : 'white'};
-              font-size: 12px;
-              transition: background-color 0.2s;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              ${currentLanguageTrack.value?.code === track.code ? 'background-color: rgba(76, 175, 80, 0.2);' : ''}
-            `,
-          })
-
-          const languageLabel = videojs.dom.createEl('span', {
-            textContent: track.name
-          })
-
-          const languageIndicator = videojs.dom.createEl('span', {
-            className: 'language-indicator',
-            textContent: currentLanguageTrack.value?.code === track.code ? '✓' : '',
-            style: `
-              color: ${currentLanguageTrack.value?.code === track.code ? '#4CAF50' : 'rgba(255, 255, 255, 0.3)'};
-              font-weight: bold;
-            `
-          })
-
-          languageItem.appendChild(languageLabel)
-          languageItem.appendChild(languageIndicator)
-
-          // Add click handler for language switching
-          languageItem.addEventListener('click', () => {
-            console.log('[LanguageControl] API TTS track clicked:', track)
-            this.switchToLanguage(track)
-            this.hideDropdown()
-          })
-
-          dropdown.appendChild(languageItem)
-        }
-      })
-
-      // Add hover effect
-      dropdown.addEventListener('mouseover', (e) => {
-        const target = e.target as HTMLElement
-        if (target.classList.contains('language-dropdown-item')) {
-          target.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
-        }
-      })
-
-      dropdown.addEventListener('mouseout', (e) => {
-        const target = e.target as HTMLElement
-        if (target.classList.contains('language-dropdown-item')) {
-          // Restore original background color based on selection state
-          const hasIndicator = target.querySelector('.language-indicator')?.textContent === '✓'
-          target.style.backgroundColor = hasIndicator ? 'rgba(76, 175, 80, 0.2)' : 'transparent'
-        }
-      })
-
-      // Add intelligent TTS language options
-      addTTSOptions()
-
-      return dropdown
-    }
-
-    switchToOriginal() {
-      console.log('[LanguageControl] Switching to original video')
-      const player = this.player()
-      if (player && props.src) {
-        // Get current playback state
-        const currentTime = player.currentTime()
-        const isPaused = player.paused()
-        const volume = player.volume()
-        const playbackRate = player.playbackRate()
-
-        // Switch to original source
-        player.src(props.src)
-
-        // Wait for source to be loaded, then restore playback state
-        player.one('canplay', () => {
-          player?.currentTime(currentTime)
-          player?.playbackRate(playbackRate)
-          player?.volume(volume)
-          if (!isPaused) {
-            const playPromise = player?.play()
-            if (playPromise) {
-              playPromise.catch(err => {
-                console.warn('Auto-play failed after switching to original:', err)
-              })
-            }
-          }
-        })
-
-        currentLanguageTrack.value = null
-        console.log('[LanguageControl] Switched to original video')
-      }
-    }
-
-    switchToLanguage(track: LanguageTrack) {
-      console.log(`[LanguageControl] switchToLanguage called with track:`, track)
-      console.log(`[LanguageControl] Switching to language: ${track.name} (${track.code})`)
-      console.log('[LanguageControl] Track type:', track.type)
-      console.log('[LanguageControl] Track URL:', track.url)
-
-      const player = this.player()
-      if (player) {
-        // Get current playback state
-        const currentTime = player.currentTime()
-        const isPaused = player.paused()
-        const volume = player.volume()
-        const playbackRate = player.playbackRate()
-
-        let videoUrl = track.url
-
-        // If this is an intelligent language switch and we have video metadata,
-        // try to construct the URL based on original video MD5 hash
-        const shouldConstructIntelligentUrl = (track.type === 'tts' || !track.url) && props.src && props.rawLang
-        console.log('[LanguageControl] Should construct intelligent URL:', shouldConstructIntelligentUrl)
-        console.log('[LanguageControl] Condition check:', {
-          trackType: track.type,
-          hasUrl: !!track.url,
-          src: props.src,
-          rawLang: props.rawLang
-        })
-
-        if (shouldConstructIntelligentUrl) {
-          // Extract MD5 hash from original video URL
-          // Expected format: /media/video/{md5_hash}.mp4 or http://host/media/video/{md5_hash}.mp4
-          const srcUrl = props.src
-          const md5Match = srcUrl.match(/\/([^\/]+)\.mp4$/)
-          if (md5Match) {
-            const md5Hash = md5Match[1]
-            const targetLang = track.code
-
-            // Construct intelligent URL: /media/video/{md5_hash}_{targetLang}.mp4
-            const intelligentUrl = `/media/video/${md5Hash}_${targetLang}.mp4`
-
-            console.log('[LanguageControl] Constructing intelligent URL:', intelligentUrl)
-            console.log('[LanguageControl] Extracted MD5 hash:', md5Hash)
-            console.log('[LanguageControl] Target language:', targetLang)
-            console.log('[LanguageControl] Original video src:', srcUrl)
-            console.log('[LanguageControl] Original video - rawLang:', props.rawLang)
-
-            // Use intelligent URL instead of API URL
-            videoUrl = intelligentUrl
-          } else {
-            console.warn('[LanguageControl] Could not extract MD5 hash from src:', srcUrl)
-            console.warn('[LanguageControl] Falling back to original track URL or empty')
-          }
-        }
-
-        // Switch to new source
-        console.log('[LanguageControl] Switching to language version:', track.name, 'URL:', videoUrl)
-        player.src(videoUrl)
-
-        // Wait for source to be loaded, then restore playback state
-        player.one('canplay', () => {
-          player?.currentTime(currentTime)
-          player?.playbackRate(playbackRate)
-          player?.volume(volume)
-          if (!isPaused) {
-            const playPromise = player?.play()
-            if (playPromise) {
-              playPromise.catch(err => {
-                console.warn('Auto-play failed after language switch:', err)
-              })
-            }
-          }
-        })
-
-        currentLanguageTrack.value = { code: track.code, name: track.name, type: track.type }
-        console.log(`[LanguageControl] Switched language to: ${track.name} (${track.code})`)
-      }
-    }
-
-    createEl() {
-      const el = videojs.dom.createEl('div', {
-        className: 'vjs-language-control vjs-control vjs-button',
-        style: `
-          position: relative;
-          color: white;
-          padding: 6px 8px;
-          cursor: pointer;
-          background: rgba(0, 0, 0, 0.3);
-          border-radius: 4px;
-          margin: 0 2px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: auto;
-          height: auto;
-        `,
-        title: '语言切换',
-      })
-
-      // Create Languages icon
-      el.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
-          <path d="m5 8 6 6"/>
-          <path d="m4 14 6-6 7-7"/>
-          <path d="m21 15-5-5"/>
-          <path d="m9 21 3-3"/>
-          <path d="m14 8 4-4"/>
-          <path d="m15 13 6-6"/>
-        </svg>
-      `
-
-      return el
-    }
-  }
-
-  videojs.registerComponent('LanguageControl', LanguageControl)
-  return LanguageControl
-}
+// Removed LanguageControl
 
 // Custom Video Speed Control Component
 function createVideoSpeedControl() {
@@ -2208,6 +1707,11 @@ function createVideoSpeedControl() {
 
       // Update display when playback rate changes
       this.player().on('ratechange', this.updateDisplay.bind(this))
+
+      // Initial display update
+      this.ready(() => {
+        this.updateDisplay()
+      })
     }
 
     toggleDropdown() {
@@ -2308,6 +1812,13 @@ function createVideoSpeedControl() {
     }
 
     updateDisplay() {
+      // Update speed text on button
+      const speedTextEl = this.el().querySelector('.vjs-speed-text') as HTMLElement
+      if (speedTextEl) {
+        const currentRate = this.player().playbackRate() || 1
+        speedTextEl.textContent = `${currentRate.toFixed(1)}x`
+      }
+
       // Update dropdown if visible
       if (this.dropdownVisible) {
         this.hideDropdown()
@@ -2329,19 +1840,43 @@ function createVideoSpeedControl() {
           display: flex;
           align-items: center;
           justify-content: center;
+          gap: 4px;
           width: auto;
           height: auto;
         `,
         title: 'Playback speed',
       })
 
-      // Create Gauge icon using the provided SVG
-      el.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
-          <path d="m12 14 4-4"/>
-          <path d="M3.34 19a10 10 0 1 1 17.32 0"/>
-        </svg>
+      // Create Gauge icon
+      const icon = videojs.dom.createEl('svg', {
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: '18',
+        height: '18',
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '2',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        style: 'display: block; flex-shrink: 0;',
+      })
+      icon.innerHTML = `
+        <path d="m12 14 4-4"/>
+        <path d="M3.34 19a10 10 0 1 1 17.32 0"/>
       `
+      el.appendChild(icon)
+
+      // Create speed text element
+      const speedText = videojs.dom.createEl('span', {
+        className: 'vjs-speed-text',
+        style: `
+          font-size: 12px;
+          font-weight: 600;
+          white-space: nowrap;
+        `,
+        textContent: '1.0x',
+      })
+      el.appendChild(speedText)
 
       return el
     }
@@ -2351,104 +1886,79 @@ function createVideoSpeedControl() {
   return VideoSpeedControl
 }
 
-// Custom Play Mode Toggle Control Component
-function createPlayModeToggleControl() {
+// Custom Loop Count Control Component
+function createLoopCountControl() {
   const vjsComponent = videojs.getComponent('Component')
 
-  class PlayModeToggleControl extends vjsComponent {
-    playMode: number // 0: 观后即停, 1: 单集循环, 2: 顺序播放
+  class LoopCountControl extends vjsComponent {
+    loopCount: number
 
     constructor(player: any, options: any) {
       super(player, options)
-      this.addClass('vjs-playmode-control')
+      this.addClass('vjs-loop-count-control')
       this.addClass('vjs-control')
       this.addClass('vjs-button')
-      this.playMode = 0 // Start with 观后即停
+      this.loopCount = 0 // 0 means play once and stop
 
-      // Add click handler for toggle
-      this.on('click', this.togglePlayMode.bind(this))
+      // Add click handler to cycle through common values
+      this.on('click', this.cycleLoopCount.bind(this))
+
+      // Listen for ended event to handle loop
+      this.player().on('ended', this.handleEnded.bind(this))
+
+      // Initial display update
+      this.ready(() => {
+        this.updateDisplay()
+      })
     }
 
-    togglePlayMode() {
-      // Cycle through: 观后即停 -> 单集循环 -> 顺序播放 -> 观后即停
-      this.playMode = (this.playMode + 1) % 3
-      const player = this.player()
-
-      if (this.playMode === 0) {
-        // 观后即停: Disable both loop and autoplay
-        if (player) {
-          player.loop(false)
-        }
-        if (isAutoPlayEnabled.value) {
-          isAutoPlayEnabled.value = false
-          emit('autoplay-settings-changed', false)
-        }
-        console.log('[PlayModeToggle] Stop after watching mode enabled')
-      } else if (this.playMode === 1) {
-        // 单集循环: Enable single loop
-        if (player) {
-          player.loop(true)
-        }
-        if (isAutoPlayEnabled.value) {
-          isAutoPlayEnabled.value = false
-          emit('autoplay-settings-changed', false)
-        }
-        console.log('[PlayModeToggle] Single loop mode enabled')
-      } else {
-        // 顺序播放: Enable sequential play (disable loop, enable autoplay)
-        if (player) {
-          player.loop(false)
-        }
-        isAutoPlayEnabled.value = true
-        emit('autoplay-settings-changed', true)
-        console.log('[PlayModeToggle] Sequential play mode enabled')
-      }
+    cycleLoopCount() {
+      // Cycle through: 0 -> 1 -> 2 -> 3 -> 5 -> 0
+      const values = [0, 1, 2, 3, 5]
+      const currentIndex = values.indexOf(this.loopCount)
+      const nextIndex = (currentIndex + 1) % values.length
+      this.loopCount = values[nextIndex]
 
       this.updateDisplay()
     }
 
-    updateDisplay() {
-      const textEl = this.el().querySelector('.playmode-text')
-      const iconEl = this.el().querySelector('.playmode-icon')
+    handleEnded() {
+      if (this.loopCount > 0) {
+        const player = this.player()
+        if (player) {
+          // Loop the video by seeking to the beginning
+          player.currentTime(0)
+          player.play()
+          // Decrement loop count
+          this.loopCount--
+          this.updateDisplay()
+          console.log(`[LoopCount] Loop remaining: ${this.loopCount}`)
+        }
+      } else {
+        // Stop after playing once
+        if (isAutoPlayEnabled.value) {
+          isAutoPlayEnabled.value = false
+          emit('autoplay-settings-changed', false)
+        }
+      }
+    }
 
-      if (textEl && iconEl) {
-        if (this.playMode === 0) {
-          // 观后即停
-          textEl.textContent = '观后即停'
-          iconEl.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect width="6" height="6" x="9" y="9"/>
-            </svg>
-          `
+    updateDisplay() {
+      const textEl = this.el().querySelector('.loop-count-text')
+      if (textEl) {
+        if (this.loopCount === 0) {
+          textEl.textContent = '停止'
           ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(244, 67, 54, 0.3)'
-        } else if (this.playMode === 1) {
-          // 单集循环
-          textEl.textContent = '单集循环'
-          iconEl.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>
-              <path d="M13 5l3 3-3 3"/>
-              <path d="M18 8h-3a2 2 0 0 0-2 2v6"/>
-            </svg>
-          `
-          ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(76, 175, 80, 0.3)'
         } else {
-          // 顺序播放
-          textEl.textContent = '顺序播放'
-          iconEl.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 4h4v12H5z"/>
-              <path d="M13 4v12l6-6z"/>
-            </svg>
-          `
-          ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(0, 0, 0, 0.3)'
+          textEl.textContent = `循环${this.loopCount}次`
+          ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(76, 175, 80, 0.3)'
         }
       }
     }
 
     createEl() {
       const el = videojs.dom.createEl('div', {
-        className: 'vjs-playmode-control vjs-control vjs-button',
+        className: 'vjs-loop-count-control vjs-control vjs-button',
         style: `
           position: relative;
           color: white;
@@ -2463,226 +1973,36 @@ function createPlayModeToggleControl() {
           gap: 4px;
           width: auto;
           height: auto;
-          transition: background-color 0.3s ease;
         `,
-        title: 'Toggle between stop after watching, single loop and sequential play',
+        title: '循环次数',
       })
 
       const iconEl = videojs.dom.createEl('span', {
-        className: 'playmode-icon',
-        innerHTML: `
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect width="6" height="6" x="9" y="9"/>
-          </svg>
-        `
+        className: 'loop-icon',
+        style: 'display: flex; align-items: center;',
       })
-
-      const textEl = videojs.dom.createEl('span', {
-        className: 'playmode-text',
-        textContent: '观后即停',
-        style: 'font-size: 11px; font-weight: 500;'
-      })
-
+      iconEl.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>
+          <path d="M13 5l3 3-3 3"/>
+          <path d="M18 8h-3a2 2 0 0 0-2 2v6"/>
+        </svg>
+      `
       el.appendChild(iconEl)
-      el.appendChild(textEl)
-
-      return el
-    }
-  }
-
-  videojs.registerComponent('PlayModeToggleControl', PlayModeToggleControl)
-  return PlayModeToggleControl
-}
-
-// Custom Chapter Display with Dropdown for Video.js
-function createChapterDisplay() {
-  const vjsComponent = videojs.getComponent('Component')
-
-  class ChapterDisplay extends vjsComponent {
-    dropdownVisible: boolean
-
-    constructor(player: any, options: any) {
-      super(player, options)
-      this.addClass('vjs-chapter-display')
-      this.el().setAttribute('title', 'Click to select chapter')
-      this.dropdownVisible = false
-      this.updateContent()
-
-      // Add click handler for dropdown
-      this.on('click', this.toggleDropdown.bind(this))
-
-      // Close dropdown when clicking outside
-      document.addEventListener('click', (e) => {
-        const element = this.el()
-        if (element && !element.contains(e.target as Node)) {
-          this.hideDropdown()
-        }
-      })
-    }
-
-    toggleDropdown() {
-      if (this.dropdownVisible) {
-        this.hideDropdown()
-      } else {
-        this.showDropdown()
-      }
-    }
-
-    showDropdown() {
-      this.dropdownVisible = true
-      let dropdown = this.el().querySelector('.chapter-dropdown')
-      if (!dropdown) {
-        dropdown = this.createDropdown()
-        this.el().appendChild(dropdown)
-      }
-      ;(dropdown as HTMLElement).style.display = 'block'
-    }
-
-    hideDropdown() {
-      this.dropdownVisible = false
-      const dropdown = this.el().querySelector('.chapter-dropdown')
-      if (dropdown) {
-        ;(dropdown as HTMLElement).style.display = 'none'
-      }
-    }
-
-    createDropdown() {
-      const dropdown = videojs.dom.createEl('div', {
-        className: 'chapter-dropdown',
-        style: `
-          position: absolute;
-          bottom: 100%;
-          left: 0;
-          background: rgba(0, 0, 0, 0.63);
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          border-radius: 4px;
-          min-width: 210px;
-          max-height: 140px;
-          overflow-y: auto;
-          z-index: 1000;
-          margin-bottom: 5.6px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.21);
-        `,
-      })
-
-      chapters.value.forEach((chapter, index) => {
-        const chapterItem = videojs.dom.createEl('div', {
-          className: 'chapter-dropdown-item',
-          style: `
-            padding: 8px 12px;
-            cursor: pointer;
-            color: white;
-            font-size: 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            transition: background-color 0.2s;
-          `,
-        })
-
-        const chapterNumber = index + 1
-        const startTime = formatTime(chapter.startTime)
-        const endTime = chapter.endTime ? formatTime(chapter.endTime) : ''
-        const timeRange = endTime ? `${startTime}-${endTime}` : `${startTime}-`
-
-        chapterItem.innerHTML = `
-          <div style="font-weight: bold; margin-bottom: 2px;">Chapter${chapterNumber}: "${chapter.title}"</div>
-          <div style="color: rgba(255, 255, 255, 0.7); font-size: 10px;">${timeRange}</div>
-        `
-
-        // Highlight current chapter
-        if (currentChapter.value && currentChapter.value.id === chapter.id) {
-          ;(chapterItem as HTMLElement).style.backgroundColor = 'rgba(255, 255, 255, 0.2)'
-        }
-
-        // Add hover effect
-        chapterItem.addEventListener('mouseenter', () => {
-          if (currentChapter.value?.id !== chapter.id) {
-            ;(chapterItem as HTMLElement).style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
-          }
-        })
-
-        chapterItem.addEventListener('mouseleave', () => {
-          if (currentChapter.value?.id !== chapter.id) {
-            ;(chapterItem as HTMLElement).style.backgroundColor = 'transparent'
-          }
-        })
-
-        // Add click handler
-        chapterItem.addEventListener('click', (e) => {
-          e.stopPropagation()
-          if (this.player()) {
-            this.player().currentTime(chapter.startTime)
-          }
-          this.hideDropdown()
-        })
-
-        dropdown.appendChild(chapterItem)
-      })
-
-      return dropdown
-    }
-
-    updateContent() {
-      const chapter = currentChapter.value
-      console.log(`[ChapterDisplay] updateContent called, current chapter:`, chapter?.id || 'none', chapter?.title || 'none')
-      if (chapter) {
-        const chapterNumber = chapters.value.findIndex((c) => c.id === chapter.id) + 1
-        const startTime = formatTime(chapter.startTime)
-        const endTime = chapter.endTime ? formatTime(chapter.endTime) : ''
-        const timeRange = endTime ? `${startTime}-${endTime}` : `${startTime}-`
-        this.el().querySelector('.chapter-text')!.innerHTML =
-          `Chapter${chapterNumber}: "${chapter.title}" on ${timeRange}`
-      } else {
-        this.el().querySelector('.chapter-text')!.innerHTML =
-          chapters.value.length > 0 ? 'Click to select chapter' : 'No chapters'
-      }
-
-      // Update dropdown if visible
-      if (this.dropdownVisible) {
-        this.hideDropdown()
-        this.showDropdown()
-      }
-    }
-
-    createEl() {
-      const el = videojs.dom.createEl('div', {
-        className: 'vjs-chapter-display vjs-control vjs-button',
-        style: `
-          position: relative;
-          color: white; 
-          font-size: 12px; 
-          line-height: 1.4; 
-          padding: 8px 12px; 
-          white-space: nowrap; 
-          cursor: pointer;
-          background: rgba(0,0,0,0.3);
-          border-radius: 4px;
-          margin: 0 4px;
-          min-width: fit-content;
-          max-width: 400px;
-          flex-shrink: 0;
-          align-self: center;
-          top: 2px;
-        `,
-      })
 
       const textEl = videojs.dom.createEl('span', {
-        className: 'chapter-text',
+        className: 'loop-count-text',
+        style: 'font-size: 12px; white-space: nowrap;',
+        textContent: '停止',
       })
-
-      const arrowEl = videojs.dom.createEl('span', {
-        innerHTML: ' ▼',
-        style: 'margin-left: 8px; font-size: 10px;',
-      })
-
       el.appendChild(textEl)
-      el.appendChild(arrowEl)
 
       return el
     }
   }
 
-  videojs.registerComponent('ChapterDisplay', ChapterDisplay)
-  return ChapterDisplay
+  videojs.registerComponent('LoopCountControl', LoopCountControl)
+  return LoopCountControl
 }
 
 onBeforeUnmount(() => {
@@ -2699,7 +2019,12 @@ onBeforeUnmount(() => {
   <!-- the ref name must match the one in <script> -->
   <!-- give w-full h-full to div wrapper can Resist videojs overflowing -->
   <div class="relative w-full h-full">
-    <video ref="videoEl" class="video-js vjs-luxmty vjs-fill w-full h-full" crossorigin="anonymous" />
+    <video 
+      ref="videoEl" 
+      class="video-js vjs-luxmty vjs-fill w-full h-full" 
+      crossorigin="anonymous"
+      @dblclick="handleVideoDoubleClick"
+    />
     
     <!-- Hotkey hint display -->
     <div 
@@ -2711,5 +2036,180 @@ onBeforeUnmount(() => {
         {{ hotkeyHintText }}
       </div>
     </div>
+
+    <Teleport to="#vue-custom-controls" v-if="playerReady">
+      <div class="flex items-center space-x-2 h-full">
+        <!-- Unified Language/Subtitle Control -->
+        <el-dropdown trigger="click">
+          <el-button type="primary" link class="!text-white hover:!text-[#13f5f5]">
+            <el-icon class="el-icon--right"><Languages /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu class="bg-slate-800 border-slate-700 w-[200px]">
+              <!-- AI Dubbing Section -->
+              <div class="px-3 py-2 text-xs text-slate-400 font-medium border-b border-slate-700">
+                AI原声翻译
+              </div>
+              <el-dropdown-item :command="null as any" @click="handleDubbingChange(null)" class="text-slate-200 hover:bg-slate-700">
+                <div class="flex items-center justify-between w-full">
+                  <span>关闭</span>
+                  <el-icon v-if="dubbingLang === null" class="text-[#13f5f5]"><Check /></el-icon>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item 
+                @click="handleDubbingChange('en')"
+                :disabled="!availableDubbings.en"
+                class="text-slate-200 hover:bg-slate-700"
+              >
+                <div class="flex items-center justify-between w-full">
+                  <span>English (AI)</span>
+                  <el-icon v-if="dubbingLang === 'en'" class="text-[#13f5f5]"><Check /></el-icon>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item 
+                @click="handleDubbingChange('ja')"
+                :disabled="!availableDubbings.ja"
+                class="text-slate-200 hover:bg-slate-700"
+              >
+                <div class="flex items-center justify-between w-full">
+                  <span>日本語 (AI)</span>
+                  <el-icon v-if="dubbingLang === 'ja'" class="text-[#13f5f5]"><Check /></el-icon>
+                </div>
+              </el-dropdown-item>
+
+              <!-- Subtitle Section -->
+              <div class="px-3 py-2 text-xs text-slate-400 font-medium border-b border-slate-700 mt-1">
+                字幕
+              </div>
+              <el-dropdown-item :command="null as any" @click="handleSubtitleChange(null)" class="text-slate-200 hover:bg-slate-700">
+                <div class="flex items-center justify-between w-full">
+                  <span>关闭</span>
+                  <el-icon v-if="subtitleLang === null" class="text-[#13f5f5]"><Check /></el-icon>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item 
+                @click="handleSubtitleChange('zh')"
+                :disabled="!availableSubtitles.zh"
+                class="text-slate-200 hover:bg-slate-700"
+              >
+                <div class="flex items-center justify-between w-full">
+                  <span>中文 (AI)</span>
+                  <el-icon v-if="subtitleLang === 'zh'" class="text-[#13f5f5]"><Check /></el-icon>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item 
+                @click="handleSubtitleChange('en')"
+                :disabled="!availableSubtitles.en"
+                class="text-slate-200 hover:bg-slate-700"
+              >
+                <div class="flex items-center justify-between w-full">
+                  <span>English (AI)</span>
+                  <el-icon v-if="subtitleLang === 'en'" class="text-[#13f5f5]"><Check /></el-icon>
+                </div>
+              </el-dropdown-item>
+              <el-dropdown-item 
+                @click="handleSubtitleChange('ja')"
+                :disabled="!availableSubtitles.ja"
+                class="text-slate-200 hover:bg-slate-700"
+              >
+                <div class="flex items-center justify-between w-full">
+                  <span>日本語 (AI)</span>
+                  <el-icon v-if="subtitleLang === 'ja'" class="text-[#13f5f5]"><Check /></el-icon>
+                </div>
+              </el-dropdown-item>
+
+              <!-- Bilingual Toggle -->
+              <el-dropdown-item divided class="text-slate-200 hover:bg-slate-700">
+                <div class="flex items-center justify-between w-full" @click.stop>
+                  <span>双语字幕</span>
+                  <el-switch 
+                    v-model="isBilingual" 
+                    size="small" 
+                    @change="(val: any) => toggleBilingual(val)"
+                    :disabled="!subtitleLang"
+                  />
+                </div>
+              </el-dropdown-item>
+
+              <!-- Settings -->
+              <el-dropdown-item class="text-slate-200 hover:bg-slate-700" @click="emit('open-subtitle-settings')">
+                <div class="flex items-center space-x-2">
+                  <span>字幕设置</span>
+                  <el-icon><Setting /></el-icon>
+                </div>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* Player Border - Removed as requested (no color) */
+
+/* Control Bar - Transparent background, white text */
+:deep(.video-js .vjs-control-bar) {
+  background-color: rgba(0, 0, 0, 0.5);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Progress Bar Colors */
+:deep(.video-js .vjs-progress-control) {
+  color: #13f5f5;
+}
+
+:deep(.video-js .vjs-play-progress) {
+  background-color: #13f5f5;
+}
+
+:deep(.video-js .vjs-play-progress:before) {
+  color: #13f5f5;
+}
+
+:deep(.video-js .vjs-load-progress) {
+  background: rgba(19, 245, 245, 0.3);
+}
+
+:deep(.video-js .vjs-slider) {
+  background-color: rgba(19, 245, 245, 0.3);
+}
+
+/* Button Colors - All white text */
+:deep(.video-js .vjs-control-bar .vjs-button) {
+  color: #ffffff;
+}
+
+:deep(.video-js .vjs-control-bar .vjs-button:hover) {
+  color: #13f5f5;
+}
+
+/* Time display text */
+:deep(.video-js .vjs-time-control) {
+  color: #ffffff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Remaining time display */
+:deep(.video-js .vjs-remaining-time) {
+  color: #ffffff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Duration display */
+:deep(.video-js .vjs-duration) {
+  color: #ffffff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Element Plus Dropdown Items */
+:deep(.el-dropdown-menu__item.is-active) {
+  color: #13f5f5 !important;
+}
+
+:deep(.el-switch.is-checked .el-switch__core) {
+  border-color: #13f5f5;
+  background-color: #13f5f5;
+}
+</style>

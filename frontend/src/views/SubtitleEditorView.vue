@@ -12,7 +12,7 @@
       :filename="fileName"
       @toggle-translation="showTranslation = !showTranslation"
       @go-back="console.log('come back')"
-      @open-settings="showSettingsDialog = true"
+      @open-settings="navigateToHome"
     />
     <div class="h-[calc(100vh+70px)] flex gap-6 p-6 min-w-0">
       <!-- 左侧视频和波形区域 -->
@@ -76,8 +76,7 @@
         </div>
       </div>
     </div>
-    <!-- 设置弹窗 -->
-    <SettingsDialog v-model:visible="showSettingsDialog" @close="showSettingsDialog = false" />
+    
   </div>
 </template>
 
@@ -95,7 +94,6 @@ import NavBar from '@/components/WatchVideo/NavBar.vue'
 import VideoPlayer from '@/components/WatchVideo/VideoPlayer.vue'
 import SubtitleEditor from '@/components/Editor/SubtitleEditor.vue'
 import WaveformViewer from '@/components/Editor/WaveformViewer.vue'
-import SettingsDialog from '@/components/dialogs/SettingsDialog.vue'
 
 const subtitles = ref<Subtitle[]>([]) // 存真正的字幕数组
 const waveformContainerRef = ref<HTMLDivElement>()
@@ -123,6 +121,11 @@ const subtitleEditorRef = ref<InstanceType<typeof SubtitleEditor> | null>(null)
 
 // 路由配置
 const route = useRoute()
+const router = useRouter()
+
+function navigateToHome() {
+  router.push('/')
+}
 
 // 获取并处理路由参数（参考 WatchVideo.vue）
 const routeParams = route.params
@@ -161,7 +164,6 @@ function handleTimeUpdate(t: number) {
 
 const videoData = ref<VideoInfoData>(defaultVideoInfo)
 
-const showSettingsDialog = ref(false)
 const showRegions = ref(true) // 控制波形区域可见性
 const videoId = ref(-1)
 const subtitleFont = ref('Arial')

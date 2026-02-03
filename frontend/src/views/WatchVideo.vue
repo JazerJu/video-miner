@@ -7,12 +7,12 @@ import VideoPlayer from '@/components/WatchVideo/VideoPlayer.vue'
 import TabbedPanel from '@/components/WatchVideo/TabbedPanel.vue'
 import VideoInfo from '@/components/WatchVideo/VideoInfo.vue'
 import PlayList from '@/components/WatchVideo/PlayList.vue'
-import SettingsDialog from '@/components/dialogs/SettingsDialog.vue'
 import { blobUrls, generateVTT } from '@/composables/Buildvtt'
 import type { VideoInfoData } from '@/types/media.d.ts'
 import { getVideoInfo } from '@/composables/GetVideoInfo'
 import { hhmmssToSeconds } from '@/composables/TimeFunc'
 import { useI18n } from 'vue-i18n'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 // 解析URL时间戳参数：支持 #t=90, #t=1m30s, #t=1h30m45s 等格式
 function parseTimeString(timeStr: string): number {
@@ -83,11 +83,21 @@ function updateBloburl(blobUrlsAccepted: Array<string | undefined>) {
 
 // ───────────────── state ─────────────────
 const showTranslation = ref(false)
-const showSettingsDialog = ref(false)
 const isVideoFullscreen = ref(false)
+const showChapterMarkers = ref(true) // Control chapter marker visibility
 import { BACKEND } from '@/composables/ConfigAPI'
 const router = useRouter()
 const route = useRoute()
+
+// Handle chapter marker toggle from VideoChapters
+function handleChapterMarkerToggle(show: boolean) {
+  showChapterMarkers.value = show
+  console.log(`[WatchVideo] Chapter marker toggle: ${show}`)
+}
+
+function navigateToHome() {
+  router.push('/')
+}
 const isStream = route.path.includes('/stream/')
 const videoSrc = computed(() => {
   // If route is /stream/, serve HLS
@@ -124,6 +134,28 @@ function handleSeekFromSubs(t: number) {
 
 const videoData = ref<VideoInfoData>(defaultVideoInfo)
 
+// Progress saving
+let progressInterval: ReturnType<typeof setInterval> | null = null
+
+const saveProgress = async () => {
+  if (videoData.value.id <= 0 || currentTime.value <= 0) return
+
+  try {
+    const csrf = await getCSRFToken()
+    await fetch(`${BACKEND}/api/videos/${videoData.value.id}/update_progress`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
+      },
+      body: JSON.stringify({ time: currentTime.value }),
+    })
+    console.log('Progress saved:', currentTime.value)
+  } catch (err) {
+    console.error('Failed to save progress:', err)
+  }
+}
+
 // Function to load video data
 async function loadVideoData(filename: string) {
   try {
@@ -140,6 +172,12 @@ async function loadVideoData(filename: string) {
     console.log('Video rawLang:', videoData.value.rawLang)
 
     duration.value = hhmmssToSeconds(videoData.value.videoLength)
+
+    // Resume from last played time if available
+    if (data.last_played_time && data.last_played_time > 0) {
+       console.log('Resuming from last played time:', data.last_played_time)
+       currentTime.value = data.last_played_time
+    }
 
     // Update browser tab title - check if name is not the default
     if (videoData.value.name && videoData.value.name !== t('unnamedVideo')) {
@@ -345,11 +383,21 @@ onMounted(async () => {
 
   // Listen for hash changes for shareable timestamps
   window.addEventListener('hashchange', handleTimeFragment)
+
+  // Start progress saving timer (every 30 seconds)
+  progressInterval = setInterval(saveProgress, 30000)
 })
 
 // Cleanup event listeners when component unmounts
 onUnmounted(() => {
   window.removeEventListener('hashchange', handleTimeFragment)
+  
+  if (progressInterval) {
+    clearInterval(progressInterval)
+    progressInterval = null
+  }
+  // Save progress one last time
+  saveProgress()
 })
 
 // ✅ FIX: Enhanced HLS.js mounting with detailed debugging
@@ -480,7 +528,7 @@ onMounted(() => {
       :title="videoData.name"
       :filename="fileName"
       @toggle-translation="showTranslation = !showTranslation"
-      @open-settings="showSettingsDialog = true"
+      @open-settings="navigateToHome"
     />
 
     <!-- 主要内容区域 -->
@@ -500,6 +548,7 @@ onMounted(() => {
                 :videoId="videoData.id"
                 :rawLang="videoData.rawLang"
                 :videoName="videoData.name"
+                :showChapterMarkers="showChapterMarkers"
                 @time-update="handleTimeUpdate"
                 @autoplay-next="handleAutoPlayNext"
                 @autoplay-settings-changed="handleAutoPlaySettingsChanged"
@@ -545,8 +594,10 @@ onMounted(() => {
               :id="videoData.id"
               :rawLang="videoData.rawLang"
               :videoName="videoData.name"
+              :showChapterMarkers="showChapterMarkers"
               @update-bloburls="updateBloburl"
               @seek="handleSeekFromSubs"
+              @toggle-chapter-markers="handleChapterMarkerToggle"
             />
             <div v-else class="text-slate-400 text-center py-8">{{ t('loadingSubtitles') }}</div>
           </div>
@@ -565,7 +616,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <SettingsDialog v-model:visible="showSettingsDialog" />
+    
   </div>
 </template>
 

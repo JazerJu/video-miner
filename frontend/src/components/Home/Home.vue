@@ -2,97 +2,36 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { defineExpose, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { Microphone, Upload } from '@element-plus/icons-vue'
+import { FolderOpen } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
+import { useNotification } from '@/composables/useNotification'
 import Sidebar from '@/components/Home/Sidebar.vue'
 import SearchModal from '@/components/Home/SearchModal.vue'
 import VideoDisplayToggler from '@/components/VideoDisplayToggler.vue'
 import VideoCard from '@/components/Home/VideoCard.vue'
 import BatchMoveDialog from '@/components/dialogs/BatchMoveDialog.vue'
-import BatchMoveToCollectionDialog from '@/components/dialogs/BatchMoveToCollectionDialog.vue'
+
 import BatchToolbar from '@/components/Home/BatchToolbar.vue'
-import MediaItemCards from '@/components/Home/MediaItemCards.vue'
 import { getCSRFToken, getCookie } from '@/composables/GetCSRFToken'
 import TasksView from '@/components/Home/TasksView.vue'
-import type { MediaItem, Video, Collection, Category, RequestVideo } from '@/types/media'
+import type { Video, Category, RequestVideo } from '@/types/media'
 import StreamMediaCard from '@/components/Home/StreamMediaCard.vue'
-import EnhancedSubtitleDialog from '@/components/dialogs/EnhancedSubtitleDialog.vue' // ← 新增
-import SettingsDialog from '@/components/dialogs/SettingsDialog.vue'
-import ThumbnailDialog from '@/components/dialogs/ThumbnailDialog.vue' // ← 新增
-import RealtimeTranscriptionDialog from '@/components/dialogs/RealtimeTranscriptionDialog.vue' // ← 新增实时转录对话框
+import EnhancedSubtitleDialog from '@/components/dialogs/EnhancedSubtitleDialog.vue'
+import SettingsPanel from '@/components/Home/SettingsPanel.vue'
+import LibraryView from '@/components/Home/LibraryView.vue'
+import ThumbnailDialog from '@/components/dialogs/ThumbnailDialog.vue'
+import RealtimeTranscriptionDialog from '@/components/dialogs/RealtimeTranscriptionDialog.vue'
 import { useThumbnail } from '@/composables/thumbnail'
 import { useHiddenCategories } from '@/composables/useHiddenCategories'
-import { HistoryAPI } from '@/composables/HistoryAPI'
+
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
 /*
   说明：Home.vue 顶层页面（Layout）
-
-  ──────────────────────────────────────────────────────
-  ◇ 布局结构
-    • 左侧 <Sidebar>：负责导航菜单 + 分类（Folder）列表。
-    • 右侧 Main：根据当前菜单 / 所选文件夹渲染不同内容。
-
-  ──────────────────────────────────────────────────────
-  ◇ 页面切换逻辑
-    1. Home（currentMenu = 0）
-       - 视频管理首页
-       - 支持「输入外链 → 解析预览卡片 → 下载视频」流程
-       - 三个功能卡片：本地媒体上传 / 文本转语音 / 实时录音转写
-       - <TasksView> 展示字幕等后台任务进度
-    2. Library（currentMenu = 1）
-       - 展示所有视频（不含合集），支持批量模式
-    3. Folder Content
-       - 当在 Sidebar 选中文件夹时进入
-       - 仅渲染该文件夹下的 MediaItem 列表
-       - 支持批量移动分类 / 生成字幕 / 删除 / 编辑缩略图
-
-  ──────────────────────────────────────────────────────
-  ◇ 主要功能点
-    • fetchCategories       —— 拉取分类：填充 categories（Sidebar）与 右侧Main page内容.
-    • fetchVideoData        —— 拉取所有视频： 拉取分类->collection->视频的三级json，更新 categories.items
-    • submitUrl             —— POST /stream_media/query，生成外链视频预览卡片
-    • handleFileChange      —— 本地视频 / 音频上传到后端
-    • generateSubtitle      —— 将视频加入字幕队列（POST + CSRF）
-    • deleteVideo           —— 删除视频（DELETE；同步前端列表）
-    • handleSelectCategory  —— 侧边栏文件夹点击：切页并加载对应 items
-    • Batch 操作            —— 进入批量选择，移动分类 / 批量字幕
-    • getCookie             —— 简易读取 csrftoken，供所有带凭证请求使用
-
-  ──────────────────────────────────────────────────────
-  ◇ 组件协作
-    • <Sidebar>
-        - 发事件：update:currentMenu / open-search / select-folder / refresh
-    • <SearchModal>
-        - v-model 控制显示
-    • <MediaItemCards>
-        - 根据 view="grid" 渲染视频卡片/Collection 卡片
-        - 向父触发：edit-thumbnail / generate-subtitle / delete / category-moved
-    • <BatchMoveDialog>
-        - 处理批量移动分类
-    • <TasksView>
-        - 轮询并展示后台任务状态
-
-  ──────────────────────────────────────────────────────
-  ◇ 状态管理（ref / computed）
-    • categories            —— Sidebar 分类数组
-    • categories         —— 带 items 的分类完整结构
-    • allVideos          —— 扁平化的视频列表（Library 用）
-    • currentMenu        —— 侧边导航索引
-    • currentPage        —— 'main' | 'library' | 'folder_content'
-    • currentCategory      —— 选中的文件夹对象
-    • currentCategoryItems —— 当前文件夹下的 MediaItem 列表
-    • selectedIds        —— 批量模式下勾选的视频 ID
-    • isBatchMode        —— 是否处于批量选择状态（computed）
-    • requestVideo       —— 外链解析后的预览数据
-    • showSearchModal    —— 搜索弹窗开关
-    • showBatchMoveDialog—— 批量移动弹窗开关
-
-  ──────────────────────────────────────────────────────
-  ◇ 外部依赖
-    • Element Plus 组件 & 图标
-    • TailwindCSS 工具类
-    • axios / fetch API
-    • 后端环境变量 VITE_BACKEND_ORIGIN
 */
 
 /** 通用 DELETE 请求封装 */
@@ -107,11 +46,11 @@ async function requestDelete(url: string, okMsg = '操作成功'): Promise<boole
 
     if (!resp.ok || data?.success === false) throw new Error(data?.message || resp.statusText)
 
-    ElMessage.success(data?.message || t(okMsg) || okMsg)
+    successNotify(data?.message || t(okMsg) || okMsg)
     return true
   } catch (e: any) {
     console.error(e)
-    ElMessage.error(e.message || t('requestFailed'))
+    errorNotify(e.message || t('requestFailed'))
     return false
   }
 }
@@ -133,6 +72,9 @@ async function onCategoriesUpdated() {
 
 // 1.更新侧边栏选中菜单序号-->更新main page内容
 const currentMenuIdx = ref(0)
+const activeSettingsTab = ref('model')
+const filterMode = ref<'folders' | 'tags'>('folders')
+
 function updateMenuIndex(idx: number) {
   currentMenuIdx.value = idx
   resetPagination() // 切换视图时重置分页
@@ -146,21 +88,24 @@ function updateMenuIndex(idx: number) {
     //媒体库
     currentCategory.value = null // not inside any folder
   } else if (idx === 2) {
-    // History页面
+    // Settings
     currentCategory.value = null
-    fetchRecentVideos() // 获取最近视频数据
   }
 }
+
+function updateSettingsTab(tab: string) {
+    activeSettingsTab.value = tab
+}
+
 // 1.1 打开搜索框
 const showSearchModal = ref(false)
 function handleOpenSearch() {
   showSearchModal.value = true
 }
 
-// 1.2 打开设置对话框
-const showSettingsDialog = ref(false)
+// 1.2 打开设置 - Now switches to menu index 3
 function handleOpenSettings() {
-  showSettingsDialog.value = true
+  updateMenuIndex(3)
 }
 
 // 1.2.侧边栏定义分类的函数，展示对应分类的Items
@@ -168,7 +113,7 @@ const categories = ref<Category[]>([])
 defineExpose({ categories })
 
 const currentCategory = ref<Category | null>(null)
-const currentCategoryItems = ref<MediaItem[]>([])
+const currentCategoryItems = ref<Video[]>([])
 
 const handleSelectCategory = (id: number) => {
   const cat = categories.value.find((c) => Number(c.id) === id) ?? null
@@ -232,7 +177,7 @@ function resetPagination() {
 }
 async function batchDelete() {
   if (!selectedIds.value.length) {
-    ElMessage.warning(t('selectVideosToDelete'))
+    warningNotify(t('selectVideosToDelete'))
     return
   }
 
@@ -269,28 +214,28 @@ async function batchDelete() {
     const result = await response.json()
 
     if (result.success) {
-      ElMessage.success(result.message || t('deleteSuccess'))
+      successNotify(result.message || t('deleteSuccess'))
 
       // 清空选择并刷新数据
       selectedIds.value = []
       await fetchVideoData()
       await nextTick() // Ensure DOM updates
     } else {
-      ElMessage.error(result.message || t('deleteFailed'))
+      errorNotify(result.message || t('deleteFailed'))
       if (result.errors && result.errors.length > 0) {
         console.error('删除错误详情：', result.errors)
       }
     }
   } catch (error) {
     console.error('批量删除视频失败：', error)
-    ElMessage.error(t('networkError'))
+    errorNotify(t('networkError'))
   }
 }
 function batchSubtitle() {
-  ElMessage.success(`生成字幕：${selectedIds.value.join(', ')}`)
+  successNotify(`生成字幕：${selectedIds.value.join(', ')}`)
   // 打开弹窗
   if (!selectedIds.value.length) {
-    ElMessage.warning(t('selectVideoFirst'))
+    warningNotify(t('selectVideoFirst'))
     return
   }
   showSubtitleDialog.value = true
@@ -299,7 +244,7 @@ function batchSubtitle() {
 /** 批量合并视频 */
 async function batchConcat() {
   if (!selectedIds.value.length) {
-    ElMessage.warning(t('selectVideoFirst'))
+    warningNotify(t('selectVideoFirst'))
     return
   }
 
@@ -313,7 +258,7 @@ async function batchConcat() {
     })
 
   if (selectedVideos.length !== selectedIds.value.length) {
-    ElMessage.error('部分选中的视频信息缺失，请重试')
+    errorNotify('部分选中的视频信息缺失，请重试')
     return
   }
 
@@ -357,19 +302,18 @@ async function batchConcat() {
     })
     const result = await response.json()
     if (result.success) {
-      ElMessage.success(result.message || '合并请求已提交')
+      successNotify(result.message || '合并请求已提交')
       selectedIds.value = []
       fetchVideoData()
     } else {
-      ElMessage.error(result.message || '合并失败')
+      errorNotify(result.message || '合并失败')
     }
   } catch (error) {
     console.error('批量合并视频失败：', error)
-    ElMessage.error('网络错误，请重试')
+    errorNotify('网络错误，请重试')
   }
 }
 const showBatchMoveDialog = ref(false)
-const showBatchMoveToCollectionDialog = ref(false)
 const showRealtimeTranscriptionDialog = ref(false)
 
 function handleOpenRealtimeTranscription() {
@@ -383,12 +327,6 @@ async function onBatchMoved() {
   categories.value.forEach((cat) => {
     cat.items = cat.items.filter((it: Video) => !(it.type === 'video' && ids.includes(it.id)))
   })
-  // 如果你在 Collection 详情页，需要同步当前集合
-  if (currentCollection.value) {
-    currentCollection.value.videos = currentCollection.value.videos.filter(
-      (v) => !ids.includes(v.id),
-    )
-  }
   // 触发顶层数组更新（有时不需要，但保险起见）
   categories.value = [...categories.value]
 
@@ -420,17 +358,12 @@ const {
 const videoIndex = computed<Record<number, Video>>(() => {
   const map: Record<number, Video> = {}
 
-  // ① 把分类里的"散装"视频（即无Collection）放进来
+  // 把所有分类里的视频放入索引
   Object.values(videoData.value)
     .flat()
     .forEach((v) => {
       map[v.id] = v as Video
     })
-
-  // ② 额外把各个 Collection 的内部视频也放进来
-  collectionMap.value.forEach((col) => {
-    col.videos?.forEach((v) => (map[v.id] = v))
-  })
 
   return map
 })
@@ -445,44 +378,52 @@ const filteredCategories = computed(() => {
   return filterCategories(categories.value)
 })
 
-// History页面 - 通过API获取最近50个视频
-const recentVideos = ref<Video[]>([])
-const isLoadingHistory = ref(false)
-const historyError = ref('')
+// 所有视频的集合，用于媒体库
+const allVideos = computed<Video[]>(() => {
+  return Object.values(videoData.value).flat()
+})
 
-// 获取最近视频数据
-const fetchRecentVideos = async () => {
-  isLoadingHistory.value = true
-  historyError.value = ''
+const filteredMediaGroups = computed(() => {
+  if (filterMode.value === 'folders') {
+    return filteredCategories.value
+  } else {
+    // Group by Tags
+    const map = new Map<string, Video[]>()
+    // 'Uncategorized' for videos with no tags
+    const noTagVideos: Video[] = []
 
-  try {
-    const videos = await HistoryAPI.getRecentVideos()
-    recentVideos.value = videos
-  } catch (error: any) {
-    console.error('Failed to fetch recent videos:', error)
-    historyError.value = error.message || '获取最近视频失败'
-  } finally {
-    isLoadingHistory.value = false
-  }
-}
-
-// History页面的分页
-const paginatedRecentVideos = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage
-  const end = start + itemsPerPage
-  // Sort videos by name using natural sorting like PlayList
-  const sortedVideos = recentVideos.value.sort((a, b) => {
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: 'base',
+    // Iterate all videos
+    Object.values(videoData.value).flat().forEach(video => {
+        // Backend tags might be JSON string or array, handled by Video interface as string[]
+        // Ensure tags is array
+        const tags = Array.isArray(video.tags) ? video.tags : []
+        
+        if (tags.length === 0) {
+            noTagVideos.push(video)
+        } else {
+            tags.forEach(tag => {
+                if (!map.has(tag)) map.set(tag, [])
+                map.get(tag)!.push(video)
+            })
+        }
     })
-  })
-  return sortedVideos.slice(start, end)
+
+    const result: Category[] = []
+    map.forEach((videos, tag) => {
+        result.push({ id: -1, name: tag, items: videos }) // ID -1 for transient tag groups
+    })
+    
+    // Sort by tag name
+    result.sort((a, b) => a.name.localeCompare(b.name))
+
+    if (noTagVideos.length > 0) {
+        result.push({ id: -1, name: t('uncategorized') || 'Uncategorized', items: noTagVideos })
+    }
+    return result
+  }
 })
 
-const totalHistoryPages = computed(() => {
-  return Math.ceil(recentVideos.value.length / itemsPerPage)
-})
+
 
 // 分页计算属性 - 仅用于分类视图和合集视图
 const paginatedCurrentCategory = computed(() => {
@@ -503,23 +444,6 @@ const totalCategoryPages = computed(() => {
   return Math.ceil(currentCategory.value.items.length / itemsPerPage)
 })
 
-const paginatedCollectionVideos = computed(() => {
-  const start = (currentPage.value - 1) * itemsPerPage
-  const end = start + itemsPerPage
-  // Sort videos by name using natural sorting like PlayList
-  const sortedVideos = currentCollectionVideos.value.sort((a, b) => {
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    })
-  })
-  return sortedVideos.slice(start, end)
-})
-
-const totalCollectionPages = computed(() => {
-  return Math.ceil(currentCollectionVideos.value.length / itemsPerPage)
-})
-
 function onSubtitleSubmitted() {
   // 后端成功 → 关闭弹窗 + 清空勾选
   showSubtitleDialog.value = false
@@ -533,9 +457,6 @@ async function handleThumbnailUpdated() {
   if (currentCategory.value) {
     currentCategory.value = categories.value.find((c) => c.id === currentCategory.value!.id) ?? null
   }
-  if (currentCollection.value) {
-    currentCollection.value = collectionMap.value.get(currentCollection.value.id) ?? null
-  }
   await nextTick() // Ensure DOM updates
 }
 
@@ -548,55 +469,7 @@ async function handleVideoRenamed(video: Video, newName: string) {
   await nextTick() // Ensure DOM updates
 }
 
-// Handle collection moved - instant UI update by removing from current category
-async function handleCollectionMoved(movedCollection: Collection) {
-  console.log('handleCollectionMoved called with:', movedCollection)
-  // Remove collection from all categories immediately for instant UI feedback
-  categories.value.forEach((category) => {
-    category.items = category.items.filter(
-      (item: MediaItem) => !(item.type === 'collection' && item.id === movedCollection.id),
-    )
-  })
 
-  // Update current category items if we're viewing a specific category
-  if (currentCategory.value) {
-    currentCategory.value.items = currentCategory.value.items.filter(
-      (item: MediaItem) => !(item.type === 'collection' && item.id === movedCollection.id),
-    )
-  }
-  console.log('Current category after filtering:', currentCategory.value)
-  // Force reactivity update
-  await nextTick()
-  await fetchVideoData()
-}
-
-// 2.4.点击CollectionCard，展示该Collection中的所有视频
-const currentCollection = ref<Collection | null>(null)
-const collectionMap = ref<Map<number, Collection>>(new Map())
-const currentCollectionVideos = computed(() => currentCollection.value?.videos ?? [])
-const openCollection = (id: number) => {
-  // console.log(id, 'collection opened!!')
-  const col = collectionMap.value.get(id)
-  if (!col) return
-
-  currentCollection.value = col
-  currentMenuIdx.value = 10 // 约定 10 = Collection 详情
-  selectedIds.value = [] // 清批量选择
-  resetPagination() // 切换合集时重置分页
-}
-
-// 添加返回函数，正确处理从Collection返回到来源分类
-const returnFromCollection = () => {
-  if (currentCategory.value) {
-    // 如果来自某个分类，返回到该分类
-    currentMenuIdx.value = -1
-  } else {
-    // 如果来自媒体库，返回到媒体库
-    currentMenuIdx.value = 1
-  }
-  currentCollection.value = null
-  resetPagination()
-}
 
 // 3.获取分类/视频信息
 // 获取分类信息
@@ -611,60 +484,45 @@ async function fetchVideoData() {
   try {
     // 获取隐藏的分类ID列表
     const { hiddenCategoryIds } = useHiddenCategories()
-    console.log('Hidden category IDs:', hiddenCategoryIds.value)
+    // console.log('Hidden category IDs:', hiddenCategoryIds.value)
     const hiddenCategoriesParam =
       hiddenCategoryIds.value.length > 0
         ? `?hidden_categories=${hiddenCategoryIds.value.join(',')}`
         : ''
-    console.log('Fetching with URL:', `${BACKEND}/api/videos${hiddenCategoriesParam}`)
+    // console.log('Fetching with URL:', `${BACKEND}/api/videos${hiddenCategoriesParam}`)
 
     const res = await fetch(`${BACKEND}/api/videos${hiddenCategoriesParam}`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
     // 后端返回 { data: [...] }
     const jsonResponse = await res.json()
-    console.log('Full API response:', jsonResponse)
+    // console.log('Full API response:', jsonResponse)
     const { data: catArray = [] } = jsonResponse
+    
     // ➜ 关键：把 id 为 null 的那一条也映射成 Category
-    console.log('Category array:', catArray)
+    // console.log('Category array:', catArray)
+    
+    // Simplification: Direct mapping, assuming backend returns { loose_videos: [...] } structure correctly
+    // Since we removed Collections, everything should be in loose_videos or similar
+    // We map backend response to Frontend Category structure
     categories.value = catArray.map((cat: any) => {
-      console.log(
-        'Processing category:',
-        cat.name,
-        'Collections:',
-        cat.collections?.length ?? 0,
-        'Loose videos:',
-        cat.loose_videos?.length ?? 0,
-      )
-      return {
-        id: cat.id ?? 0,
-        name: cat.name || '未归档',
-        items: [
-          ...(cat.collections ?? []).map((c: any) => ({
-            ...c,
-            type: 'collection',
-            cover: c.thumbnail || '',
-          })),
-          ...(cat.loose_videos ?? []).map((v: any) => ({
-            ...v,
-            type: 'video',
-          })),
-        ],
-      }
-    })
-    console.log(categories)
-    // 获取Collection Maps
-    collectionMap.value.clear()
-    categories.value.forEach((cat) => {
-      cat.items?.forEach((it: MediaItem) => {
-        if (it.type === 'collection') {
-          collectionMap.value.set(it.id, it as Collection)
+        const categoryName = cat.name || '未归档'
+        return {
+            id: cat.id ?? 0,
+            name: categoryName,
+            items: (cat.loose_videos ?? []).map((v: any) => ({
+                ...v,
+                type: 'video',
+                categoryName: categoryName,  // 添加分类名称到每个视频
+                categoryId: cat.id ?? 0      // 添加分类ID到每个视频
+            }))
         }
-      })
     })
+
+    // Update videoData for easy access
     videoData.value = {}
     categories.value.forEach((cat) => {
-      videoData.value[cat.name] = cat.items.filter((it: MediaItem) => it.type === 'video')
+      videoData.value[cat.name] = cat.items as Video[]
     })
   } catch (err) {
     console.error(err)
@@ -676,25 +534,9 @@ import { BACKEND } from '@/composables/ConfigAPI'
 const isAuthenticated = ref(false)
 const currentUser = ref(null)
 
-// Login/Register dialog states
-const showLoginDialog = ref(false)
-const showRegisterDialog = ref(false)
-
-// Login form
-const loginForm = ref({
-  username: '',
-  password: '',
-})
-
-// Registration form
-const registerForm = ref({
-  username: '',
-  password: '',
-  email: '',
-})
-
 // i18n functionality
 const { t } = useI18n()
+const { success: successNotify, error: errorNotify, warning: warningNotify } = useNotification()
 
 // Check if user is authenticated before fetching
 async function checkAuthAndFetch() {
@@ -711,20 +553,23 @@ async function checkAuthAndFetch() {
         currentUser.value = data.user
         fetchVideoData()
       } else {
-        // Not authenticated
+        // Not authenticated - redirect to login
         isAuthenticated.value = false
         currentUser.value = null
+        router.push('/login')
       }
     } else {
-      // Not authenticated
+      // Not authenticated - redirect to login
       isAuthenticated.value = false
       currentUser.value = null
+      router.push('/login')
     }
   } catch (error) {
     console.error('Error checking auth status:', error)
-    // On error, assume not authenticated
+    // On error, redirect to login
     isAuthenticated.value = false
     currentUser.value = null
+    router.push('/login')
   }
 }
 
@@ -740,77 +585,7 @@ const checkRootExists = async () => {
   }
 }
 
-// Login function
-const handleLogin = async () => {
-  if (!loginForm.value.username || !loginForm.value.password) {
-    ElMessage.error('请输入用户名和密码')
-    return
-  }
 
-  try {
-    const response = await fetch(`${BACKEND}/api/auth/login/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify(loginForm.value),
-    })
-
-    const data = await response.json()
-
-    if (data.success) {
-      currentUser.value = data.user
-      isAuthenticated.value = true
-      showLoginDialog.value = false
-      loginForm.value = { username: '', password: '' }
-      ElMessage.success('登录成功')
-      // Refresh data after login
-      checkAuthAndFetch()
-    } else {
-      ElMessage.error(data.error || '登录失败')
-    }
-  } catch (error) {
-    console.error('Login error:', error)
-    ElMessage.error('网络错误，请重试')
-  }
-}
-
-// Register root user
-const handleRegister = async () => {
-  if (!registerForm.value.username || !registerForm.value.password) {
-    ElMessage.error('请输入用户名和密码')
-    return
-  }
-
-  try {
-    const response = await fetch(`${BACKEND}/api/auth/register-root/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify(registerForm.value),
-    })
-
-    const data = await response.json()
-
-    if (data.success) {
-      currentUser.value = data.user
-      isAuthenticated.value = true
-      showRegisterDialog.value = false
-      registerForm.value = { username: '', password: '', email: '' }
-      ElMessage.success('根用户创建成功')
-      // Refresh data after registration
-      checkAuthAndFetch()
-    } else {
-      ElMessage.error(data.error || '注册失败')
-    }
-  } catch (error) {
-    console.error('Register error:', error)
-    ElMessage.error('网络错误，请重试')
-  }
-}
 
 // Handle user area click from Sidebar
 const handleUserAreaClick = async () => {
@@ -818,13 +593,7 @@ const handleUserAreaClick = async () => {
     // User is already logged in, Sidebar will handle dropdown
     return
   } else {
-    // Check if root exists
-    const rootExists = await checkRootExists()
-    if (rootExists) {
-      showLoginDialog.value = true
-    } else {
-      showRegisterDialog.value = true
-    }
+    router.push('/login')
   }
 }
 
@@ -841,13 +610,14 @@ onMounted(() => {
     <Sidebar
       :categories="isAuthenticated ? filteredCategories : []"
       :currentMenuIdx="currentMenuIdx"
+      :activeSettingsTab="activeSettingsTab"
       :isAuthenticated="isAuthenticated"
       @update-menuIndex="updateMenuIndex"
       @open-search="handleOpenSearch"
       @open-settings="handleOpenSettings"
-      @select-category="handleSelectCategory"
       @refresh="checkAuthAndFetch"
       @show-login="handleUserAreaClick"
+      @update-settings-tab="updateSettingsTab"
     />
 
     <!-- 搜索Modal -->
@@ -888,141 +658,42 @@ onMounted(() => {
         </div>
       </template>
 
+      <!-- 📌 Settings -->
+      <template v-if="currentMenuIdx === 3">
+          <div class="h-full p-6">
+            <SettingsPanel 
+                :active-tab="activeSettingsTab"
+                :categories="categories"
+                @categories-updated="onCategoriesUpdated"
+            />
+          </div>
+      </template>
+
       <!-- 📌 媒体库 -->
       <template v-if="currentMenuIdx === 1">
-        <h2 class="text-xl font-bold mb-4 text-white">{{ t('allMedia') }}</h2>
-
-        <!-- 批量操作栏（可选） -->
+        <!-- 批量操作栏 -->
         <BatchToolbar
           :batch-mode="isBatchMode"
           :selected-ids="selectedIds"
           @show-move-dialog="showBatchMoveDialog = true"
-          @show-move-to-collection-dialog="showBatchMoveToCollectionDialog = true"
           @generate-subtitles="batchSubtitle"
           @delete-videos="batchDelete"
           @concat-videos="batchConcat"
         />
 
-        <!-- 逐分类渲染 -->
-        <section v-for="cat in filteredCategories" :key="cat.id" class="mb-10">
-          <h3 class="text-lg font-semibold mb-3 text-white">
-            {{ cat.name || t('uncategorized') }}
-          </h3>
-
-          <MediaItemCards
-            :category="cat"
-            view="grid"
-            :batch-mode="isBatchMode"
-            v-model:selected-ids="selectedIds"
-            @generate-subtitle="generateSubtitle"
-            @delete="deleteVideo"
-            @open-collection="openCollection"
-            @edit-thumbnail="onEditThumbnail"
-            @collection-moved="handleCollectionMoved"
-          />
-        </section>
+        <!-- 新的媒体库视图，带完整筛选和排序功能 -->
+        <LibraryView
+          :videos="allVideos"
+          :batch-mode="isBatchMode"
+          v-model:selected-ids="selectedIds"
+          @generate-subtitle="generateSubtitle"
+          @delete="deleteVideo"
+          @edit-thumbnail="onEditThumbnail"
+          @rename-video="handleVideoRenamed"
+        />
       </template>
 
-      <!-- 📌 History 页面 - 只有认证用户才能访问 -->
-      <template v-if="currentMenuIdx === 2 && isAuthenticated">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xl font-bold text-white">
-            {{ t('recentAccess') }} ({{ recentVideos.length }}{{ t('videosCount') }})
-          </h2>
-          <el-button
-            v-if="!isLoadingHistory"
-            @click="fetchRecentVideos"
-            type="primary"
-            size="small"
-            class="!bg-blue-600 !border-blue-600 hover:!bg-blue-700"
-          >
-            {{ t('refresh') }}
-          </el-button>
-        </div>
 
-        <!-- 加载状态 -->
-        <div v-if="isLoadingHistory" class="flex items-center justify-center py-12">
-          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-          <span class="ml-3 text-white/80">{{ t('loadingRecentVideos') }}</span>
-        </div>
-
-        <!-- 错误状态 -->
-        <div v-else-if="historyError" class="flex items-center justify-center py-12">
-          <div class="text-center">
-            <p class="text-red-400 mb-4">{{ historyError }}</p>
-            <el-button @click="fetchRecentVideos" type="primary" size="small">重试</el-button>
-          </div>
-        </div>
-
-        <!-- 正常内容 -->
-        <template v-else>
-          <!-- 批量操作栏 -->
-          <BatchToolbar
-            :batch-mode="isBatchMode"
-            :selected-ids="selectedIds"
-            @show-move-dialog="showBatchMoveDialog = true"
-            @show-move-to-collection-dialog="showBatchMoveToCollectionDialog = true"
-            @generate-subtitles="batchSubtitle"
-            @delete-videos="batchDelete"
-            @concat-videos="batchConcat"
-          />
-
-          <!-- 视频网格 -->
-          <div
-            v-if="paginatedRecentVideos.length > 0"
-            class="grid gap-5 grid-cols-[repeat(auto-fit,minmax(240px,300px))]"
-          >
-            <VideoCard
-              v-for="video in paginatedRecentVideos"
-              :key="video.id"
-              :video="video"
-              view="grid"
-              :batch-mode="isBatchMode"
-              :checked="selectedIds.includes(video.id)"
-              @update:checked="
-                (val) => {
-                  if (val) selectedIds.push(video.id)
-                  else selectedIds = selectedIds.filter((id) => id !== video.id)
-                }
-              "
-              @edit-thumbnail="onEditThumbnail"
-              @generate-subtitle="() => generateSubtitle(video)"
-              @delete="() => deleteVideo(video)"
-              @rename-video="handleVideoRenamed"
-            />
-          </div>
-
-          <!-- 空状态 -->
-          <div v-else class="flex items-center justify-center py-12">
-            <div class="text-center">
-              <p class="text-white/60 text-lg mb-2">{{ t('noRecentVideos') }}</p>
-              <p class="text-white/40 text-sm">{{ t('noRecentVideosDesc') }}</p>
-            </div>
-          </div>
-
-          <!-- 分页组件 -->
-          <div v-if="totalHistoryPages > 1" class="flex justify-center mt-6">
-            <el-pagination
-              v-model:current-page="currentPage"
-              :total="recentVideos.length"
-              :page-size="itemsPerPage"
-              layout="prev, pager, next"
-              :pager-count="7"
-              class="pagination-custom"
-            />
-          </div>
-        </template>
-      </template>
-
-      <!-- 📌 History 页面 - 未认证用户显示提示 -->
-      <template v-if="currentMenuIdx === 2 && !isAuthenticated">
-        <div class="flex items-center justify-center py-12">
-          <div class="text-center">
-            <p class="text-white/60 text-lg mb-2">{{ t('pleaseLogin') }}</p>
-            <p class="text-white/40 text-sm">{{ t('pleaseLoginDesc') }}</p>
-          </div>
-        </div>
-      </template>
 
       <!-- 📌 单一分类 -->
       <template v-else-if="currentMenuIdx === -1 && currentCategory">
@@ -1032,7 +703,7 @@ onMounted(() => {
           :batch-mode="isBatchMode"
           :selected-ids="selectedIds"
           @show-move-dialog="showBatchMoveDialog = true"
-          @show-move-to-collection-dialog="showBatchMoveToCollectionDialog = true"
+
           @generate-subtitles="batchSubtitle"
           @delete-videos="batchDelete"
           @concat-videos="batchConcat"
@@ -1046,9 +717,8 @@ onMounted(() => {
           v-model:selected-ids="selectedIds"
           @generate-subtitle="generateSubtitle"
           @delete="deleteVideo"
-          @open-collection="openCollection"
           @edit-thumbnail="onEditThumbnail"
-          @collection-moved="handleCollectionMoved"
+
         />
 
         <!-- 分页组件 -->
@@ -1056,60 +726,6 @@ onMounted(() => {
           <el-pagination
             v-model:current-page="currentPage"
             :total="currentCategory.items.length"
-            :page-size="itemsPerPage"
-            layout="prev, pager, next"
-            :pager-count="7"
-            class="pagination-custom"
-          />
-        </div>
-      </template>
-      <!-- 📌 ③ Collection 详情 -->
-      <template v-else-if="currentMenuIdx === 10 && currentCollection">
-        <!-- 返回上一级 -->
-        <el-button type="text" @click="returnFromCollection">
-          ← {{ t('returnTo') }} {{ currentCategory?.name || t('library') }}
-        </el-button>
-
-        <h2 class="text-xl font-bold mb-4 text-white">{{ currentCollection.name }}</h2>
-
-        <!-- 批量操作栏（可选） -->
-        <BatchToolbar
-          :batch-mode="isBatchMode"
-          :selected-ids="selectedIds"
-          @show-move-dialog="showBatchMoveDialog = true"
-          @show-move-to-collection-dialog="showBatchMoveToCollectionDialog = true"
-          @generate-subtitles="batchSubtitle"
-          @delete-videos="batchDelete"
-          @concat-videos="batchConcat"
-        />
-
-        <!-- 直接渲染 VideoCard 列表 -->
-        <div class="grid gap-5 grid-cols-[repeat(auto-fit,minmax(240px,300px))]">
-          <VideoCard
-            v-for="video in paginatedCollectionVideos"
-            :key="video.id"
-            :video="video"
-            view="grid"
-            :batch-mode="isBatchMode"
-            :checked="selectedIds.includes(video.id)"
-            @update:checked="
-              (val) => {
-                if (val) selectedIds.push(video.id)
-                else selectedIds = selectedIds.filter((id) => id !== video.id)
-              }
-            "
-            @edit-thumbnail="onEditThumbnail"
-            @generate-subtitle="() => generateSubtitle(video)"
-            @delete="() => deleteVideo(video)"
-            @rename-video="handleVideoRenamed"
-          />
-        </div>
-
-        <!-- 分页组件 -->
-        <div v-if="totalCollectionPages > 1" class="flex justify-center mt-6">
-          <el-pagination
-            v-model:current-page="currentPage"
-            :total="currentCollectionVideos.length"
             :page-size="itemsPerPage"
             layout="prev, pager, next"
             :pager-count="7"
@@ -1133,11 +749,7 @@ onMounted(() => {
       @moved="onBatchMoved"
     />
 
-    <BatchMoveToCollectionDialog
-      v-model="showBatchMoveToCollectionDialog"
-      :selected-ids="selectedIds"
-      @moved="onBatchMoved"
-    />
+
 
     <EnhancedSubtitleDialog
       v-model="showSubtitleDialog"
@@ -1145,121 +757,6 @@ onMounted(() => {
       :video-name-list="selectedVideos.map((v) => v.name)"
       @submitted="onSubtitleSubmitted"
     />
-
-    <SettingsDialog
-      v-model:visible="showSettingsDialog"
-      :categories="categories"
-      @categories-updated="onCategoriesUpdated"
-    />
-
-    <!-- Login Dialog -->
-    <div
-      v-if="showLoginDialog"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      @click.self="showLoginDialog = false"
-    >
-      <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 class="text-xl font-bold text-gray-800 mb-4">{{ t('login') }}</h2>
-        <form @submit.prevent="handleLogin" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('username') }}</label>
-            <input
-              v-model="loginForm.username"
-              type="text"
-              class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              :placeholder="t('pleaseEnterUsername')"
-              required
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('password') }}</label>
-            <input
-              v-model="loginForm.password"
-              type="password"
-              class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              :placeholder="t('pleaseEnterPassword')"
-              required
-            />
-          </div>
-          <div class="flex space-x-3 pt-4">
-            <button
-              type="button"
-              @click="showLoginDialog = false"
-              class="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-            >
-              {{ t('cancel') }}
-            </button>
-            <button
-              type="submit"
-              class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              {{ t('login') }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- Register Dialog -->
-    <div
-      v-if="showRegisterDialog"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      @click.self="showRegisterDialog = false"
-    >
-      <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 class="text-xl font-bold text-gray-800 mb-2">{{ t('createRootUser') }}</h2>
-        <p class="text-sm text-gray-600 mb-4">{{ t('noRootUserPrompt') }}</p>
-        <form @submit.prevent="handleRegister" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('username') }}</label>
-            <input
-              v-model="registerForm.username"
-              type="text"
-              class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              :placeholder="t('pleaseEnterUsername')"
-              required
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">{{
-              t('emailOptional')
-            }}</label>
-            <input
-              v-model="registerForm.email"
-              type="email"
-              class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              :placeholder="t('email')"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('password') }}</label>
-            <input
-              v-model="registerForm.password"
-              type="password"
-              class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              :placeholder="t('passwordHint')"
-              required
-            />
-            <p class="text-xs text-gray-500 mt-1">{{ t('passwordRequirement') }}</p>
-          </div>
-          <div class="flex space-x-3 pt-4">
-            <button
-              type="button"
-              @click="showRegisterDialog = false"
-              class="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-            >
-              {{ t('cancel') }}
-            </button>
-            <button
-              type="submit"
-              class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              {{ t('create') }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
 
     <!-- 实时转录对话框 -->
     <RealtimeTranscriptionDialog

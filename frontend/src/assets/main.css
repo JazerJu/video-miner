@@ -12,3 +12,159 @@
     @apply bg-brand-500 text-white px-4 py-2 rounded;
   }
 }
+
+/* --- Album: Grid Mode (Default) --- */
+.album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background-color: rgba(30, 41, 59, 0.5); /* slate-800/50 */
+    border-radius: 0.5rem;
+    border: 1px solid rgba(51, 65, 85, 0.5); /* slate-700/50 */
+}
+.album-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    break-inside: avoid;
+    background-color: rgba(15, 23, 42, 0.5); /* slate-900/50 */
+    border-radius: 0.5rem;
+    overflow: hidden;
+    transition: transform 0.2s;
+}
+.album-item:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); }
+.album-item img { width: 100%; height: auto; object-fit: cover; margin: 0 !important; border-radius: 0 !important; }
+.album-caption {
+    padding: 0.5rem; font-size: 0.85rem; color: #94a3b8; text-align: center;
+    background-color: rgba(15, 23, 42, 0.5); /* slate-900/50 */
+    border-top: 1px solid rgba(30, 41, 59, 0.5); /* slate-800/50 */
+}
+
+/* --- Album: Carousel & Thumbnail Modes --- */
+.album-carousel-container {
+    position: relative;
+    background-color: rgba(30, 41, 59, 0.5);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(51, 65, 85, 0.5);
+    padding: 1rem;
+    margin: 1.5rem 0;
+    user-select: none;
+}
+
+.carousel-stage {
+    position: relative;
+    width: 100%;
+    height: 400px; /* Fixed height for consistency */
+    background-color: rgba(15, 23, 42, 0.5);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.carousel-slide {
+    display: none;
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.carousel-slide.active { display: flex; }
+
+.carousel-slide img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+/* Floating Caption in Carousel */
+.carousel-caption-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+    color: white;
+    padding: 2rem 1rem 1rem;
+    text-align: center;
+    font-size: 0.9rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+.carousel-stage:hover .carousel-caption-overlay { opacity: 1; }
+
+/* Navigation Arrows */
+.carousel-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.5);
+    color: white;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    transition: background 0.2s;
+    z-index: 10;
+}
+.carousel-nav-btn:hover { background: rgba(59, 130, 246, 0.8); }
+.carousel-prev { left: 1rem; }
+.carousel-next { right: 1rem; }
+
+/* Thumbnail Strip */
+.carousel-thumbs {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+}
+.carousel-thumb-item {
+    width: 60px;
+    height: 60px;
+    flex-shrink: 0;
+    border-radius: 0.25rem;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    opacity: 0.6;
+    transition: all 0.2s;
+}
+.carousel-thumb-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
+.carousel-thumb-item:hover { opacity: 1; }
+.carousel-thumb-item.active {
+    border-color: #60a5fa;
+    opacity: 1;
+}
+
+/* Override Element Plus ElMessage leave animation to only fade out without movement */
+.el-message-fade-leave-active,
+.el-message__fade-leave-active {
+    transition: opacity 0.3s ease !important;
+}
+
+.el-message-fade-leave-to,
+.el-message__fade-leave-to {
+    opacity: 0 !important;
+    /* Maintain horizontal centering (-50%) and prevent vertical movement (0) */
+    transform: translate(-50%, 0) !important;
+}

@@ -113,7 +113,7 @@ export function saveHiddenCategories(hiddenCategories: number[]): void {
 export interface ConfigData {
   DEFAULT: {
     selected_model_provider: string
-    enable_thinking: string
+    custom_model_name: string
     use_proxy: string
     deepseek_api_key: string
     deepseek_base_url: string
@@ -123,6 +123,8 @@ export interface ConfigData {
     openai_base_url: string
     qwen_api_key: string
     qwen_base_url: string
+    local_api_key: string
+    local_base_url: string
   }
   'Video watch': {
     raw_language: string
@@ -192,7 +194,7 @@ export interface ConfigData {
 export interface FrontendSettings {
   // Model settings
   selectedModelProvider: string
-  enableThinking: boolean
+  customModelName: string  // Custom model name override
   useProxy: boolean
   // Provider-specific API keys
   deepseekApiKey: string
@@ -203,6 +205,8 @@ export interface FrontendSettings {
   glmBaseUrl: string
   qwenApiKey: string
   qwenBaseUrl: string
+  localApiKey: string
+  localBaseUrl: string
   // Interface settings
   rawLanguage: string
   hiddenCategories: number[] // 新增：隐藏的分类ID列表
@@ -287,7 +291,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
     return {
       // Model settings
       selectedModelProvider: data.DEFAULT?.selected_model_provider || 'deepseek',
-      enableThinking: data.DEFAULT?.enable_thinking === 'true',
+  customModelName: data.DEFAULT?.custom_model_name || '',
       // Provider-specific API keys
       deepseekApiKey: data.DEFAULT?.deepseek_api_key || '',
       deepseekBaseUrl: data.DEFAULT?.deepseek_base_url || 'https://api.deepseek.com',
@@ -298,6 +302,8 @@ export async function loadConfig(): Promise<FrontendSettings> {
       qwenApiKey: data.DEFAULT?.qwen_api_key || '',
       qwenBaseUrl:
         data.DEFAULT?.qwen_base_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      localApiKey: data.DEFAULT?.local_api_key || '',
+      localBaseUrl: data.DEFAULT?.local_base_url || 'http://localhost:1234/v1',
       useProxy: data.DEFAULT?.use_proxy === 'true',
       // Interface settings
       rawLanguage: data['Video watch']?.raw_language || 'zh',
@@ -349,7 +355,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
       // Media credentials
       bilibiliSessData: data['Media Credentials']?.bilibili_sessdata || '',
       // Transcription Engine settings
-      transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'whisper_cpp',
+      transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'faster_whisper',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
       useGpu: data['Transcription Engine']?.use_gpu === 'true',
       transcriptionElevenlabsApiKey: data['Transcription Engine']?.elevenlabs_api_key || '',
@@ -388,7 +394,7 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
     const configData: ConfigData = {
       DEFAULT: {
         selected_model_provider: settings.selectedModelProvider,
-        enable_thinking: settings.enableThinking.toString(),
+        custom_model_name: settings.customModelName,
         deepseek_api_key: settings.deepseekApiKey,
         deepseek_base_url: settings.deepseekBaseUrl,
         openai_api_key: settings.openaiApiKey,
@@ -397,6 +403,8 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         glm_base_url: settings.glmBaseUrl,
         qwen_api_key: settings.qwenApiKey,
         qwen_base_url: settings.qwenBaseUrl,
+        local_api_key: settings.localApiKey,
+        local_base_url: settings.localBaseUrl,
         use_proxy: settings.useProxy.toString(),
       },
       'Video watch': {

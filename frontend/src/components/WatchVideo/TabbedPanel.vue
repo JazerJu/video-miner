@@ -12,11 +12,13 @@ const props = defineProps<{
   id: number
   rawLang?: string
   videoName?: string
+  showChapterMarkers?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'seek', time: number): void
   (e: 'update-bloburls', blobUrls: Array<string | undefined>): void
+  (e: 'toggle-chapter-markers', show: boolean): void
 }>()
 
 const activeTab = ref<'subtitles' | 'chapters'>('subtitles')
@@ -69,7 +71,13 @@ const showTranslation = ref(false)
 
       <!-- Video Chapters Tab -->
       <div v-show="activeTab === 'chapters'" class="p-0">
-        <VideoChapters :current-time="currentTime" :id="id" @seek="emit('seek', $event)" />
+        <VideoChapters
+          :current-time="currentTime"
+          :id="id"
+          :showChapterMarkers="showChapterMarkers"
+          @seek="emit('seek', $event)"
+          @toggle-chapter-markers="emit('toggle-chapter-markers', $event)"
+        />
       </div>
 
     </div>

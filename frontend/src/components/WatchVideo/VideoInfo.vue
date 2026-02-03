@@ -1,11 +1,11 @@
 <!-- 视频信息组件 -->
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { markdownToHtml } from '@/composables/ConvertMarkdown'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import NotesPanel from './NotesPanel.vue'
-import MindmapEditor from './MindmapEditor.vue'
 import { useI18n } from 'vue-i18n'
+import { BACKEND } from '@/composables/ConfigAPI'
 
 // i18n functionality
 const { t } = useI18n()
@@ -24,82 +24,6 @@ const props = withDefaults(
 
 // Tab management
 const activeTab = ref('notes')
-
-// Mindmap content management
-const mindmapContent = ref<any>(null)
-import { BACKEND } from '@/composables/ConfigAPI'
-// Load mindmap content on component mount
-const loadMindmapContent = async () => {
-  // Don't load if we don't have a valid video ID
-  if (!props.id || props.id <= 0) {
-    console.log('Skipping mindmap load - invalid video ID:', props.id)
-    return
-  }
-
-  try {
-    console.log('Loading mindmap for video ID:', props.id)
-    const res = await fetch(`${BACKEND}/video/mindmap/get/${props.id}`)
-
-    if (res.ok) {
-      const data = await res.json()
-      console.log('Mindmap API response:', data)
-      if (data.success) {
-        mindmapContent.value = data.mindmap_content || null
-        console.log('Set mindmapContent.value to:', mindmapContent.value)
-      } else {
-        console.log('API returned success: false')
-        mindmapContent.value = null
-      }
-    } else {
-      console.log('API request failed with status:', res.status)
-      mindmapContent.value = null
-    }
-  } catch (err) {
-    console.error('Error loading mindmap:', err)
-    mindmapContent.value = null
-  }
-}
-
-// 处理思维导图内容变化（实时更新，不保存）
-const handleMindmapContentChange = (content: any) => {
-  // Only update if the content has actually changed to avoid infinite loops
-  if (JSON.stringify(mindmapContent.value) !== JSON.stringify(content)) {
-    console.log('VideoInfo: Mindmap content changed, updating')
-    mindmapContent.value = content
-  }
-}
-
-// 处理思维导图保存（用户点击保存按钮时）
-const handleMindmapSave = async (content: any) => {
-  mindmapContent.value = content
-
-  try {
-    const csrf = await getCSRFToken()
-    const res = await fetch(`${BACKEND}/video/mindmap/update/${props.id}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrf,
-      },
-      body: JSON.stringify({ mindmap_content: content }),
-    })
-
-    if (!res.ok) {
-      const data = await res.json()
-      console.warn('Failed to save mindmap content:', data.error || 'Unknown error')
-      // 可以添加用户提示
-      alert('保存失败: ' + (data.error || 'Unknown error'))
-    } else {
-      const data = await res.json()
-      console.log('Mindmap saved successfully:', data.message)
-      // 可以添加成功提示
-      alert(t('mindmapSaved'))
-    }
-  } catch (err) {
-    console.error('Error saving mindmap:', err)
-    alert('保存时发生错误，请重试')
-  }
-}
 
 const emit = defineEmits<{
   (e: 'update:description', value: string): void
@@ -153,22 +77,6 @@ async function save() {
 const renderedDescription = computed(() =>
   markdownToHtml(isEditing.value ? draftDesc.value : props.description),
 )
-
-// Load mindmap content when component mounts
-onMounted(() => {
-  loadMindmapContent()
-})
-
-// Watch for video ID changes and load mindmap when we get a valid ID
-watch(
-  () => props.id,
-  (newId: number, oldId: number) => {
-    console.log('VideoInfo: Video ID changed from', oldId, 'to', newId)
-    if (newId && newId > 0 && newId !== oldId) {
-      loadMindmapContent()
-    }
-  },
-)
 </script>
 
 <template>
@@ -188,33 +96,40 @@ watch(
           {{ t('notes') }}
         </button>
         <button
-          @click="activeTab = 'mindmap'"
+          @click="activeTab = 'videoQA'"
           :class="[
             'flex-1 px-6 py-3 text-sm font-medium rounded-xl transition-all duration-300',
-            activeTab === 'mindmap'
+            activeTab === 'videoQA'
               ? 'text-white bg-blue-600/80 shadow-lg border border-blue-500/30'
               : 'text-slate-300 hover:text-white hover:bg-slate-700/50',
           ]"
         >
-          {{ t('mindmap') }}
+          {{ t('videoQA') }}
         </button>
       </nav>
     </div>
 
     <!-- Tab Content -->
     <div class="p-0">
-      <!-- Notes Tab - Use NotesPanel Component -->
+      <!-- Notes Tab -->
       <div v-show="activeTab === 'notes'">
         <NotesPanel :videoId="props.id" />
       </div>
 
-      <!-- Mindmap Tab -->
-      <div v-show="activeTab === 'mindmap'" class="p-6">
-        <MindmapEditor
-          :initialContent="mindmapContent"
-          @contentChange="handleMindmapContentChange"
-          @save="handleMindmapSave"
-        />
+      <!-- Video Q&A Tab -->
+      <div v-show="activeTab === 'videoQA'" class="p-12 flex flex-col items-center justify-center text-center space-y-4">
+        <div class="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mb-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold text-white">Video Q&A</h3>
+        <p class="text-slate-400 max-w-xs">
+          Coming soon, involves VLA model.
+        </p>
+        <div class="px-3 py-1 bg-slate-700/50 rounded-full text-xs font-medium text-slate-300 border border-slate-600/50">
+          Planned Feature
+        </div>
       </div>
     </div>
   </div>

@@ -140,12 +140,12 @@ export class NotesAPI {
   }
 
   /**
-   * 通用附件上传 (支持notes和mindmap)
+   * 通用附件上传 (支持notes)
    */
   static async uploadAttachment(
     videoId: number,
     imageFile: File,
-    contextType: 'notes' | 'mindmap' = 'notes',
+    contextType: 'notes' = 'notes',
     contextId: string = '',
     altText: string = '',
   ): Promise<{
@@ -217,7 +217,7 @@ export class NotesAPI {
    */
   static async listAttachments(
     videoId: number,
-    contextType?: 'notes' | 'mindmap',
+    contextType?: 'notes',
   ): Promise<
     Array<{
       id: number

@@ -14,7 +14,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:batchMode', v: boolean): void
   (e: 'show-move-dialog'): void
-  (e: 'show-move-to-collection-dialog'): void
   (e: 'generate-subtitles'): void
   (e: 'delete-videos'): void
   (e: 'concat-videos'): void
@@ -35,15 +34,7 @@ const emit = defineEmits<{
         移动分类
       </el-button>
 
-      <el-button
-        size="default"
-        type="primary"
-        :disabled="nothingSelected"
-        @click="emit('show-move-to-collection-dialog')"
-        class="batch-button"
-      >
-        移动至合集
-      </el-button>
+
 
       <el-button
         size="default"
@@ -98,19 +89,15 @@ const emit = defineEmits<{
 }
 
 .batch-button:nth-child(2) {
-  color: rgb(87, 233, 181) !important;
-}
-
-.batch-button:nth-child(3) {
   color: rgb(46, 152, 151) !important;
 }
 
-.batch-button:nth-child(4) {
+.batch-button:nth-child(3) {
   color: rgb(204, 100, 100) !important;
 }
 
 /* 合并视频按钮颜色 */
-.batch-button:nth-child(5) {
+.batch-button:nth-child(4) {
   color: rgb(242, 178, 49) !important;
 }
 

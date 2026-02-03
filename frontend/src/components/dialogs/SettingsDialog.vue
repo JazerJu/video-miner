@@ -110,11 +110,6 @@
                 active-text="使用代理"
                 inactive-text="不使用代理"
               />
-              <el-switch
-                v-model="settings.enableThinking"
-                active-text="启用思考"
-                inactive-text="普通模型"
-              />
             </div>
             <div class="flex justify-end">
               <button
@@ -757,17 +752,16 @@
               </select>
             </div>
 
-            <!-- Whisper.cpp Specific Settings -->
-            <div v-if="settings.transcriptionPrimaryEngine === 'whisper_cpp'" class="space-y-4 border-t pt-4">
-              <h4 class="text-md font-medium text-gray-800">Whisper.cpp 设置</h4>
+            <!-- Faster-Whisper Specific Settings -->
+            <div v-if="settings.transcriptionPrimaryEngine === 'faster_whisper'" class="space-y-4 border-t pt-4">
+              <h4 class="text-md font-medium text-gray-800">Faster-Whisper 设置</h4>
 
-              <div class="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                <p class="text-sm text-blue-700">
-                  ✅ <strong>Whisper.cpp:</strong> 官方C++实现，Docker镜像小(~500MB)，支持CPU-only和GPU加速
+              <div class="p-3 bg-green-50 border border-green-200 rounded-md">
+                <p class="text-sm text-green-700">
+                  ✅ <strong>Faster-Whisper:</strong> 优化Python实现，GPU加速，字级时间戳，支持中英文
                 </p>
               </div>
 
-              <!-- GPU Toggle -->
               <div class="flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200">
                 <div>
                   <span class="text-sm font-medium text-gray-700">🚀 启用GPU加速</span>
@@ -796,9 +790,8 @@
               </div>
 
 
-              <!-- Model Selection -->
               <div class="flex justify-between items-center mb-2">
-                <label class="block text-sm font-medium text-gray-700">GGML模型</label>
+                <label class="block text-sm font-medium text-gray-700">模型</label>
                 <button
                   @click="loadAvailableModels"
                   class="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-sm"
@@ -816,78 +809,11 @@
                 </option>
               </select>
               <p class="mt-2 text-sm text-gray-500">
-                使用 bash scripts/download_whisper_models.sh 下载GGML模型
+                模型会自动下载到 models 目录
               </p>
+             </div>
 
-              <!-- Warning for distil-large-v3 -->
-              <div
-                v-if="settings.fwsrModel === 'distil-large-v3'"
-                class="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-md"
-              >
-                <div class="flex items-start">
-                  <svg
-                    class="w-5 h-5 text-orange-400 mt-0.5 mr-2"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                      clip-rule="evenodd"
-                    ></path>
-                  </svg>
-                  <div>
-                    <p class="text-sm font-medium text-orange-800">注意：英文专用模型</p>
-                    <p class="text-sm text-orange-700 mt-1">
-                      distil-large-v3 是英文优化的蒸馏模型，仅支持英文转录。如需中文转录，建议使用
-                      large-v3 或 medium 模型。
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Model Download Section -->
-              <div
-                v-if="!isCurrentModelDownloaded"
-                class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md"
-              >
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-sm font-medium text-yellow-800">
-                    模型 "{{ settings.fwsrModel }}" 尚未下载
-                  </span>
-                  <div class="flex gap-2">
-                    <button
-                      @click="checkModelSize(settings.fwsrModel)"
-                      :disabled="isCheckingSize"
-                      class="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded text-sm"
-                    >
-                      {{ isCheckingSize ? '检查中...' : '检查大小' }}
-                    </button>
-                    <button
-                      @click="downloadModel(settings.fwsrModel)"
-                      :disabled="isDownloading"
-                      class="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded text-sm"
-                    >
-                      {{ isDownloading ? '下载中...' : '下载模型' }}
-                    </button>
-                  </div>
-                </div>
-                <div
-                  v-if="isDownloading"
-                  class="mt-2 p-2 bg-blue-50 border border-blue-200 rounded"
-                >
-                  <p class="text-sm text-blue-700">⏳ 模型正在后台下载，请耐心等待...</p>
-                </div>
-                <div
-                  v-if="modelSizeInfo"
-                  class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded"
-                >
-                  <p class="text-sm text-gray-700">📁 当前模型大小: {{ modelSizeInfo }}</p>
-                </div>
-              </div>
-            </div>
-
-            <!-- ElevenLabs Settings -->
+             <!-- ElevenLabs Settings -->
             <div v-if="needsElevenlabsConfig" class="space-y-4 border-t pt-4">
               <h4 class="text-md font-medium text-gray-800">ElevenLabs 设置</h4>
               <div>
@@ -1424,10 +1350,11 @@ const providerOptions = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'GLM', value: 'glm' },
   { label: 'Qwen', value: 'qwen' },
+  { label: 'LMstudio', value: 'local' },
 ]
 
 const allTranscriptionEngines = [
-  { label: 'Whisper.cpp (本地C++实现, CPU/GPU)', value: 'whisper_cpp' },
+  { label: 'Faster-Whisper (优化Python实现, GPU加速)', value: 'faster_whisper' },
   { label: 'ElevenLabs Speech-to-Text', value: 'elevenlabs' },
   { label: '阿里巴巴 DashScope', value: 'alibaba' },
   { label: 'OpenAI Whisper API', value: 'openai_whisper' },
@@ -1437,7 +1364,7 @@ const allTranscriptionEngines = [
 const settings = reactive<FrontendSettings>({
   // Model settings
   selectedModelProvider: 'deepseek',
-  enableThinking: true,
+  customModelName: '',
   useProxy: false,
   // Provider-specific API keys
   deepseekApiKey: 'sk-17047f89de904759a241f4086bd5a9bf',
@@ -1448,6 +1375,8 @@ const settings = reactive<FrontendSettings>({
   glmBaseUrl: 'https://api.deepseek.com',
   qwenApiKey: 'sk-944471ea4aef486ca2a82b2adf26c0cc',
   qwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  localApiKey: '',
+  localBaseUrl: 'http://localhost:1234/v1',
   // Interface settings
   rawLanguage: 'zh',
   hiddenCategories: [],
@@ -1482,7 +1411,7 @@ const settings = reactive<FrontendSettings>({
   // Media credentials
   bilibiliSessData: '',
   // Transcription Engine settings
-  transcriptionPrimaryEngine: 'whisper_cpp',
+  transcriptionPrimaryEngine: 'faster_whisper',
   fwsrModel: 'large-v3',
   useGpu: true,  // GPU acceleration
   transcriptionElevenlabsApiKey: '',
@@ -1716,7 +1645,6 @@ const resetSettings = () => {
   Object.assign(settings, {
     // Model settings
     selectedModelProvider: 'deepseek',
-    enableThinking: true,
     useProxy: false,
     // Provider-specific API keys
     deepseekApiKey: '',
@@ -1761,7 +1689,7 @@ const resetSettings = () => {
     // Media credentials
     bilibiliSessData: '',
     // Transcription Engine settings
-    transcriptionPrimaryEngine: 'whisper_cpp',
+    transcriptionPrimaryEngine: 'faster_whisper',
     fwsrModel: 'large-v3',
     useGpu: true,  // GPU acceleration
     transcriptionElevenlabsApiKey: '',

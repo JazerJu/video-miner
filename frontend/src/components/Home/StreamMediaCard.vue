@@ -43,7 +43,6 @@ async function submitUrl() {
       bvid: data.bvid,
       title: data.title, // 标题
       thumbnail: data.thumbnail, // 缩略图 URL
-      collectionCount: data.collectionCount, // 同合集视频数量
       duration: data.length || data.duration, // 时长，取后端字段名
       owner: data.owner || '', // 作者或其他字段
       video_data: data.video_data ?? [], // 👈  新增
@@ -59,7 +58,6 @@ const requestVideo = ref<RequestVideo>({
   bvid: '',
   title: '默认视频',
   thumbnail: '',
-  collectionCount: 0,
   duration: 0,
   owner: 'jjz',
   video_data: [],
@@ -344,7 +342,7 @@ onMounted(() => {
           <h3 class="text-white font-medium truncate mb-1">{{ requestVideo.title }}</h3>
           <div class="flex items-center gap-4 text-sm text-slate-400">
             <span>{{ t('duration') }}: {{ requestVideo.duration }}</span>
-            <span v-if="requestVideo.collectionCount > 1">{{ t('parsed') }}</span>
+            <span v-if="requestVideo.video_data.length > 1">{{ t('parsed') }}</span>
           </div>
         </div>
 

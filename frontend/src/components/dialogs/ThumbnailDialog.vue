@@ -3,7 +3,7 @@
 import { defineProps, defineEmits, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload, Link } from '@element-plus/icons-vue'
-import type { Video, Collection } from '@/types/media'
+import type { Video } from '@/types/media'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -12,7 +12,7 @@ import { BACKEND } from '@/composables/ConfigAPI'
 const props = defineProps<{
   modelValue: boolean
   video?: Video | null
-  target?: Video | Collection | null
+  target?: Video | null
 }>()
 
 const emit = defineEmits<{
@@ -27,15 +27,14 @@ const visible = computed<boolean>({
   set: (v) => emit('update:modelValue', v),
 })
 
-type ThumbTarget = Video | Collection // ✨ 联合类型
+type ThumbTarget = Video
 
 const thumbnailPreview = ref<string>('')
 const thumbnailFile = ref<File | null>(null)
 const thumbnailUrlInput = ref<string>('')
 
-function isVideo(t: Video | Collection): t is Video {
-  // 若你的 Video 已有固定字段，例如 t.type === 'video'，可替换下面判断
-  return (t as Video).length !== undefined // Video 比 Collection 多出来的字段
+function isVideo(t: Video): t is Video {
+  return true
 }
 
 watch(
@@ -116,8 +115,6 @@ async function onSubmit() {
   let url = ''
   if (isVideo(props.target)) {
     url = `${BACKEND}/api/videos/${props.target.id}/update_thumbnail`
-  } else {
-    url = `${BACKEND}/api/collection/${props.target.id}/update_thumbnail`
   }
   try {
     const csrfToken = await getCSRFToken()

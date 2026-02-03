@@ -7,6 +7,7 @@ export interface Chapter {
   startTime: number
   endTime?: number
   thumbnail?: string
+  children?: Chapter[]
 }
 
 import { BACKEND } from '@/composables/ConfigAPI'

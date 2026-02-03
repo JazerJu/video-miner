@@ -1,102 +1,65 @@
 <script lang="ts" setup>
 import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { CollectionAPI } from '@/composables/CollectionAPI'
-import type { Video, Collection } from '@/types/media'
 import { useI18n } from 'vue-i18n'
+import type { Video } from '@/types/media'
+import { getSimilarVideos, type SimilarVideoResponse } from '@/composables/SimilarVideosAPI'
+import { BACKEND } from '@/composables/ConfigAPI'
 
 const props = defineProps<{
   currentVideoId: number
   currentVideoFilename?: string
 }>()
 
-// i18n functionality
 const { t } = useI18n()
 
 const router = useRouter()
 
-const collection = ref<Collection | null>(null)
-const collectionVideos = ref<Video[]>([])
+const similarVideos = ref<SimilarVideoResponse[]>([])
 const isLoading = ref(false)
 
-import { BACKEND } from '@/composables/ConfigAPI'
-
-// Load collection data when component mounts or currentVideoId changes
-const loadCollectionData = async () => {
-  if (!props.currentVideoId || props.currentVideoId === -1) {
+const loadSimilarVideos = async () => {
+  if (props.currentVideoId === -1) {
+    similarVideos.value = []
     return
   }
 
   isLoading.value = true
   try {
-    // First, get the collection that contains this video
-    const videoCollection = await CollectionAPI.getVideoCollection(props.currentVideoId)
-
-    if (videoCollection) {
-      collection.value = videoCollection
-      // Then get all videos in this collection
-      const videos = await CollectionAPI.getCollectionVideos(videoCollection.id)
-      // Sort videos by display name (not filename) with natural number sorting
-      collectionVideos.value = videos.sort((a, b) => {
-        // Use natural sorting that handles numbers correctly
-        return a.name.localeCompare(b.name, undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        })
-      })
-    } else {
-      // Video is not in any collection
-      collection.value = null
-      collectionVideos.value = []
-    }
+    similarVideos.value = await getSimilarVideos(props.currentVideoId)
   } catch (error) {
-    console.error('Failed to load collection data:', error)
-    collection.value = null
-    collectionVideos.value = []
+    console.error('Failed to load similar videos:', error)
+    similarVideos.value = []
   } finally {
     isLoading.value = false
   }
 }
 
-// Switch to a different video
-const switchVideo = (video: Video): void => {
+const switchVideo = (video: SimilarVideoResponse): void => {
   if (video.id === props.currentVideoId) {
-    return // Already viewing this video
+    return
   }
 
-  // Navigate to the new video using the filename
-  // Extract filename from video.url (assuming it's the last part)
   const filename = video.url.split('/').pop() || video.url
   router.push(`/watch/${encodeURIComponent(filename)}`)
 }
 
-// Get thumbnail URL for a video
-const getThumbnailUrl = (video: Video): string => {
-  if (!video.thumbnail) {
+const getThumbnailUrl = (video: SimilarVideoResponse): string => {
+  if (!video.thumbnail_url) {
     return ''
   }
 
-  // If it's already a full URL, return as is
-  if (video.thumbnail.startsWith('http')) {
-    return video.thumbnail
+  if (video.thumbnail_url.startsWith('http')) {
+    return video.thumbnail_url
   }
 
-  // If it starts with '/', it's a relative path from backend
-  if (video.thumbnail.startsWith('/')) {
-    return `${BACKEND}${video.thumbnail}`
-  }
-
-  // Otherwise, assume it's a relative path that needs '/media/' prefix
-  return `${BACKEND}/media/${video.thumbnail}`
+  return `${BACKEND}/media/thumbnail/${encodeURIComponent(video.thumbnail_url)}`
 }
 
-// Format video length display
 const formatDuration = (length: string): string => {
-  // If length is already in HH:MM:SS or MM:SS format, return as is
   if (length.includes(':')) {
     return length
   }
-  // If it's in seconds, convert to MM:SS format
   const totalSeconds = parseInt(length, 10)
   if (isNaN(totalSeconds)) {
     return length
@@ -113,18 +76,12 @@ const formatDuration = (length: string): string => {
   }
 }
 
-// Check if a video is the currently playing video
-const isCurrentVideo = (video: Video): boolean => {
-  // Primary check: filename comparison (most reliable)
+const isCurrentVideo = (video: SimilarVideoResponse): boolean => {
   if (props.currentVideoFilename) {
     const videoFilename = video.url.split('/').pop() || video.url
-    const isCurrentByFilename = videoFilename === props.currentVideoFilename
-    if (isCurrentByFilename) {
-      return true
-    }
+    return videoFilename === props.currentVideoFilename
   }
 
-  // Secondary check: ID comparison (if available and valid)
   if (props.currentVideoId && video.id && props.currentVideoId !== -1) {
     return video.id === props.currentVideoId
   }
@@ -132,99 +89,39 @@ const isCurrentVideo = (video: Video): boolean => {
   return false
 }
 
-// Get the next video in the collection for autoplay
-const getNextVideo = (): Video | null => {
-  if (collectionVideos.value.length === 0) {
+const getNextVideo = (): SimilarVideoResponse | null => {
+  const currentIndex = similarVideos.value.findIndex(
+    (v) => v.id === props.currentVideoId
+  )
+  if (currentIndex === -1 || currentIndex === similarVideos.value.length - 1) {
     return null
   }
-
-  // Find current video index
-  let currentIndex = -1
-
-  // Try to find by filename first (most reliable)
-  if (props.currentVideoFilename) {
-    currentIndex = collectionVideos.value.findIndex((video) => {
-      const videoFilename = video.url.split('/').pop() || video.url
-      return videoFilename === props.currentVideoFilename
-    })
-  }
-
-  // Fallback to ID comparison if filename search failed
-  if (currentIndex === -1 && props.currentVideoId && props.currentVideoId !== -1) {
-    currentIndex = collectionVideos.value.findIndex((video) => video.id === props.currentVideoId)
-  }
-
-  // If current video not found or is the last video, return null
-  if (currentIndex === -1 || currentIndex >= collectionVideos.value.length - 1) {
-    console.log('[PlayList] No next video available or current video not found in collection')
-    return null
-  }
-
-  // Return next video
-  const nextVideo = collectionVideos.value[currentIndex + 1]
-  console.log(`[PlayList] Next video found: ${nextVideo.name} (index ${currentIndex + 1})`)
-  return nextVideo
+  return similarVideos.value[currentIndex + 1]
 }
 
-// Expose getNextVideo to parent component
 defineExpose({
   getNextVideo,
 })
 
-// Watch for currentVideoId changes, but only reload if it's a different collection
-watch(
-  () => props.currentVideoId,
-  async (newVideoId) => {
-    if (!newVideoId || newVideoId === -1) return
-
-    // If we already have videos loaded, check if the new video is in the same collection
-    if (collectionVideos.value.length > 0) {
-      const isInCurrentCollection = collectionVideos.value.some((video) => video.id === newVideoId)
-      if (isInCurrentCollection) {
-        // Video is in the same collection, no need to reload - just update highlighting
-        console.log('Video is in same collection, skipping reload')
-        return
-      }
-    }
-
-    // New video is not in current collection, or we have no collection loaded yet
-    console.log('Loading new collection for video ID:', newVideoId)
-    await loadCollectionData()
-  },
-  { immediate: true },
-)
-
-// Watch for filename changes to ensure highlighting updates
-watch(
-  () => props.currentVideoFilename,
-  () => {
-    // Force reactivity update for highlighting
-    // No need to reload collection data, just trigger re-render
-  },
-  { immediate: true },
-)
-
 onMounted(() => {
-  loadCollectionData()
+  loadSimilarVideos()
+})
+
+watch(() => props.currentVideoId, () => {
+  loadSimilarVideos()
 })
 </script>
 <template>
-  <!-- 合集/播放列表 -->
   <div class="bg-slate-800/30 rounded-2xl p-6 backdrop-blur-lg border border-slate-600/30">
     <h2 class="text-xl font-semibold text-white mb-6">
-      {{ collection ? collection.name : t('collectionPlaylist') }}
+      {{ t('collectionPlaylist') }}
     </h2>
 
-    <!-- Loading State -->
-    <div v-if="isLoading" class="flex items-center justify-center py-8">
-      <div
-        class="animate-spin w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full mr-3"
-      ></div>
-      <span class="text-slate-400">{{ t('loadingCollection') }}</span>
+    <div v-if="isLoading" class="text-center py-8">
+      <div class="text-slate-400">{{ t('loadingVideoInfo') }}</div>
     </div>
 
-    <!-- No Collection State -->
-    <div v-else-if="!collection || collectionVideos.length === 0" class="text-center py-8">
+    <div v-else-if="similarVideos.length === 0" class="text-center py-8">
       <div class="text-slate-400 mb-2">
         <svg
           class="w-12 h-12 mx-auto mb-3 opacity-50"
@@ -239,75 +136,80 @@ onMounted(() => {
             d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
           ></path>
         </svg>
-        <p class="text-sm">该视频不属于任何合集</p>
+        <p class="text-sm">没有相同标签和分类的视频</p>
       </div>
     </div>
 
-    <!-- Collection Videos List -->
-    <div v-else class="space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
-      <el-tooltip
-        v-for="video in collectionVideos"
+    <div v-else class="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar">
+      <div
+        v-for="video in similarVideos"
         :key="video.id"
-        :content="video.name"
-        placement="left"
-        :show-after="500"
+        @click="switchVideo(video)"
+        :class="[
+          'flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200',
+          'hover:bg-slate-700/50',
+          isCurrentVideo(video)
+            ? 'bg-blue-600/30 ring-2 ring-blue-500/50'
+            : 'bg-slate-700/20',
+        ]"
       >
-        <div
-          @click="switchVideo(video)"
-          class="flex items-center p-4 rounded-xl cursor-pointer hover:bg-slate-700/30 transition-all duration-200 border-l-4"
-          :class="{
-            'bg-blue-900/30 border-blue-500 shadow-lg': isCurrentVideo(video),
-            'border-slate-600/30 hover:border-slate-500/50': !isCurrentVideo(video),
-          }"
-        >
-          <!-- Thumbnail -->
+        <div class="relative w-32 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-slate-800">
+          <img
+            v-if="getThumbnailUrl(video)"
+            :src="getThumbnailUrl(video)"
+            :alt="video.name"
+            class="w-full h-full object-cover"
+          />
+          <div v-else class="w-full h-full flex items-center justify-center text-slate-600">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+              />
+            </svg>
+          </div>
           <div
-            class="w-20 h-12 bg-slate-700/50 rounded-lg mr-4 flex-shrink-0 border border-slate-600/30 overflow-hidden relative"
+            v-if="video.video_length"
+            class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1.5 py-0.5 rounded"
           >
-            <img
-              v-if="getThumbnailUrl(video)"
-              :src="getThumbnailUrl(video)"
-              :alt="video.name"
-              class="w-full h-full object-cover"
-              @error="
-                (e) => {
-                  const target = e.target as HTMLImageElement
-                  if (target) {
-                    target.style.display = 'none'
-                    // Show fallback icon when image fails
-                    const fallback = target.nextElementSibling as HTMLElement
-                    if (fallback) fallback.style.display = 'flex'
-                  }
-                }
-              "
-            />
-            <!-- Fallback icon when no thumbnail or thumbnail fails to load -->
-            <div
-              class="w-full h-full absolute top-0 left-0 flex items-center justify-center text-slate-400 text-lg"
-              :style="{ display: getThumbnailUrl(video) ? 'none' : 'flex' }"
-            >
-              🎬
-            </div>
-          </div>
-
-          <!-- Video Info -->
-          <div class="flex-1 min-w-0">
-            <p class="font-medium text-sm text-white truncate mb-1">{{ video.name }}</p>
-            <p class="text-xs text-slate-400">{{ formatDuration(video.length) }}</p>
-          </div>
-
-          <!-- Current Video Indicator -->
-          <div v-if="isCurrentVideo(video)" class="flex-shrink-0 ml-3">
-            <div class="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+            {{ formatDuration(video.video_length) }}
           </div>
         </div>
-      </el-tooltip>
+
+        <div class="flex-1 min-w-0">
+          <div
+            class="text-sm font-medium text-white truncate"
+            :class="{ 'text-blue-400': isCurrentVideo(video) }"
+          >
+            {{ video.name }}
+          </div>
+          <div class="text-xs text-slate-400 mt-1">
+            {{ video.video_length || '时长未知' }}
+          </div>
+        </div>
+
+        <div v-if="isCurrentVideo(video)" class="flex-shrink-0">
+          <div
+            class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center"
+          >
+            <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 自定义滚动条 */
+/* Custom scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }

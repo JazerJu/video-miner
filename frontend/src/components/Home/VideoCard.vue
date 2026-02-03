@@ -2,10 +2,11 @@
 import { VideoPlay, More, Delete, VideoCamera, EditPen } from '@element-plus/icons-vue'
 import { SquarePen, Play, Sparkles, Music, Mic } from 'lucide-vue-next'
 import { PictureFilled, Edit } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { computed, ref, nextTick } from 'vue'
 import type { Video } from '@/types/media'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
+import { useNotification } from '@/composables/useNotification'
 /** ─ props ─────────────────────────────────────────────────────────────── */
 
 const props = defineProps<{
@@ -24,6 +25,8 @@ const emit = defineEmits<{
   (e: 'update:checked', v: boolean): void
   (e: 'rename-video', video: Video, newName: string): void
 }>()
+
+const { success: successNotify, error: errorNotify, warning: warningNotify } = useNotification()
 
 /**
  * Confirm and trigger audio conversion (video → audio, delete original video)
@@ -47,13 +50,13 @@ const confirmConvertAudio = (video: Video) => {
         })
         const result = await res.json()
         if (result.success) {
-          ElMessage.success('音频转换完成')
+          successNotify('音频转换完成')
           // optionally emit event to refresh list
         } else {
-          ElMessage.error(result.error || '音频转换失败')
+          errorNotify(result.error || '音频转换失败')
         }
       } catch (err) {
-        ElMessage.error('网络错误，转换失败')
+        errorNotify('网络错误，转换失败')
         console.error('Convert audio error:', err)
       }
     })
@@ -79,12 +82,12 @@ const confirmConvertHLS = (video: Video) => {
         })
         const result = await res.json()
         if (result.success) {
-          ElMessage.success('HLS 转换完成')
+          successNotify('HLS 转换完成')
         } else {
-          ElMessage.error(result.error || 'HLS 转换失败')
+          errorNotify(result.error || 'HLS 转换失败')
         }
       } catch (err) {
-        ElMessage.error('网络错误，转换失败')
+        errorNotify('网络错误，转换失败')
       }
     })
     .catch(() => {})
@@ -126,13 +129,13 @@ const uploadReferenceAudio = async (file: File) => {
   const isValidExtension = allowedExtensions.includes(fileExtension)
 
   if (!isValidMimeType && !isValidExtension) {
-    ElMessage.error('只支持 WAV/MP3/M4A 格式的音频文件')
+    errorNotify('只支持 WAV/MP3/M4A 格式的音频文件')
     return
   }
 
   // Validate file size (max 10MB)
   if (file.size > 10 * 1024 * 1024) {
-    ElMessage.error('音频文件大小不能超过 10MB')
+    errorNotify('音频文件大小不能超过 10MB')
     return
   }
 
@@ -155,12 +158,12 @@ const uploadReferenceAudio = async (file: File) => {
     const result = await res.json()
     if (result.success) {
       audioReferenceUrl.value = result.audio_url
-      ElMessage.success('音频上传成功')
+      successNotify('音频上传成功')
     } else {
-      ElMessage.error(result.error || '音频上传失败')
+      errorNotify(result.error || '音频上传失败')
     }
   } catch (err) {
-    ElMessage.error('网络错误，音频上传失败')
+    errorNotify('网络错误，音频上传失败')
     console.error('Audio upload error:', err)
   } finally {
     isUploadingAudio.value = false
@@ -204,7 +207,7 @@ const submitTTSGeneration = async () => {
 
   // Validate audio clone requirements
   if (ttsForm.value.useAudioClone && !audioReferenceUrl.value) {
-    ElMessage.error('请先上传参考音频文件')
+    errorNotify('请先上传参考音频文件')
     return
   }
 
@@ -230,15 +233,15 @@ const submitTTSGeneration = async () => {
     })
     const result = await res.json()
     if (result.success) {
-      ElMessage.success(`TTS 任务已创建：${result.task_id}`)
+      successNotify(`TTS 任务已创建：${result.task_id}`)
       showTTSDialog.value = false
     } else if (result.error === 'no subtitle for this video') {
-      ElMessage.error('该视频没有对应语言的字幕，请先生成字幕')
+      errorNotify('该视频没有对应语言的字幕，请先生成字幕')
     } else {
-      ElMessage.error(result.error || 'TTS 生成失败')
+      errorNotify(result.error || 'TTS 生成失败')
     }
   } catch (err) {
-    ElMessage.error('网络错误，TTS 生成失败')
+    errorNotify('网络错误，TTS 生成失败')
     console.error('TTS generation error:', err)
   }
 }
@@ -249,7 +252,8 @@ const FALLBACK_IMG =
 import { BACKEND } from '@/composables/ConfigAPI'
 
 const watchUrl = computed(() => `watch/${encodeURIComponent(props.video.url)}`)
-const filename = props.video.thumbnail ?? ''
+// 使用后端返回的 thumbnail_url 或 thumbnail 字段
+const filename = props.video.thumbnail_url || props.video.thumbnail || ''
 
 // Inline editing state
 const isEditing = ref(false)
@@ -267,7 +271,7 @@ const startEditing = async () => {
 const saveEdit = async () => {
   const newName = editingName.value.trim()
   if (!newName) {
-    ElMessage.warning('名称不能为空')
+    warningNotify('名称不能为空')
     return
   }
   if (newName === props.video.name) {
@@ -291,12 +295,12 @@ const saveEdit = async () => {
     if (result.success) {
       emit('rename-video', props.video, newName)
       isEditing.value = false
-      ElMessage.success('重命名成功')
+      successNotify('重命名成功')
     } else {
-      ElMessage.error(result.message || '重命名失败')
+      errorNotify(result.message || '重命名失败')
     }
   } catch (error) {
-    ElMessage.error('网络错误，请重试')
+    errorNotify('网络错误，请重试')
     console.error('Rename error:', error)
   }
 }
@@ -314,7 +318,9 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
-const thumbnailUrl = `${BACKEND}/media/${encodeURIComponent(filename)}`
+// 修复缩略图 URL：本地缩略图使用 /media/thumbnail/{filename} 格式
+// 注意：Django 的 serve_media 路由是 /media/<type>/<path:filename>
+const thumbnailUrl = filename ? `${BACKEND}/media/thumbnail/${encodeURIComponent(filename)}` : ''
 
 /* ✨ 双向绑定小助手 */
 const modelChecked = computed({

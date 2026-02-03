@@ -10,16 +10,15 @@ import { BACKEND } from '@/composables/ConfigAPI'
 // i18n functionality
 const { t } = useI18n()
 
-const props = defineProps<{
-  videoId: number
-}>()
+const props = defineProps({
+  videoId: Number
+})
 
 const notesContent = ref('')
 const editMode = ref(false)
 const isLoading = ref(false)
 const isSaving = ref(false)
 const textareaRef = ref<HTMLTextAreaElement>()
-const fileInputRef = ref<HTMLInputElement>()
 
 // Image display configuration (keeping for potential future use)
 const maxVisibleImages = ref(3)
@@ -66,23 +65,19 @@ const notesContentRef = ref<HTMLElement>()
 
 // Render markdown content asynchronously
 const renderMarkdown = async () => {
-  if (!parsedContent.value.pureContent.trim()) {
+  const contentToRender = notesContent.value
+
+  if (!contentToRender.trim()) {
     renderedNotes.value = ''
     return
   }
 
   try {
-    const html = await markdownToHtml(parsedContent.value.pureContent)
+    const html = await markdownToHtml(contentToRender)
     renderedNotes.value = html
-
-    // Process mermaid diagrams after DOM update
-    await nextTick()
-    if (notesContentRef.value) {
-      await processMarkdownContent(notesContentRef.value)
-    }
   } catch (error) {
     console.error('Failed to render markdown:', error)
-    renderedNotes.value = `<p>${parsedContent.value.pureContent}</p>`
+    renderedNotes.value = `<p>${contentToRender}</p>`
   }
 }
 
@@ -145,26 +140,34 @@ const toggleEdit = () => {
   }
 }
 
-// Handle image paste
+// Handle image paste (support multiple images)
 const handlePaste = async (event: ClipboardEvent) => {
   const items = event.clipboardData?.items
   if (!items) return
 
+  const imageFiles: File[] = []
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     if (item.type.indexOf('image') !== -1) {
-      event.preventDefault()
       const file = item.getAsFile()
-      if (!file) continue
-      await uploadImage(file, 'Pasted Image')
-      break
+      if (file) imageFiles.push(file)
     }
   }
+
+  if (imageFiles.length === 0) return
+
+  event.preventDefault()
+  await uploadImages(imageFiles)
 }
 
-// Unified image upload function
+// Unified image upload function (single image)
 const uploadImage = async (file: File, defaultAlt: string = 'Uploaded Image') => {
   try {
+    if (!props.videoId || props.videoId <= 0) {
+      ElMessage.error('Invalid video ID')
+      return
+    }
+
     ElMessage.info('正在上传图片...')
     const imageUrl = await NotesAPI.uploadNoteImage(props.videoId, file)
 
@@ -197,25 +200,89 @@ const uploadImage = async (file: File, defaultAlt: string = 'Uploaded Image') =>
   }
 }
 
-// Handle file upload from toolbar
-const handleFileUpload = () => {
-  fileInputRef.value?.click()
-}
+// Batch image upload function (for album)
+const uploadImages = async (files: File[]) => {
+  const isUploading = ref(true)
+  const uploadQueue = ref(files.length)
+  const uploadError = ref<string | null>(null)
 
-const onFileSelected = async (event: Event) => {
-  const target = event.target as HTMLInputElement
-  const files = target.files
-  if (!files || files.length === 0) return
+  try {
+    ElMessage.info(`正在上传 ${files.length} 张图片...`)
 
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    if (file.type.startsWith('image/')) {
-      await uploadImage(file, file.name.split('.')[0])
+    // Upload all images in parallel
+    const uploadPromises = files.map((file) => {
+      if (!props.videoId || props.videoId <= 0) {
+        throw new Error('Invalid video ID')
+      }
+      return NotesAPI.uploadNoteImage(props.videoId, file)
+    })
+
+    const results = await Promise.allSettled(uploadPromises)
+    const validResults: Array<{ filename: string; url: string }> = []
+    const errors: string[] = []
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value) {
+        validResults.push({
+          filename: files[index].name,
+          url: result.value,
+        })
+      } else if (result.status === 'rejected') {
+        errors.push(`${files[index].name}: ${result.reason?.message || 'Unknown error'}`)
+      }
+    })
+
+    if (validResults.length === 0) {
+      ElMessage.error(`Failed to upload ${errors.length} image(s): ${errors.join('; ')}`)
+      return
     }
-  }
 
-  // Reset file input
-  target.value = ''
+    if (errors.length > 0) {
+      ElMessage.warning(`Uploaded ${validResults.length}/${files.length} images. Failed: ${errors.join('; ')}`)
+    }
+
+    // Insert markdown syntax
+    const textarea = textareaRef.value
+    let insertText = ''
+
+    if (validResults.length > 1) {
+      // Multiple images: create album block
+      insertText = '\n```album\n'
+      validResults.forEach((res) => {
+        insertText += `![${res.filename}|auto](${res.url})\n`
+      })
+      insertText += '```\n'
+    } else {
+      // Single image: simple image markdown
+      const res = validResults[0]
+      insertText = `![${res.filename}](${res.url})`
+    }
+
+    if (textarea && editMode.value) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+
+      notesContent.value = notesContent.value.substring(0, start) + insertText + notesContent.value.substring(end)
+
+      // Set cursor position after the inserted content
+      nextTick(() => {
+        const newPosition = start + insertText.length
+        textarea.setSelectionRange(newPosition, newPosition)
+        textarea.focus()
+      })
+    } else {
+      // If not in edit mode, append to end
+      notesContent.value += (notesContent.value ? '\n\n' : '') + insertText
+    }
+
+    ElMessage.success(`Successfully uploaded ${validResults.length} image(s)`)
+  } catch (error: any) {
+    console.error('Failed to upload images:', error)
+    ElMessage.error(error.message || 'Image upload failed')
+  } finally {
+    isUploading.value = false
+    uploadQueue.value = 0
+  }
 }
 
 // Image preview functionality
@@ -338,10 +405,24 @@ const autoSave = () => {
   }, 30000) // Auto-save after 30 seconds of no typing
 }
 
-// Watch for content changes to re-render markdown
-watch(() => parsedContent.value.pureContent, renderMarkdown)
+// Watch for content changes to re-render markdown and auto-save
+watch(() => notesContent.value, async () => {
+  await renderMarkdown()
+  autoSave()
+})
 
-watch(() => notesContent.value, autoSave)
+// Watch for rendered content changes to process mermaid
+watch([renderedNotes, editMode], async ([newNotes, newMode], [oldNotes, oldMode]) => {
+  // Only process when not in edit mode (view mode)
+  if (!newMode) {
+    await nextTick()
+    // Additional delay to ensure DOM is fully rendered after v-if/v-else transition
+    await new Promise(resolve => setTimeout(resolve, 50))
+    if (notesContentRef.value) {
+      await processMarkdownContent(notesContentRef.value)
+    }
+  }
+})
 
 onMounted(async () => {
   await loadNotes()
@@ -360,17 +441,7 @@ watch(
 </script>
 
 <template>
-  <div class="p-6 pb-20 relative">
-    <!-- Hidden file input -->
-    <input
-      ref="fileInputRef"
-      type="file"
-      accept="image/*"
-      multiple
-      @change="onFileSelected"
-      class="hidden"
-    />
-
+  <div class="p-6 relative">
     <!-- Header -->
     <div class="flex justify-between items-center mb-6">
       <div class="flex items-center space-x-2">
@@ -394,11 +465,11 @@ watch(
           @click="toggleEdit"
           :disabled="isSaving || isLoading"
           class="px-4 py-2 text-sm rounded-lg transition-all duration-200 font-medium"
-          :class="
+          :class="[
             editMode
               ? 'bg-blue-600/80 hover:bg-blue-600 text-white border border-blue-500/30 disabled:opacity-50'
               : 'bg-slate-700/50 hover:bg-slate-600/70 text-slate-300 border border-slate-600/30'
-          "
+          ]"
         >
           <span v-if="isSaving" class="flex items-center">
             <svg
@@ -445,11 +516,11 @@ watch(
             v-model="notesContent"
             @paste="handlePaste"
             class="w-full h-80 p-4 bg-slate-700/30 border rounded-xl resize-none focus:outline-none focus:ring-2 text-white placeholder-slate-400 backdrop-blur-sm transition-all notes-textarea"
-            :class="
+            :class="[
               isOverLimit
                 ? 'border-red-500/50 focus:ring-red-500/50'
                 : 'border-slate-600/50 focus:ring-blue-500/50'
-            "
+            ]"
             :placeholder="t('notePlaceholder')"
           ></textarea>
         </div>
@@ -459,7 +530,7 @@ watch(
           class="text-xs text-slate-300 bg-slate-700/30 p-3 rounded-lg border border-slate-600/30"
         >
           <strong class="text-blue-400">快速帮助：</strong>
-          支持完整 Markdown 语法 | 直接粘贴图片自动上传 | 自动保存（2秒后）
+          支持完整 Markdown 语法 | 粘贴多张图片自动创建相册 | 自动保存（30秒后）
         </div>
 
         <!-- Warning for character limit -->
@@ -478,44 +549,9 @@ watch(
           <div
             v-if="renderedNotes.trim()"
             ref="notesContentRef"
-            class="prose prose-sm max-w-none prose-invert prose-headings:text-white prose-p:text-slate-200 prose-strong:text-white prose-code:text-blue-400 prose-code:bg-slate-700/50 prose-pre:bg-slate-700/50 prose-blockquote:border-blue-500/50 prose-a:text-blue-400 notes-content bg-slate-800/30 rounded-xl p-4 backdrop-blur-lg border border-slate-600/30"
+            class="prose prose-sm max-w-none prose-invert notes-content bg-slate-800/30 rounded-xl p-4 backdrop-blur-lg border border-slate-600/30"
             v-html="renderedNotes"
           ></div>
-
-          <!-- Attachments Section -->
-          <div v-if="parsedContent.attachments.length > 0" class="space-y-4">
-            <div class="flex items-center space-x-2">
-              <div class="h-px flex-1 bg-slate-600/30"></div>
-              <span class="text-sm text-slate-400 font-medium">附件</span>
-              <div class="h-px flex-1 bg-slate-600/30"></div>
-            </div>
-
-            <!-- Horizontal scrolling image grid -->
-            <div
-              class="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800"
-            >
-              <div
-                v-for="(attachment, index) in parsedContent.attachments"
-                :key="index"
-                class="relative group bg-slate-700/30 rounded-xl border border-slate-600/30 flex-shrink-0"
-              >
-                <img
-                  :src="attachment.url"
-                  :alt="attachment.alt"
-                  class="w-[300px] h-[200px] object-cover rounded-xl cursor-pointer transition-transform duration-200 hover:scale-[1.02]"
-                  @error="() => console.error('Image failed to load:', attachment.url)"
-                  @click="openImagePreview(index)"
-                />
-                <div
-                  class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                >
-                  <div class="bg-black/50 rounded-lg px-2 py-1 text-xs text-white">
-                    {{ attachment.alt }}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <!-- Empty State -->
@@ -539,28 +575,6 @@ watch(
       </div>
     </div>
 
-    <!-- Fixed Bottom Toolbar -->
-    <div
-      class="fixed bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-md border-t border-slate-600/30 p-4"
-    >
-      <div class="flex justify-center">
-        <button
-          @click="handleFileUpload"
-          :disabled="isLoading || isSaving"
-          class="flex items-center space-x-2 px-6 py-2 bg-blue-600/80 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-all duration-200 font-medium border border-blue-500/30"
-        >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-            ></path>
-          </svg>
-          <span>上传附件</span>
-        </button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -569,64 +583,294 @@ watch(
   color: white !important;
 }
 
-/* 确保笔记内容中的所有文本都是白色 */
-.notes-content {
-  color: white !important;
-  background-color: rgba(30, 41, 59, 0.3) !important; /* bg-slate-800/30 */
+/* Main prose styles - using Tailwind prose plugin */
+:deep(.notes-content) {
+  color: #e2e8f0 !important;
 }
 
-.notes-content * {
+:deep(.notes-content h1),
+:deep(.notes-content h2),
+:deep(.notes-content h3),
+:deep(.notes-content h4),
+:deep(.notes-content h5),
+:deep(.notes-content h6) {
+  color: white !important;
+  font-weight: bold;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 0.3em;
+  margin-bottom: 0.5em;
+  margin-top: 1em;
+}
+
+:deep(.notes-content h1) {
+  font-size: 2em;
+}
+
+:deep(.notes-content h2) {
+  font-size: 1.5em;
+}
+
+:deep(.notes-content h3) {
+  font-size: 1.25em;
+}
+
+:deep(.notes-content p) {
+  color: rgb(226 232 240) !important;
+  margin-bottom: 1em;
+  line-height: 1.6;
+}
+
+:deep(.notes-content ul),
+:deep(.notes-content ol) {
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+
+:deep(.notes-content ul) {
+  list-style-type: disc;
+}
+
+:deep(.notes-content ol) {
+  list-style-type: decimal;
+}
+
+:deep(.notes-content li) {
+  color: rgb(226 232 240) !important;
+  margin-bottom: 0.25em;
+}
+
+:deep(.notes-content strong),
+:deep(.notes-content b) {
+  color: white !important;
+  font-weight: bold;
+}
+
+:deep(.notes-content code) {
+  background-color: #1e293b !important;
+  color: rgb(96 165 250) !important;
+  padding: 0.2em 0.4em;
+  border-radius: 0.25rem;
+  font-family: monospace;
+}
+
+:deep(.notes-content pre) {
+  background-color: #1e293b !important;
+  padding: 1em;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+
+:deep(.notes-content pre code) {
+  background-color: transparent !important;
+  padding: 0;
   color: inherit !important;
 }
 
-/* 特殊元素保持其指定颜色 */
-.notes-content h1,
-.notes-content h2,
-.notes-content h3,
-.notes-content h4,
-.notes-content h5,
-.notes-content h6 {
-  color: white !important;
+:deep(.notes-content blockquote) {
+  border-left: 4px solid #3b82f6;
+  padding-left: 1em;
+  color: rgb(148 163 184);
+  font-style: italic;
+  margin-bottom: 1em;
 }
 
-.notes-content p {
-  color: rgb(226 232 240) !important; /* slate-200 */
+:deep(.notes-content a) {
+  color: rgb(96 165 250) !important;
+  text-decoration: underline;
 }
 
-.notes-content strong,
-.notes-content b {
-  color: white !important;
+/* Mermaid styles */
+:deep(.notes-content .mermaid) {
+  background-color: #1e293b;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: center;
 }
 
-.notes-content code {
-  color: rgb(96 165 250) !important; /* blue-400 */
+:deep(.notes-content .mermaid svg) {
+  max-width: 100%;
+  height: auto;
 }
 
-.notes-content a {
-  color: rgb(96 165 250) !important; /* blue-400 */
+/* Album: Grid Mode (Default) */
+:deep(.notes-content .album-grid) {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background-color: #1e293b;
+  border-radius: 0.5rem;
+  border: 1px solid #334155;
 }
 
-/* Override prose backgrounds to match panel background */
-.notes-content *,
-.notes-content *::before,
-.notes-content *::after {
-  background-color: transparent !important;
+:deep(.notes-content .album-item) {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  break-inside: avoid;
+  background-color: #0f172a;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  transition: transform 0.2s;
 }
 
-.notes-content pre {
-  background-color: rgba(51, 65, 85, 0.5) !important; /* bg-slate-700/50 */
+:deep(.notes-content .album-item:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
 }
 
-.notes-content code {
-  background-color: rgba(51, 65, 85, 0.5) !important; /* bg-slate-700/50 */
+:deep(.notes-content .album-item img) {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  margin: 0 !important;
+  border-radius: 0 !important;
 }
 
-.notes-content blockquote {
-  background-color: transparent !important;
+:deep(.notes-content .album-caption) {
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  color: rgb(148 163 184);
+  text-align: center;
+  background-color: #0f172a;
+  border-top: 1px solid #1e293b;
 }
 
-/* Ensure the main content area background is visible */
-.notes-content {
-  background-color: rgba(30, 41, 59, 0.3) !important; /* bg-slate-800/30 */
+/* Album: Carousel & Thumbnail Modes */
+:deep(.notes-content .album-carousel-container) {
+  position: relative;
+  background-color: #1e293b;
+  border-radius: 0.5rem;
+  border: 1px solid #334155;
+  padding: 1rem;
+  margin: 1.5rem 0;
+  user-select: none;
+}
+
+:deep(.notes-content .carousel-stage) {
+  position: relative;
+  width: 100%;
+  height: 400px;
+  background-color: #0f172a;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.notes-content .carousel-slide) {
+  display: none;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.notes-content .carousel-slide.active) {
+  display: flex;
+}
+
+:deep(.notes-content .carousel-slide img) {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Floating Caption in Carousel */
+:deep(.notes-content .carousel-caption-overlay) {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  color: white;
+  padding: 2rem 1rem 1rem;
+  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+:deep(.notes-content .carousel-stage:hover .carousel-caption-overlay) {
+  opacity: 1;
+}
+
+/* Navigation Arrows */
+:deep(.notes-content .carousel-nav-btn) {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  transition: background 0.2s;
+  z-index: 10;
+}
+
+:deep(.notes-content .carousel-nav-btn:hover) {
+  background: rgba(59, 130, 246, 0.8);
+}
+
+:deep(.notes-content .carousel-prev) {
+  left: 1rem;
+}
+
+:deep(.notes-content .carousel-next) {
+  right: 1rem;
+}
+
+/* Thumbnail Strip */
+:deep(.notes-content .carousel-thumbs) {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+:deep(.notes-content .carousel-thumb-item) {
+  width: 60px;
+  height: 60px;
+  flex-shrink: 0;
+  border-radius: 0.25rem;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+:deep(.notes-content .carousel-thumb-item img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  margin: 0 !important;
+  border-radius: 0 !important;
+}
+
+:deep(.notes-content .carousel-thumb-item:hover) {
+  opacity: 1;
+}
+
+:deep(.notes-content .carousel-thumb-item.active) {
+  border-color: rgb(96 165 250);
+  opacity: 1;
 }
 </style>

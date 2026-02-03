@@ -7,46 +7,15 @@
       <div class="h-full">
         <div class="p-6 h-full flex flex-col">
           <div class="flex items-center justify-between mb-6 flex-shrink-0">
-            <!-- Subtitle List Dropdown -->
-            <el-dropdown @command="handleSubtitleFilter" trigger="click">
-              <button
-                class="flex items-center space-x-2 px-3 py-2 bg-slate-700/50 hover:bg-slate-600/70 text-white rounded-lg transition-colors border border-slate-600/30"
-              >
-                <span class="text-xl font-semibold">{{ selectedFilterLabel }}</span>
-                <el-icon class="ml-2">
-                  <ArrowDown />
-                </el-icon>
-              </button>
-              <template #dropdown>
-                <el-dropdown-menu
-                  class="rounded-lg shadow-lg border border-slate-600/50 bg-slate-800"
-                >
-                  <el-dropdown-item
-                    command="all"
-                    :class="{
-                      'bg-blue-600/20 text-blue-400': selectedFilter === 'all',
-                      'hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300':
-                        selectedFilter !== 'all',
-                    }"
-                  >
-                    {{ t('subtitleList') }}
-                  </el-dropdown-item>
-                  <div v-if="chapters.length > 0" class="border-t border-slate-600/50 my-1"></div>
-                  <el-dropdown-item
-                    v-for="chapter in chapters"
-                    :key="chapter.id"
-                    :command="`chapter-${chapter.id}`"
-                    :class="{
-                      'bg-blue-600/20 text-blue-400': selectedFilter === `chapter-${chapter.id}`,
-                      'hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300':
-                        selectedFilter !== `chapter-${chapter.id}`,
-                    }"
-                  >
-                    {{ chapter.title }}
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <!-- Time Filter Button -->
+            <button
+              @click="openTimeFilter"
+              class="flex items-center space-x-2 px-3 py-2 bg-slate-700/50 hover:bg-slate-600/70 text-white rounded-lg transition-colors border border-slate-600/30"
+              :class="{ 'border-blue-500/50 bg-blue-900/20': filterStartTime !== null || filterEndTime !== null }"
+            >
+              <el-icon><Clock /></el-icon>
+              <span class="font-semibold">{{ (filterStartTime !== null || filterEndTime !== null) ? '已筛选' : t('subtitleList') }}</span>
+            </button>
             <div class="flex space-x-3">
               <!-- 添加字幕的按钮 -->
               <el-tooltip :content="t('addSubtitle')" placement="bottom">
@@ -117,29 +86,6 @@
                       class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
                     >
                       ASS
-                    </el-dropdown-item>
-                    <div
-                      class="text-xs text-white px-4 py-2 bg-slate-700/50 uppercase tracking-wide font-semibold"
-                    >
-                      {{ t('videoKind') }}
-                    </div>
-                    <el-dropdown-item
-                      command="mp4"
-                      class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
-                    >
-                      MP4 (原始)
-                    </el-dropdown-item>
-                    <el-dropdown-item
-                      command="video_with_subtitles"
-                      class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
-                    >
-                      MP4 (含字幕)
-                    </el-dropdown-item>
-                    <el-dropdown-item
-                      command="mp3"
-                      class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
-                    >
-                      MP3
                     </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -328,6 +274,63 @@
       </div>
     </div>
 
+    <!-- Time Filter Dialog -->
+    <div
+      v-if="showTimeFilterDialog"
+      class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
+      @click.self="showTimeFilterDialog = false"
+    >
+      <div class="bg-gradient-to-br from-slate-800/95 to-slate-700/95 rounded-2xl p-8 w-full max-w-md border border-slate-600/50 shadow-2xl backdrop-blur-lg">
+        <h3 class="text-xl font-semibold text-white mb-6">字幕时间筛选</h3>
+        
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm text-slate-400 mb-2">开始时间 (秒)</label>
+            <input
+              v-model.number="editFilterStart"
+              type="number"
+              min="0"
+              placeholder="例如: 60"
+              class="w-full px-4 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400"
+            />
+          </div>
+          <div>
+            <label class="block text-sm text-slate-400 mb-2">结束时间 (秒)</label>
+            <input
+              v-model.number="editFilterEnd"
+              type="number"
+              min="0"
+              placeholder="例如: 120"
+              class="w-full px-4 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400"
+            />
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center mt-8">
+          <button
+            @click="clearTimeFilter"
+            class="text-sm text-red-400 hover:text-red-300 transition-colors"
+          >
+            清除筛选
+          </button>
+          <div class="space-x-3">
+            <button
+              @click="showTimeFilterDialog = false"
+              class="px-4 py-2 text-slate-300 hover:text-white bg-slate-700/50 hover:bg-slate-600/70 rounded-lg transition-all border border-slate-600/30"
+            >
+              取消
+            </button>
+            <button
+              @click="applyTimeFilter"
+              class="px-4 py-2 bg-blue-600/80 hover:bg-blue-600 text-white rounded-lg transition-all border border-blue-500/30 shadow-lg"
+            >
+              应用
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Actions -->
   </div>
 </template>
@@ -344,13 +347,14 @@ import {
   FlagTriangleLeft,
   FlagTriangleRight,
   ArrowBigDown,
+  Clock,
 } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { Upload, Download } from '@element-plus/icons-vue'
 import { loadConfig } from '@/composables/ConfigAPI'
 import { useI18n } from 'vue-i18n'
-import { ChapterAPI, type Chapter } from '@/composables/ChapterAPI'
 import { getCookie } from '@/composables/GetCSRFToken'
+import { useNotification } from '@/composables/useNotification'
 
 const { subtitles, linkSubtitles, fetchSubtitle } = useSubtitles()
 import { BACKEND } from '@/composables/ConfigAPI'
@@ -370,6 +374,8 @@ const i18nComposer = props.i18n ?? useI18n()
 const t = i18nComposer.t as any
 const locale = i18nComposer.locale
 
+const { success: successNotify, error: errorNotify, info: infoNotify } = useNotification()
+
 const rawSubtitle = ref<Subtitle[]>(subtitles.value)
 const foreignSubtitle = ref<Subtitle[]>(subtitles.value)
 
@@ -383,56 +389,58 @@ const bilingualSubs = computed(() =>
   })),
 )
 
-// Chapter filtering state
-const chapters = ref<Chapter[]>([])
-const selectedFilter = ref('all')
-const selectedFilterLabel = computed(() => {
-  if (selectedFilter.value === 'all') return t('subtitleList')
-  const chapter = chapters.value.find((c) => selectedFilter.value === `chapter-${c.id}`)
-  return chapter ? chapter.title : t('subtitleList')
-})
+// Filter Logic
+const filterStartTime = ref<number | null>(null)
+const filterEndTime = ref<number | null>(null)
+const showTimeFilterDialog = ref(false)
+const editFilterStart = ref<number | null>(null)
+const editFilterEnd = ref<number | null>(null)
 
-// Filtered subtitles based on selected chapter
+// Filtered subtitles based on time range
 const filteredSubtitles = computed(() => {
-  if (selectedFilter.value === 'all') {
+  if (filterStartTime.value === null && filterEndTime.value === null) {
     return bilingualSubs.value
   }
 
-  // Find selected chapter
-  const chapterId = selectedFilter.value.replace('chapter-', '')
-  const currentChapterIndex = chapters.value.findIndex((c) => c.id === chapterId)
-
-  if (currentChapterIndex === -1) return bilingualSubs.value
-
-  const currentChapter = chapters.value[currentChapterIndex]
-  const nextChapter = chapters.value[currentChapterIndex + 1]
-
-  // Calculate end time: next chapter's start time or video duration
-  const endTime = nextChapter ? nextChapter.startTime : props.duration
-
-  // Filter subtitles by chapter time range
-  return bilingualSubs.value.filter(
-    (sub) => sub.start >= currentChapter.startTime && sub.start < endTime,
-  )
+  return bilingualSubs.value.filter((sub) => {
+    if (filterStartTime.value !== null && sub.end < filterStartTime.value) return false
+    if (filterEndTime.value !== null && sub.start > filterEndTime.value) return false
+    return true
+  })
 })
+
+const openTimeFilter = () => {
+  editFilterStart.value = filterStartTime.value
+  editFilterEnd.value = filterEndTime.value
+  showTimeFilterDialog.value = true
+}
+
+const applyTimeFilter = () => {
+  if (
+    editFilterStart.value !== null &&
+    editFilterEnd.value !== null &&
+    editFilterStart.value > editFilterEnd.value
+  ) {
+    ElMessage.error('开始时间不能大于结束时间')
+    return
+  }
+  filterStartTime.value = editFilterStart.value
+  filterEndTime.value = editFilterEnd.value
+  showTimeFilterDialog.value = false
+}
+
+const clearTimeFilter = () => {
+  filterStartTime.value = null
+  filterEndTime.value = null
+  editFilterStart.value = null
+  editFilterEnd.value = null
+  showTimeFilterDialog.value = false
+}
 
 function handleExport(command: string) {
   if (['vtt', 'srt', 'txt', 'ass'].includes(command)) {
     pendingExportFormat.value = command
     showLanguageDialog.value = true
-  } else if (command === 'video_with_subtitles') {
-    // 导出带字幕硬嵌入的MP4视频
-    pendingExportFormat.value = 'video_with_subtitles'
-    showLanguageDialog.value = true
-  } else {
-    switch (command) {
-      case 'mp4':
-        downloadVideoFile('mp4')
-        break
-      case 'mp3':
-        downloadVideoFile('mp3')
-        break
-    }
   }
 }
 
@@ -453,9 +461,6 @@ function exportWithLanguage(languageType: 'raw' | 'translated' | 'both') {
       break
     case 'ass':
       exportASS(languageType)
-      break
-    case 'video_with_subtitles':
-      exportVideoWithSubtitles(languageType)
       break
   }
 }
@@ -484,7 +489,7 @@ function exportVTT(languageType: 'raw' | 'translated' | 'both' = 'both') {
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(vtt, `${props.videoName || 'subtitles'}${suffix}.vtt`, 'text/vtt')
-  ElMessage.success('VTT字幕导出成功')
+  successNotify('VTT字幕导出成功')
 }
 
 function exportSRT(languageType: 'raw' | 'translated' | 'both' = 'both') {
@@ -513,7 +518,7 @@ function exportSRT(languageType: 'raw' | 'translated' | 'both' = 'both') {
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(srt, `${props.videoName || 'subtitles'}${suffix}.srt`, 'text/srt')
-  ElMessage.success('SRT字幕导出成功')
+  successNotify('SRT字幕导出成功')
 }
 
 function exportTXT(languageType: 'raw' | 'translated' | 'both' = 'both') {
@@ -537,7 +542,7 @@ function exportTXT(languageType: 'raw' | 'translated' | 'both' = 'both') {
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(txt, `${props.videoName || 'subtitles'}${suffix}.txt`, 'text/plain')
-  ElMessage.success('TXT文本导出成功')
+  successNotify('TXT文本导出成功')
 }
 
 async function exportASS(languageType: 'raw' | 'translated' | 'both' = 'both') {
@@ -718,52 +723,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(ass, `${props.videoName || 'subtitles'}${suffix}.ass`, 'text/ass')
-  ElMessage.success('ASS字幕导出成功')
-}
-// Export video with embedded subtitles
-async function exportVideoWithSubtitles(languageType: 'raw' | 'translated' | 'both' = 'raw') {
-  try {
-    // 检查是否有相应的字幕文件
-    if (languageType === 'raw' && rawSubtitle.value.length === 0) {
-      ElMessage.error('没有找到原文字幕，无法导出')
-      return
-    }
-    if (languageType === 'translated' && foreignSubtitle.value.length === 0) {
-      ElMessage.error('没有找到译文字幕，无法导出')
-      return
-    }
-    if (
-      languageType === 'both' &&
-      (rawSubtitle.value.length === 0 || foreignSubtitle.value.length === 0)
-    ) {
-      ElMessage.error('原文或译文字幕缺失，无法导出双语字幕')
-      return
-    }
-
-    const response = await fetch(`${BACKEND}/api/export/add`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': getCookie('csrftoken'),
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        video_id: props.id,
-        subtitle_type: languageType,
-      }),
-    })
-
-    const result = await response.json()
-
-    if (result.success) {
-      ElMessage.success('视频导出任务已添加到队列，请在主页查看进度')
-    } else {
-      ElMessage.error(result.message || '导出任务添加失败')
-    }
-  } catch (error: any) {
-    console.error('Export video with subtitles error:', error)
-    ElMessage.error('导出任务添加失败：' + (error.message || '网络错误'))
-  }
+  successNotify('ASS字幕导出成功')
 }
 
 function downloadFile(content: string, filename: string, mimeType: string) {
@@ -778,146 +738,8 @@ function downloadFile(content: string, filename: string, mimeType: string) {
   URL.revokeObjectURL(url)
 }
 
-// Progressive video/audio file download with streaming
-async function downloadVideoFile(format: 'mp4' | 'mp3') {
-  if (!props.id || props.id <= 0) {
-    ElMessage.error('无效的视频ID')
-    return
-  }
-
-  const videoName = props.videoName || `video_${props.id}`
-  const filename = `${videoName}.${format}`
-
-  try {
-    // Show loading message
-    const loadingMessage = ElMessage.info({
-      message: `正在准备${format.toUpperCase()}文件下载...`,
-      duration: 0, // Don't auto close
-    })
-
-    // Check file availability first
-    const checkResponse = await fetch(`${BACKEND}/api/videos/download/${props.id}/${format}`, {
-      method: 'HEAD',
-      credentials: 'include',
-    })
-
-    if (!checkResponse.ok) {
-      loadingMessage.close()
-      if (checkResponse.status === 404) {
-        ElMessage.error(`${format.toUpperCase()}文件不存在`)
-      } else if (checkResponse.status === 400) {
-        ElMessage.error('音频文件无法导出为MP4格式，请选择MP3')
-      } else {
-        ElMessage.error(`文件检查失败: ${checkResponse.status}`)
-      }
-      return
-    }
-
-    // Get file size from headers
-    const contentLength = checkResponse.headers.get('content-length')
-    const totalSize = contentLength ? parseInt(contentLength) : 0
-
-    loadingMessage.close()
-
-    // Start streaming download
-    const downloadResponse = await fetch(`${BACKEND}/api/videos/download/${props.id}/${format}`, {
-      method: 'GET',
-      credentials: 'include',
-    })
-
-    if (!downloadResponse.ok) {
-      throw new Error(`Download failed: ${downloadResponse.status}`)
-    }
-
-    if (!downloadResponse.body) {
-      throw new Error('No response body for streaming')
-    }
-
-    // Progressive download with progress tracking
-    const reader = downloadResponse.body.getReader()
-    const chunks: Uint8Array[] = []
-    let downloadedSize = 0
-
-    // Show download progress
-    let progressMessage = ElMessage.info({
-      message: `正在下载${format.toUpperCase()}: 0%`,
-      duration: 0,
-    })
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-
-        if (done) break
-
-        chunks.push(value)
-        downloadedSize += value.length
-
-        // Update progress
-        if (totalSize > 0) {
-          const progress = Math.round((downloadedSize / totalSize) * 100)
-          progressMessage.close()
-          progressMessage = ElMessage.info({
-            message: `正在下载${format.toUpperCase()}: ${progress}% (${formatFileSize(downloadedSize)}/${formatFileSize(totalSize)})`,
-            duration: 0,
-          })
-        } else {
-          progressMessage.close()
-          progressMessage = ElMessage.info({
-            message: `正在下载${format.toUpperCase()}: ${formatFileSize(downloadedSize)}`,
-            duration: 0,
-          })
-        }
-      }
-    } finally {
-      reader.releaseLock()
-      progressMessage.close()
-    }
-
-    // Combine chunks and create blob
-    const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0)
-    const combinedArray = new Uint8Array(totalLength)
-    let offset = 0
-
-    for (const chunk of chunks) {
-      combinedArray.set(chunk, offset)
-      offset += chunk.length
-    }
-
-    // Create blob and download
-    const mimeType = format === 'mp4' ? 'video/mp4' : 'audio/mpeg'
-    const blob = new Blob([combinedArray], { type: mimeType })
-    const url = URL.createObjectURL(blob)
-
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-
-    ElMessage.success(`${format.toUpperCase()}文件下载成功: ${filename}`)
-  } catch (error: any) {
-    console.error(`${format} download error:`, error)
-    ElMessage.error(`下载失败: ${error?.message || '未知错误'}`)
-  }
-}
-
-// Helper function to format file size
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
 onMounted(async () => {
   tryInit(props.id) // 首次挂载时先试一次
-
-  // Load chapters for filtering
-  await loadChapters()
 
   // Set up 2-second interval for current subtitle detection
   updateCurrentSubtitleInterval = window.setInterval(() => {
@@ -938,7 +760,6 @@ watch(
   () => props.id,
   (newId) => {
     tryInit(newId) // id 变化时再试
-    loadChapters() // 加载新视频的章节
   },
 )
 
@@ -996,19 +817,6 @@ async function tryInit(id: number) {
   blobUrls.value[2] = generateVTT('both', [rawSubtitle.value, foreignSubtitle.value])
 }
 
-// Load chapters for the current video
-async function loadChapters() {
-  if (props.id && props.id > 0) {
-    try {
-      chapters.value = await ChapterAPI.loadChapters(props.id)
-      console.log('Loaded chapters for filtering:', chapters.value)
-    } catch (error) {
-      console.error('Failed to load chapters:', error)
-      chapters.value = []
-    }
-  }
-}
-
 /** which subtitle row is highlighted/being edited **/
 // 同时编辑 译文和原文字幕
 const activeSubtitleIndex = ref<number | null>(null)
@@ -1027,11 +835,6 @@ const isUserManualScrolling = ref(false)
 // Language selection dialog
 const showLanguageDialog = ref(false)
 const pendingExportFormat = ref<string>('')
-
-// Chapter filter handler
-function handleSubtitleFilter(command: string) {
-  selectedFilter.value = command
-}
 
 const emit = defineEmits(['seek-time', 'update-bloburls', 'subs-loaded'])
 
@@ -1200,7 +1003,7 @@ function addSubtitle() {
   )
   activeSubtitleIndex.value = newIndex
 
-  ElMessage.success('已添加新字幕')
+  successNotify('已添加新字幕')
 }
 
 function deleteSubtitle(index: number) {
