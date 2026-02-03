@@ -9,10 +9,11 @@ export default defineConfig({
   // Configure for static file serving (Django collectstatic compatible)
   base: '/', // Use absolute paths to work with sub-routes
   build: {
-    assetsDir: 'assets', // Keep assets in assets folder
+    outDir: '../backend/static',
+    emptyOutDir: true,
+    assetsDir: 'assets',
     rollupOptions: {
       output: {
-        // Ensure consistent file naming
         assetFileNames: 'assets/[name]-[hash][extname]',
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',

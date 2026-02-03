@@ -5,6 +5,7 @@ services:
     image: jaceju68/vidgo:latest
     container_name: vidgo-app
     restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"  # 使用宿主机用户运行，避免权限问题
     ports:
       - "8010:8000"
     environment:
