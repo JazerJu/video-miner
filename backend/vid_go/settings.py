@@ -22,36 +22,47 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # 安全警告：在生产环境中保持密钥秘密！
-SECRET_KEY = 'django-insecure-t*f^ky%62$)j_af*qs7)m&pwb-)1lgc&u22a^yj!e=6_@s@%dn'
+SECRET_KEY = "django-insecure-t*f^ky%62$)j_af*qs7)m&pwb-)1lgc&u22a^yj!e=6_@s@%dn"
 
 # 安全警告：不要在生产环境中开启debug模式！
 DEBUG = True
+
 
 # 辅助函数：获取环境变量作为列表
 def __get_list(env_var, default=None):
     """Get environment variable as a comma-separated list"""
     value = os.getenv(env_var)
     if value:
-        return [item.strip() for item in value.split(',') if item.strip()]
+        return [item.strip() for item in value.split(",") if item.strip()]
     return default or []
 
+
 # 允许承载server的 Host,这里全放通
-ALLOWED_HOSTS = __get_list('VIDGO_ALLOWED_HOSTS', ['*'])
+ALLOWED_HOSTS = __get_list("VIDGO_ALLOWED_HOSTS", ["*"])
 
 # 动态CORS和CSRF配置
 CORS_ALLOWED_ORIGINS = __get_list(
-    'VIDGO_CORS_ALLOWED_ORIGINS',
-    ["http://localhost:4173","http://localhost:8000", "http://127.0.0.1:4173",]  # 开发环境默认设置
+    "VIDGO_CORS_ALLOWED_ORIGINS",
+    [
+        "http://localhost:4173",
+        "http://localhost:8000",
+        "http://127.0.0.1:4173",
+    ],  # 开发环境默认设置
 )
 
 CSRF_TRUSTED_ORIGINS = __get_list(
-    'VIDGO_CSRF_TRUSTED_ORIGINS',
-    ["http://localhost:4173", "http://localhost:8000", "http://127.0.0.1:4173"]  # 开发环境默认设置
+    "VIDGO_CSRF_TRUSTED_ORIGINS",
+    [
+        "http://localhost:4173",
+        "http://localhost:8000",
+        "http://127.0.0.1:4173",
+    ],  # 开发环境默认设置
 )
 
 # 全站 HTTPS 建议 - 仅在生产环境启用
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
+
 
 # 解析VIDGO_URL并自动配置CORS、CSRF和ALLOWED_HOSTS的函数
 def _parse_vidgo_url():
@@ -71,8 +82,9 @@ def _parse_vidgo_url():
         # 添加主机名到ALLOWED_HOSTS
         parsed_url = urlparse(url)
         hostname = parsed_url.hostname
-        if hostname and hostname not in ALLOWED_HOSTS and '*' not in ALLOWED_HOSTS:
+        if hostname and hostname not in ALLOWED_HOSTS and "*" not in ALLOWED_HOSTS:
             ALLOWED_HOSTS.append(hostname)
+
 
 # 如果提供了VIDGO_URL则解析它
 _parse_vidgo_url()
@@ -83,7 +95,9 @@ if DEBUG:
         "http://localhost:4173",
         "http://127.0.0.1:4173",
         "http://localhost:8080",
-        "http://127.0.0.1:8080"
+        "http://127.0.0.1:8080",
+        "http://172.28.241.47:8080",
+        "http://172.28.241.47:8000",
     ]
     for origin in dev_origins:
         if origin not in CORS_ALLOWED_ORIGINS:
@@ -102,60 +116,60 @@ CORS_EXPOSE_HEADERS = [
 # 应用程序定义
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'channels',
-    'video',
-    'accounts',
-    'corsheaders', 
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "channels",
+    "video",
+    "accounts",
+    "corsheaders",
 ]
 
 
 # 注意：CORS_ALLOW_CREDENTIALS已在上面设置
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # ← 一定要放在 CommonMiddleware 前面
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # ← 一定要放在 CommonMiddleware 前面
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'vid_go.urls'
+ROOT_URLCONF = "vid_go.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'vid_go.wsgi.application'
-ASGI_APPLICATION = 'vid_go.asgi.application'
+WSGI_APPLICATION = "vid_go.wsgi.application"
+ASGI_APPLICATION = "vid_go.asgi.application"
 
 
 # 数据库配置
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / "database" / "videos.db",  # 指向你的 Flask 数据库文件
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "database" / "videos.db",  # 指向你的 Flask 数据库文件
     },
     # 'legacy': {
     #     'ENGINE': 'django.db.backends.sqlite3',
@@ -168,34 +182,36 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
 # 媒体设置
 
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # 指向项目根目录下的 media 文件夹
-MEDIA_URL = '/media/'  # 访问媒体的 URL 前缀
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")  # 指向项目根目录下的 media 文件夹
+MEDIA_URL = "/media/"  # 访问媒体的 URL 前缀
 
 # 18GB+大文件上传设置
 DATA_UPLOAD_MAX_MEMORY_SIZE = None  # 对基于内存的上传不限制
-FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB - 超过这个大小的文件将保存到临时文件
+FILE_UPLOAD_MAX_MEMORY_SIZE = (
+    100 * 1024 * 1024
+)  # 100MB - 超过这个大小的文件将保存到临时文件
 DATA_UPLOAD_MAX_NUMBER_FIELDS = None  # 对表单字段不限制
 # 国际化设置
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -205,14 +221,32 @@ USE_TZ = True
 # 静态文件（CSS、JavaScript、图像）
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 # 静态文件配置（确保已设置 STATIC_URL 和 STATICFILES_DIRS）
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]  # 静态文件存放目录
-STATIC_ROOT = BASE_DIR / 'staticfiles'  # collectstatic 收集到的目录
+STATIC_ROOT = BASE_DIR / "staticfiles"  # collectstatic 收集到的目录
 
 # 默认主键字段类型
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # 自定义用户模型
-AUTH_USER_MODEL = 'accounts.User'
+AUTH_USER_MODEL = "accounts.User"
+
+# Email settings
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.qq.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 465))
+EMAIL_USE_TLS = False
+EMAIL_USE_SSL = True
+EMAIL_HOST_USER = "1632114593@qq.com"
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "neicqumvbnwcdijh")
+# DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@vidgo.local")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "1632114593@qq.com")
+
+# Password reset settings
+PASSWORD_RESET_TIMEOUT = int(
+    os.getenv("PASSWORD_RESET_TIMEOUT", 3600)
+)  # 1 hour default

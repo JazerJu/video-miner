@@ -1,4 +1,6 @@
+import os
 from django.urls import path
+from django.conf import settings
 from .views.set_setting import (
     ConfigAPIView,
     TranscriptionEnginesAPIView,
@@ -7,22 +9,27 @@ from .views.set_setting import (
     WhisperModelProgressAPIView,
     WhisperModelSizeAPIView,
 )
+from .views.tags import (
+    TagListView,
+    TagCreateView,
+    TagActionView,
+    TagBatchDeleteView,
+    TagMergeView,
+)
 from .views.videos import (
     VideoDataView,
     VideoActionView,
     VideoInfoView,
     BatchVideoActionView,
     VideoLanguageView,
-    LastVideoDataView,
     VideoSearchView,
+    SimilarVideosView,
 )
-from .views.processing_views import ConvertAudioView, ConvertHLSView
 from .views.download import VideoDownloadView
 from .views.categories import CategoryActionView
 from .views.media import MediaActionView
 from .views.media_optimized import OptimizedMediaView
 from .views.subtitles import SubtitleActionView
-from .views.mindmap import MindmapActionView
 from .views.waveform import WaveformAPIView, WaveformListView
 from .views.export import (
     ExportTaskAddView,
@@ -88,14 +95,22 @@ REQUEST_TIMEOUT = (3.0, 5.0)  # (连接超时, 读取超时)
 
 
 @require_GET
-def thumbnail_proxy(request):
+def thumbnail_proxy(request, filename=None):
     """
-    代理拉取 B 站 CDN 缩略图，并返回给前端。
-    只允许访问 `THUMBNAIL_ALLOWED_HOSTS` 中的域名。
+    代理拉取 B 站 CDN 缩略图，或提供本地缩略图文件服务。
+    如果请求带 url 参数，则代理外部图片；否则返回本地缩略图文件。
     """
     raw_url = request.GET.get("url")
-    if not raw_url:
-        raise Http404("缺少 url 参数")
+
+    # 如果没有 url 参数但有 filename，提供本地缩略图文件
+    if not raw_url and filename:
+        # 构建本地文件路径
+        file_path = os.path.join(settings.MEDIA_ROOT, "thumbnail", filename)
+        if os.path.exists(file_path):
+            from django.http import FileResponse
+
+            return FileResponse(open(file_path, "rb"))
+        raise Http404("文件不存在")
 
     # 解析 URL： scheme://netloc/path...
     try:
@@ -134,10 +149,14 @@ def thumbnail_proxy(request):
 在urls.py中需要展示
 """
 urlpatterns = [
-    # ---------- MEDIA: 仅文件/图片/流媒体直出 ----------
-    # B站视频封面图片代理 - 必须在通用媒体模式之前
-    path("media/thumbnail/", thumbnail_proxy, name="proxy-thumbnail"),
+    # 流媒体视频缩略图，用于预览
+    path(
+        "media/thumbnail/<path:filename>",
+        thumbnail_proxy,
+        name="proxy-thumbnail-with-file",
+    ),
     # 媒体文件服务
+    path("media/thumbnail/", thumbnail_proxy, name="proxy-thumbnail"),
     path(
         "media/<str:type>/<path:filename>",
         MediaActionView.as_view(),
@@ -174,8 +193,12 @@ urlpatterns = [
     # 视频相关
     path("api/videos/", VideoDataView.as_view(), name="video_data"),
     path("api/videos/search/", VideoSearchView.as_view(), name="video_search"),
-    path("api/videos/last/", LastVideoDataView.as_view(), name="last_video_data"),
     path("api/videos/info/<str:filename>", VideoInfoView.as_view(), name="video_info"),
+    path(
+        "api/videos/<int:video_id>/similar",
+        SimilarVideosView.as_view(),
+        name="similar_videos",
+    ),
     path(
         "api/videos/<int:video_id>/language",
         VideoLanguageView.as_view(),
@@ -196,27 +219,11 @@ urlpatterns = [
         VideoDownloadView.as_view(),
         name="video_download",
     ),
-    # 转换为HLS/音频格式
-    path(
-        "api/convert-hls/<int:video_id>",
-        ConvertHLSView.as_view(),
-        name="convert_hls_api",
-    ),
-    path(
-        "api/convert-audio/<int:video_id>/",
-        ConvertAudioView.as_view(),
-        name="convert_audio",
-    ),
     # 字幕与思维导图
     path(
         "api/subtitle/<str:action>/<int:video_id>",
         SubtitleActionView.as_view(),
         name="subtitle_action",
-    ),
-    path(
-        "api/mindmap/<str:action>/<int:video_id>",
-        MindmapActionView.as_view(),
-        name="mindmap_action",
     ),
     # 流媒体控制面板
     path("api/stream_media/query", stream_media.InfoView.as_view(), name="query_info"),
@@ -358,4 +365,12 @@ urlpatterns = [
     ),
     # 🆕 智能内容提取（待办事项和关键要点）
     path("api/extract_insights", extract_insights, name="extract_insights"),
+    # 标签管理
+    path("api/tags/", TagListView.as_view(), name="tag_list"),
+    path("api/tags/create", TagCreateView.as_view(), name="tag_create"),
+    path("api/tags/<int:tag_id>", TagActionView.as_view(), name="tag_action"),
+    path(
+        "api/tags/batch_delete", TagBatchDeleteView.as_view(), name="tag_batch_delete"
+    ),
+    path("api/tags/merge", TagMergeView.as_view(), name="tag_merge"),
 ]
