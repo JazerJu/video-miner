@@ -10,6 +10,26 @@ from django.http import JsonResponse,HttpResponse,HttpResponseNotAllowed,HttpRes
 from django.conf import settings  # Ensure this is at the top
 from tqdm import tqdm
 import argparse
+import configparser
+
+def get_proxies():
+    """
+    Get proxy configuration based on settings.
+    Returns {'http': None, 'https': None} if proxy is disabled (to bypass system env vars),
+    otherwise returns None (to use system env vars).
+    """
+    try:
+        config_path = os.path.join(settings.BASE_DIR, 'config/config.ini')
+        if os.path.exists(config_path):
+            config = configparser.ConfigParser()
+            config.read(config_path)
+            use_proxy = config.get('DEFAULT', 'use_proxy', fallback='false').lower() == 'true'
+            
+            if not use_proxy:
+                return {'http': None, 'https': None}
+    except Exception as e:
+        print(f"Error reading proxy settings: {e}")
+    return None
 
 # **0. Utils function
 # 替换标题中的特殊字符 --> 用于文件命名。
@@ -77,7 +97,7 @@ def getWbiKeys() -> tuple[str, str]:
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
         'Referer': 'https://www.bilibili.com/'
     }
-    resp = requests.get('https://api.bilibili.com/x/web-interface/nav', headers=headers)
+    resp = requests.get('https://api.bilibili.com/x/web-interface/nav', headers=headers, proxies=get_proxies())
     resp.raise_for_status()
     json_content = resp.json()
     img_url: str = json_content['data']['wbi_img']['img_url']
@@ -132,7 +152,7 @@ def get_cid(bvid: str = None, avid: str = None) -> tuple:
     if not bvid and not avid:
         raise ValueError("Either bvid or avid must be provided.")
     params = {'bvid': bvid} if bvid else {'aid': avid}
-    resp = requests.get(info_url, headers=headers, params=params)
+    resp = requests.get(info_url, headers=headers, params=params, proxies=get_proxies())
     j = resp.json()
     cids = [item['cid'] for item in j['data']]
     data = j['data']
@@ -150,7 +170,7 @@ def get_video_info(bvid: str = None, avid: str = None) -> dict:
         'Referer': 'https://www.bilibili.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
     }
-    resp = requests.get(url, headers=headers)
+    resp = requests.get(url, headers=headers, proxies=get_proxies())
     resp.raise_for_status()
     data = resp.json()['data']
     pic_url = data['pic']
@@ -185,7 +205,7 @@ def get_video_url(bvid: str, cid: int, sessdata: str) -> dict:
     try:
         # Attempt with requests
         url = f"https://api.bilibili.com{path}"
-        resp = requests.get(url, headers=headers)
+        resp = requests.get(url, headers=headers, proxies=get_proxies())
         resp.raise_for_status()
         json_data = resp.json()
     except requests.exceptions.HTTPError as e:
@@ -246,7 +266,7 @@ def download_file_with_progress(url: str, filename: str, progress_callback=None)
         'Referer': 'https://www.bilibili.com',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
     }
-    resp = requests.get(url, headers=headers, stream=True)
+    resp = requests.get(url, headers=headers, stream=True, proxies=get_proxies())
     total = int(resp.headers.get('content-length', 0))
     downloaded = 0
     chunk_size = 512 * 1024  # 优化：从1KB提升到512KB（参考GIL分析）
@@ -384,10 +404,10 @@ def main_bili_downloader(url: str, sessdata: str, down_list: bool = False):
             except OSError:
                 pass
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Download Bilibili videos with audio merge')
-    parser.add_argument('--url', default="https://www.bilibili.com/video/BV19e4y1q7JJ?spm_id_from=333.788.recommend_more_video.-1&vd_source=3d7594eace7bea23a96123faecc64e41", help='BV/AV URL')
-    parser.add_argument('--sessdata',default="bd6c83c2%2C1768619794%2Ce2a7c%2A71CjBZZspc9z0-KH-fPDTEwRGeVY5_Rqj0FqU9saO4hRRX9crVvGBj6TS85gZLG3tWLfISVmc4WFhUTzJLMVdLVE80OThaNUdZNDZsODRUV3ZNRV9zc1NyUkZ5eVNtRHRGQ1dFSVJyUmhqNi0yTnJ6NXhEU3RvN3FWbVRsTWo4ODB4VGhiR1ZEQkJ3IIEC", help='SESSDATA cookie value')
-    parser.add_argument('--down_list', action='store_true', help='Download all parts without prompt')
-    args = parser.parse_args()
-    main_bili_downloader(args.url, args.sessdata, args.down_list)
+# if __name__ == '__main__':
+#     parser = argparse.ArgumentParser(description='Download Bilibili videos with audio merge')
+#     parser.add_argument('--url', default="https://www.bilibili.com/video/BV19e4y1q7JJ?spm_id_from=333.788.recommend_more_video.-1&vd_source=3d7594eace7bea23a96123faecc64e41", help='BV/AV URL')
+#     parser.add_argument('--sessdata',default="bd6c83c2%2C1768619794%2Ce2a7c%2A71CjBZZspc9z0-KH-fPDTEwRGeVY5_Rqj0FqU9saO4hRRX9crVvGBj6TS85gZLG3tWLfISVmc4WFhUTzJLMVdLVE80OThaNUdZNDZsODRUV3ZNRV9zc1NyUkZ5eVNtRHRGQ1dFSVJyUmhqNi0yTnJ6NXhEU3RvN3FWbVRsTWo4ODB4VGhiR1ZEQkJ3IIEC", help='SESSDATA cookie value')
+#     parser.add_argument('--down_list', action='store_true', help='Download all parts without prompt')
+#     args = parser.parse_args()
+#     main_bili_downloader(args.url, args.sessdata, args.down_list)

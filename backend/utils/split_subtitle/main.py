@@ -78,11 +78,11 @@ def merge_segments_based_on_sentences(asr_data: ASRData, sentences: List[str]) -
         best_window_size = 0
 
         # 滑动窗口大小，优先考虑接近句子词数的窗口
-        # 最多为目标词数的2倍
-        # 但不能超过剩余的ASR数据长度
-        min_window_size = max(1, word_count // 2)
         # 至少为1（保证窗口不为空）
         # 通常为目标词数的一半
+        min_window_size = max(1, word_count // 2)
+        # 最多为目标词数的2倍
+        # 但不能超过剩余的ASR数据长度
         max_window_size = min(word_count * 2, asr_len - asr_index)
 
         window_sizes = sorted(range(min_window_size, max_window_size + 1), key=lambda x: abs(x - word_count))

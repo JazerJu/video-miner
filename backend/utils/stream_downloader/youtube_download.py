@@ -12,6 +12,23 @@ class YouTubeDownloader:
             'noplaylist': True,  # Only download single video, not playlist
             'quiet': True,
         }
+        
+        # Check proxy settings
+        try:
+            import configparser
+            from django.conf import settings
+            
+            config_path = os.path.join(settings.BASE_DIR, 'config/config.ini')
+            if os.path.exists(config_path):
+                config = configparser.ConfigParser()
+                config.read(config_path)
+                use_proxy = config.get('DEFAULT', 'use_proxy', fallback='false').lower() == 'true'
+                
+                if not use_proxy:
+                    # Force no proxy if disabled in settings
+                    self.base_ydl_opts['proxy'] = ''
+        except Exception as e:
+            print(f"Error reading proxy settings: {e}")
 
     def get_video_info(self, url: str) -> Optional[Dict[str, Any]]:
         """
