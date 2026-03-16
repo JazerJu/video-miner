@@ -61,3 +61,16 @@ frontend/csrf_cookies.txt
 frontend/test.html
 frontend/src/assets/vjs-luxmty/fonts/
 frontend/src/shims-hls.d.ts
+
+# Exclude temp/test files
+*.png
+*.wav
+*.m4a
+backend/visualize_*.py
+backend/zt_speed_test.py
+backend/demo/
+reset_dev_db.sh
+reset_migrations.sh
+start-docker.sh
+红黑树.py
+GEMINI.md
