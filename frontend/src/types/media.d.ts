@@ -22,6 +22,9 @@ export interface Video {
   type: 'video' // Type discriminator for union types
   categoryId?: number | null
   categoryName?: string | null
+  rawLang?: string
+  videoSource?: string
+  sourceUrl?: string
 }
 
 export interface VideoInfoData {

@@ -60,57 +60,154 @@
           </div>
           <!-- Model Settings -->
           <div v-if="activeTab === 'model'" class="space-y-6">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">{{ t('apiKey') }}</label>
-              <div class="flex items-center space-x-2">
-                <el-input
-                  v-model="currentApiKey"
-                  type="password"
-                  show-password
-                  :placeholder="t('enterApiKey')"
-                  class="flex-1"
-                />
-                <button
-                  @click="copyToClipboard(currentApiKey)"
-                  class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm text-gray-700 whitespace-nowrap"
+            <!-- 断句LLM Section -->
+            <div class="border-t border-gray-200 pt-4">
+              <h4 class="text-sm font-semibold text-gray-800 mb-3">断句 LLM</h4>
+              
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">模型提供商选择</label>
+                <select
+                  v-model="settings.selectedModelProvider"
+                  class="w-full p-2 border border-gray-300 rounded-md"
                 >
-                  {{ t('copy') }}
-                </button>
+                  <option
+                    v-for="provider in providerOptions"
+                    :key="provider.value"
+                    :value="provider.value"
+                  >
+                    {{ provider.label }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">{{ t('apiKey') }}</label>
+                <div class="flex items-center space-x-2">
+                  <el-input
+                    v-model="splitApiKey"
+                    type="password"
+                    show-password
+                    :placeholder="t('enterApiKey')"
+                    class="flex-1"
+                  />
+                  <button
+                    @click="copyToClipboard(splitApiKey)"
+                    class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm text-gray-700 whitespace-nowrap"
+                  >
+                    {{ t('copy') }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">{{ t('baseUrl') }}</label>
+                <input
+                  v-model="splitBaseUrl"
+                  type="url"
+                  class="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="输入API基础URL"
+                />
+              </div>
+
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  模型名称
+                </label>
+                <input
+                  v-model="splitModel"
+                  type="text"
+                  class="w-full p-2 bg-gray-50 border border-gray-200 rounded-md text-gray-600"
+                  placeholder="输入模型名称"
+                />
+              </div>
+
+              <div class="mt-4 flex items-center justify-between">
+                <el-switch
+                  v-model="settings.splitUseProxy"
+                  active-text="使用代理"
+                  inactive-text="不使用代理"
+                />
               </div>
             </div>
 
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">{{ t('baseUrl') }}</label>
-              <input
-                v-model="currentBaseUrl"
-                type="url"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="输入API基础URL"
-              />
+            <!-- 翻译LLM Section -->
+            <div class="border-t border-gray-200 pt-4">
+              <h4 class="text-sm font-semibold text-gray-800 mb-3">翻译 LLM</h4>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">模型提供商选择</label>
+                <select
+                  v-model="settings.translateSelectedModelProvider"
+                  class="w-full p-2 border border-gray-300 rounded-md"
+                >
+                  <option
+                    v-for="provider in providerOptions"
+                    :key="provider.value"
+                    :value="provider.value"
+                  >
+                    {{ provider.label }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">{{ t('apiKey') }}</label>
+                <div class="flex items-center space-x-2">
+                  <el-input
+                    v-model="translateApiKey"
+                    type="password"
+                    show-password
+                    :placeholder="t('enterApiKey')"
+                    class="flex-1"
+                  />
+                  <button
+                    @click="copyToClipboard(translateApiKey)"
+                    class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm text-gray-700 whitespace-nowrap"
+                  >
+                    {{ t('copy') }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">{{ t('baseUrl') }}</label>
+                <input
+                  v-model="translateBaseUrl"
+                  type="url"
+                  class="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="输入API基础URL"
+                />
+              </div>
+
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  模型名称
+                </label>
+                <input
+                  v-model="translateModel"
+                  type="text"
+                  class="w-full p-2 bg-gray-50 border border-gray-200 rounded-md text-gray-600"
+                  placeholder="输入模型名称"
+                />
+              </div>
+
+              <div class="mt-4 flex items-center justify-between">
+                <el-switch
+                  v-model="settings.translateUseProxy"
+                  active-text="使用代理"
+                  inactive-text="不使用代理"
+                />
+              </div>
+
+              <div class="flex items-center space-x-3 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <el-checkbox v-model="settings.plainTranslate" />
+                <div>
+                  <span class="text-sm font-medium text-gray-700">启用单句翻译</span>
+                  <p class="text-xs text-gray-500 mt-1">适配本地 vLLM 部署的翻译模型 (如 Hunyuan-MT-7B)，不要求 JSON 格式输出</p>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">模型提供商选择</label>
-              <select
-                v-model="settings.selectedModelProvider"
-                class="w-full p-2 border border-gray-300 rounded-md"
-              >
-                <option
-                  v-for="provider in providerOptions"
-                  :key="provider.value"
-                  :value="provider.value"
-                >
-                  {{ provider.label }}
-                </option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between">
-              <el-switch
-                v-model="settings.useProxy"
-                active-text="使用代理"
-                inactive-text="不使用代理"
-              />
-            </div>
             <div class="flex justify-end">
               <button
                 @click="testLLMConnection"
@@ -135,29 +232,17 @@
                 </option>
               </select>
             </div>
-
-            <div v-if="props.categories && props.categories.length > 0">
-              <label class="block text-sm font-medium text-gray-700 mb-2">隐藏分类</label>
-              <div class="relative">
-                <el-select
-                  v-model="settings.hiddenCategories"
-                  multiple
-                  collapse-tags
-                  collapse-tags-tooltip
-                  placeholder="选择要隐藏的分类"
-                  style="width: 100%"
-                >
-                  <el-option
-                    v-for="category in props.categories"
-                    :key="category.id"
-                    :label="category.name"
-                    :value="category.id"
-                  />
-                </el-select>
-              </div>
-              <p class="mt-2 text-sm text-gray-500">
-                选中的分类及其包含的合集和视频将在侧边栏和媒体库中隐藏
-              </p>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">默认译文语言</label>
+              <p class="text-xs text-gray-500 mb-2">视频播放和字幕编辑中展示的译文字幕语言</p>
+              <select
+                v-model="settings.defaultTranslateLang"
+                class="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option v-for="lang in languageOptions" :key="lang.value" :value="lang.value">
+                  {{ lang.label }}
+                </option>
+              </select>
             </div>
           </div>
 
@@ -645,95 +730,107 @@
             </div>
           </div>
 
-          <!-- OSS Service Settings -->
-          <div v-if="activeTab === 'oss'" class="space-y-6">
-            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <h4 class="text-sm font-medium text-blue-800 mb-2">Aliyun OSS 配置说明</h4>
-              <p class="text-sm text-blue-700">
-                配置 Aliyun OSS 凭证以启用音频克隆功能。上传的参考音频将存储在您的 OSS Bucket 中。
-              </p>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Access Key ID</label>
-              <input
-                v-model="settings.ossAccessKeyId"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="输入您的 Aliyun Access Key ID"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Access Key Secret</label>
-              <input
-                v-model="settings.ossAccessKeySecret"
-                type="password"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="输入您的 Aliyun Access Key Secret"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Endpoint</label>
-              <input
-                v-model="settings.ossEndpoint"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="oss-cn-beijing.aliyuncs.com"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Bucket 名称</label>
-              <input
-                v-model="settings.ossBucket"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="vidgo-test"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Region</label>
-              <input
-                v-model="settings.ossRegion"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="cn-beijing"
-              />
-            </div>
-
-            <div class="pt-4 border-t border-gray-200">
-              <p class="text-sm text-gray-500">
-                注意：Access Key Secret 将以加密形式存储。请确保使用具有适当权限的 RAM 用户凭证。
-              </p>
-            </div>
-          </div>
-
           <!-- TTS Settings -->
           <div v-if="activeTab === 'tts'" class="space-y-6">
             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
               <h4 class="text-sm font-medium text-blue-800 mb-2">TTS 配音设置</h4>
               <p class="text-sm text-blue-700">
-                配置 Alibaba Cloud DashScope 凭证以启用 TTS 配音生成功能。
+                配置 TTS 配音生成功能，支持本地 GLM-ASR 或云端 CosyVoice。
               </p>
             </div>
 
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">DashScope API Key</label>
-              <input
-                v-model="settings.dashscopeApiKey"
-                type="password"
+              <label class="block text-sm font-medium text-gray-700 mb-2">TTS 引擎选择</label>
+              <select
+                v-model="settings.ttsEngineChosen"
                 class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="输入您的 DashScope API Key"
-              />
+              >
+                <option value="glm_asr_local">GLM-ASR (本地)</option>
+                <option value="cosy_voice_cloud">CosyVoice (云端)</option>
+              </select>
             </div>
 
-            <div class="pt-4 border-t border-gray-200">
-              <p class="text-sm text-gray-500">
-                注意：API Key 将以加密形式存储。您可以在 <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank" class="text-blue-600 hover:underline">DashScope 控制台</a> 获取您的 API Key。
-              </p>
+            <!-- Cloud TTS: Show DashScope and OSS settings -->
+            <div v-if="settings.ttsEngineChosen === 'cosy_voice_cloud'">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">DashScope API Key</label>
+                <input
+                  v-model="settings.dashscopeApiKey"
+                  type="password"
+                  class="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="输入您的 DashScope API Key"
+                />
+              </div>
+
+              <div class="pt-4 border-t border-gray-200 mt-6">
+                <p class="text-sm text-gray-500 mb-4">
+                  注意：API Key 将以加密形式存储。您可以在 <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank" class="text-blue-600 hover:underline">DashScope 控制台</a> 获取您的 API Key。
+                </p>
+              </div>
+
+              <!-- OSS Settings (moved from OSS tab) -->
+              <div class="border-t border-gray-200 pt-4 mt-4">
+                <h4 class="text-sm font-semibold text-gray-800 mb-3">Aliyun OSS 配置</h4>
+                <p class="text-sm text-gray-500 mb-4">
+                  配置 Aliyun OSS 凭证以启用音频克隆功能。上传的参考音频将存储在您的 OSS Bucket 中。
+                </p>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">Access Key ID</label>
+                  <input
+                    v-model="settings.ossAccessKeyId"
+                    type="text"
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="输入您的 Aliyun Access Key ID"
+                  />
+                </div>
+
+                <div class="mt-4">
+                  <label class="block text-sm font-medium text-gray-700 mb-2">Access Key Secret</label>
+                  <input
+                    v-model="settings.ossAccessKeySecret"
+                    type="password"
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="输入您的 Aliyun Access Key Secret"
+                  />
+                </div>
+
+                <div class="mt-4">
+                  <label class="block text-sm font-medium text-gray-700 mb-2">Endpoint</label>
+                  <input
+                    v-model="settings.ossEndpoint"
+                    type="text"
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="oss-cn-beijing.aliyuncs.com"
+                  />
+                </div>
+
+                <div class="mt-4">
+                  <label class="block text-sm font-medium text-gray-700 mb-2">Bucket 名称</label>
+                  <input
+                    v-model="settings.ossBucket"
+                    type="text"
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="vidgo-test"
+                  />
+                </div>
+
+                <div class="mt-4">
+                  <label class="block text-sm font-medium text-gray-700 mb-2">Region</label>
+                  <input
+                    v-model="settings.ossRegion"
+                    type="text"
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="cn-beijing"
+                  />
+                </div>
+
+                <div class="pt-4 border-t border-gray-200 mt-4">
+                  <p class="text-sm text-gray-500">
+                    注意：Access Key Secret 将以加密形式存储。请确保使用具有适当权限的 RAM 用户凭证。
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1062,6 +1159,14 @@
                 用于登录B站获取高清视频和字幕，请在浏览器中登录B站后获取SessData。
               </p>
             </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">流媒体下载代理</label>
+              <input v-model="settings.streamDownloadProxy" type="text" 
+                class="w-full p-2 border border-gray-300 rounded-md"
+                placeholder="http://127.0.0.1:7890 (留空则不使用代理)" />
+              <p class="mt-2 text-sm text-gray-500">用于YouTube/B站/Podcast下载时的代理设置。</p>
+            </div>
           </div>
         </div>
 
@@ -1168,8 +1273,8 @@ const bottomDistanceProxy = computed({
   },
 })
 
-// 当前模型提供商的API密钥和基础URL计算属性
-const currentApiKey = computed({
+// 断句 LLM API Key - computed property
+const splitApiKey = computed({
   get() {
     switch (settings.selectedModelProvider) {
       case 'deepseek':
@@ -1180,6 +1285,8 @@ const currentApiKey = computed({
         return settings.glmApiKey
       case 'qwen':
         return settings.qwenApiKey
+      case 'local':
+        return settings.localApiKey || ''
       default:
         return settings.deepseekApiKey
     }
@@ -1198,11 +1305,15 @@ const currentApiKey = computed({
       case 'qwen':
         settings.qwenApiKey = value
         break
+      case 'local':
+        settings.localApiKey = value
+        break
     }
   },
 })
 
-const currentBaseUrl = computed({
+// 断句 LLM Base URL - computed property
+const splitBaseUrl = computed({
   get() {
     switch (settings.selectedModelProvider) {
       case 'deepseek':
@@ -1213,6 +1324,8 @@ const currentBaseUrl = computed({
         return settings.glmBaseUrl
       case 'qwen':
         return settings.qwenBaseUrl
+      case 'local':
+        return settings.localBaseUrl || 'http://localhost:1234/v1'
       default:
         return settings.deepseekBaseUrl
     }
@@ -1231,8 +1344,125 @@ const currentBaseUrl = computed({
       case 'qwen':
         settings.qwenBaseUrl = value
         break
+      case 'local':
+        settings.localBaseUrl = value
+        break
     }
   },
+})
+
+// 翻译 LLM API Key - computed property
+const translateApiKey = computed({
+  get() {
+    switch (settings.translateSelectedModelProvider) {
+      case 'deepseek':
+        return settings.translateDeepseekApiKey
+      case 'openai':
+        return settings.translateOpenaiApiKey
+      case 'glm':
+        return settings.translateGlmApiKey
+      case 'qwen':
+        return settings.translateQwenApiKey
+      case 'local':
+        return settings.translateLocalApiKey || ''
+      default:
+        return settings.translateDeepseekApiKey
+    }
+  },
+  set(value: string) {
+    switch (settings.translateSelectedModelProvider) {
+      case 'deepseek':
+        settings.translateDeepseekApiKey = value
+        break
+      case 'openai':
+        settings.translateOpenaiApiKey = value
+        break
+      case 'glm':
+        settings.translateGlmApiKey = value
+        break
+      case 'qwen':
+        settings.translateQwenApiKey = value
+        break
+      case 'local':
+        settings.translateLocalApiKey = value
+        break
+    }
+  },
+})
+
+// 翻译 LLM Base URL - computed property
+const translateBaseUrl = computed({
+  get() {
+    switch (settings.translateSelectedModelProvider) {
+      case 'deepseek':
+        return settings.translateDeepseekBaseUrl
+      case 'openai':
+        return settings.translateOpenaiBaseUrl
+      case 'glm':
+        return settings.translateGlmBaseUrl
+      case 'qwen':
+        return settings.translateQwenBaseUrl
+      case 'local':
+        return settings.translateLocalBaseUrl || 'http://localhost:1234/v1'
+      default:
+        return settings.translateDeepseekBaseUrl
+    }
+  },
+  set(value: string) {
+    switch (settings.translateSelectedModelProvider) {
+      case 'deepseek':
+        settings.translateDeepseekBaseUrl = value
+        break
+      case 'openai':
+        settings.translateOpenaiBaseUrl = value
+        break
+      case 'glm':
+        settings.translateGlmBaseUrl = value
+        break
+      case 'qwen':
+        settings.translateQwenBaseUrl = value
+        break
+      case 'local':
+        settings.translateLocalBaseUrl = value
+        break
+    }
+  },
+})
+
+// Get current model for split LLM based on selected provider
+const splitModel = computed(() => {
+  switch (settings.selectedModelProvider) {
+    case 'deepseek':
+      return settings.deepseekModel
+    case 'openai':
+      return settings.openaiModel
+    case 'glm':
+      return settings.glmModel
+    case 'qwen':
+      return settings.qwenModel
+    case 'local':
+      return settings.localModel
+    default:
+      return ''
+  }
+})
+
+// Get current model for translate LLM based on selected provider
+const translateModel = computed(() => {
+  switch (settings.translateSelectedModelProvider) {
+    case 'deepseek':
+      return settings.translateDeepseekModel
+    case 'openai':
+      return settings.translateOpenaiModel
+    case 'glm':
+      return settings.translateGlmModel
+    case 'qwen':
+      return settings.translateQwenModel
+    case 'local':
+      return settings.translateLocalModel
+    default:
+      return ''
+  }
 })
 
 // 当前字幕设置的计算属性
@@ -1325,7 +1555,6 @@ const tabs = computed(() => [
   { id: 'subtitle', label: t('subtitleSettings') },
   { id: 'transcription', label: t('transcriptionSettings') },
   { id: 'media', label: t('mediaCredentials') },
-  { id: 'oss', label: 'OSS Service' },
   { id: 'tts', label: 'TTS 配音' },
 ])
 
@@ -1362,23 +1591,47 @@ const allTranscriptionEngines = [
 ]
 
 const settings = reactive<FrontendSettings>({
-  // Model settings
+  // Model settings (断句 LLM)
   selectedModelProvider: 'deepseek',
-  customModelName: '',
-  useProxy: false,
-  // Provider-specific API keys
+  splitUseProxy: false,
+  // Provider-specific API keys and models (断句 LLM)
   deepseekApiKey: 'sk-17047f89de904759a241f4086bd5a9bf',
   deepseekBaseUrl: 'https://api.deepseek.com',
+  deepseekModel: 'deepseek-chat',
   openaiApiKey: 'sk-qTbd1AR4oMuP71ziRngmk3i0djrWVfLtuisvYKCH5B9jLz9g',
   openaiBaseUrl: 'https://api.chatanywhere.tech/v1',
+  openaiModel: 'gpt-4o',
   glmApiKey: 'sk-17047f89de904759a241f4086bd5a9bf',
   glmBaseUrl: 'https://api.deepseek.com',
+  glmModel: 'glm-4',
   qwenApiKey: 'sk-944471ea4aef486ca2a82b2adf26c0cc',
   qwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  qwenModel: 'qwen-plus',
   localApiKey: '',
   localBaseUrl: 'http://localhost:1234/v1',
+  localModel: '',
+  // Translate LLM settings
+  translateSelectedModelProvider: 'deepseek',
+  translateUseProxy: false,
+  plainTranslate: false,
+  translateDeepseekApiKey: '',
+  translateDeepseekBaseUrl: 'https://api.deepseek.com',
+  translateDeepseekModel: 'deepseek-chat',
+  translateOpenaiApiKey: '',
+  translateOpenaiBaseUrl: 'https://api.chatanywhere.tech/v1',
+  translateOpenaiModel: 'gpt-4o',
+  translateGlmApiKey: '',
+  translateGlmBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  translateGlmModel: 'glm-4',
+  translateQwenApiKey: '',
+  translateQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  translateQwenModel: 'qwen-plus',
+  translateLocalApiKey: '',
+  translateLocalBaseUrl: 'http://localhost:1234/v1',
+  translateLocalModel: '',
   // Interface settings
   rawLanguage: 'zh',
+  defaultTranslateLang: 'zh',
   hiddenCategories: [],
   // Raw Subtitle settings
   fontFamily: '宋体',
@@ -1410,6 +1663,7 @@ const settings = reactive<FrontendSettings>({
   foreignBottomDistance: 120,
   // Media credentials
   bilibiliSessData: '',
+  streamDownloadProxy: '',
   // Transcription Engine settings
   transcriptionPrimaryEngine: 'faster_whisper',
   fwsrModel: 'large-v3',
@@ -1432,6 +1686,7 @@ const settings = reactive<FrontendSettings>({
   ossBucket: '',
   ossRegion: '',
   // TTS settings
+  ttsEngineChosen: 'glm_asr_local',
   dashscopeApiKey: '',
 })
 
@@ -1643,21 +1898,47 @@ const saveSettings = async () => {
 
 const resetSettings = () => {
   Object.assign(settings, {
-    // Model settings
+    // Model settings (断句 LLM)
     selectedModelProvider: 'deepseek',
-    useProxy: false,
-    // Provider-specific API keys
+    splitUseProxy: false,
+    // Provider-specific API keys and models (断句 LLM)
     deepseekApiKey: '',
     deepseekBaseUrl: 'https://api.deepseek.com',
+    deepseekModel: 'deepseek-chat',
     openaiApiKey: '',
     openaiBaseUrl: 'https://api.chatanywhere.tech/v1',
+    openaiModel: 'gpt-4o',
     glmApiKey: '',
-    glmBaseUrl: 'https://api.deepseek.com',
+    glmBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    glmModel: 'glm-4',
     qwenApiKey: '',
     qwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    qwenModel: 'qwen-plus',
+    localApiKey: '',
+    localBaseUrl: 'http://localhost:1234/v1',
+    localModel: '',
+    // Translate LLM settings
+    translateSelectedModelProvider: 'deepseek',
+    translateUseProxy: false,
+    plainTranslate: false,
+    translateDeepseekApiKey: '',
+    translateDeepseekBaseUrl: 'https://api.deepseek.com',
+    translateDeepseekModel: 'deepseek-chat',
+    translateOpenaiApiKey: '',
+    translateOpenaiBaseUrl: 'https://api.chatanywhere.tech/v1',
+    translateOpenaiModel: 'gpt-4o',
+    translateGlmApiKey: '',
+    translateGlmBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    translateGlmModel: 'glm-4',
+    translateQwenApiKey: '',
+    translateQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    translateQwenModel: 'qwen-plus',
+    translateLocalApiKey: '',
+    translateLocalBaseUrl: 'http://localhost:1234/v1',
+    translateLocalModel: '',
     // Interface settings
     rawLanguage: 'zh',
-    hiddenCategories: [],
+    defaultTranslateLang: 'zh',
     // Raw Subtitle settings
     fontFamily: '宋体',
     previewText: '这是字幕预设文本',
@@ -1688,6 +1969,7 @@ const resetSettings = () => {
     foreignBottomDistance: 120,
     // Media credentials
     bilibiliSessData: '',
+    streamDownloadProxy: '',
     // Transcription Engine settings
     transcriptionPrimaryEngine: 'faster_whisper',
     fwsrModel: 'large-v3',
@@ -1703,6 +1985,15 @@ const resetSettings = () => {
     remoteVidGoHost: '',
     remoteVidGoPort: '8000',
     remoteVidGoUseSsl: false,
+    // OSS Service settings
+    ossAccessKeyId: '',
+    ossAccessKeySecret: '',
+    ossEndpoint: '',
+    ossBucket: '',
+    ossRegion: '',
+    // TTS settings
+    ttsEngineChosen: 'glm_asr_local',
+    dashscopeApiKey: '',
   })
 }
 

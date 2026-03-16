@@ -1,22 +1,20 @@
 <script setup lang="ts">
-import { VideoPlay, More, Delete, VideoCamera, EditPen } from '@element-plus/icons-vue'
-import { SquarePen, Play, Sparkles, Music, Mic } from 'lucide-vue-next'
-import { PictureFilled, Edit } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { VideoPlay, More, VideoCamera, EditPen } from '@element-plus/icons-vue'
+import { SquarePen, Play, Upload, Headphones, Link } from 'lucide-vue-next'
+import { PictureFilled } from '@element-plus/icons-vue'
 import { computed, ref, nextTick } from 'vue'
 import type { Video } from '@/types/media'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import { useNotification } from '@/composables/useNotification'
-/** ─ props ─────────────────────────────────────────────────────────────── */
+import { BACKEND } from '@/composables/ConfigAPI'
 
 const props = defineProps<{
   video: Video
   view: 'grid' | 'list'
-  batchMode?: boolean /* ✨ 新增 */
-  checked?: boolean /* ✨ 外部 v‑model */
+  batchMode?: boolean
+  checked?: boolean
 }>()
 
-/** ─ emits ─────────────────────────────────────────────────────────────── */
 const emit = defineEmits<{
   (e: 'edit-thumbnail', video: Video): void
   (e: 'generate-subtitle', video: Video): void
@@ -24,238 +22,21 @@ const emit = defineEmits<{
   (e: 'move-category', video: Video): void
   (e: 'update:checked', v: boolean): void
   (e: 'rename-video', video: Video, newName: string): void
+  (e: 'update-props', video: Video): void
 }>()
 
 const { success: successNotify, error: errorNotify, warning: warningNotify } = useNotification()
 
-/**
- * Confirm and trigger audio conversion (video → audio, delete original video)
- */
-// conversion helpers
-const confirmConvertAudio = (video: Video) => {
-  ElMessageBox.confirm('转换后将删除原始视频，仅保留音频文件，是否继续？', '转换为音频', {
-    confirmButtonText: '转换',
-    cancelButtonText: '取消',
-    type: 'warning',
-  })
-    .then(async () => {
-      try {
-        const csrf = await getCSRFToken()
-        const res = await fetch(`${BACKEND}/api/convert-audio/${video.id}/`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'X-CSRFToken': csrf,
-          },
-        })
-        const result = await res.json()
-        if (result.success) {
-          successNotify('音频转换完成')
-          // optionally emit event to refresh list
-        } else {
-          errorNotify(result.error || '音频转换失败')
-        }
-      } catch (err) {
-        errorNotify('网络错误，转换失败')
-        console.error('Convert audio error:', err)
-      }
-    })
-    .catch(() => {
-      /* canceled */
-    })
-}
-
-/** Confirm and trigger HLS conversion (video → m3u8/ts) */
-const confirmConvertHLS = (video: Video) => {
-  ElMessageBox.confirm('转换后将生成 HLS (m3u8+ts)，是否继续？', '转换为 HLS', {
-    confirmButtonText: '转换',
-    cancelButtonText: '取消',
-    type: 'warning',
-  })
-    .then(async () => {
-      try {
-        const csrf = await getCSRFToken()
-        const res = await fetch(`${BACKEND}/api/convert-hls/${video.id}`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'X-CSRFToken': csrf },
-        })
-        const result = await res.json()
-        if (result.success) {
-          successNotify('HLS 转换完成')
-        } else {
-          errorNotify(result.error || 'HLS 转换失败')
-        }
-      } catch (err) {
-        errorNotify('网络错误，转换失败')
-      }
-    })
-    .catch(() => {})
-}
-
-/** TTS Dialog State */
-const showTTSDialog = ref(false)
-const ttsForm = ref({
-  language: 'zh',
-  voice: 'longxiaochun_v2',
-  useAudioClone: false,
-  audioReferenceText: ''
-})
-const currentTTSVideo = ref<Video | null>(null)
-const audioFileInput = ref<HTMLInputElement | null>(null)
-const audioReferenceUrl = ref<string | null>(null)
-const isUploadingAudio = ref(false)
-
-// TTS voice options
-const voiceOptions = [
-  { label: '龙小春 (女声)', value: 'longxiaochun_v2' },
-  { label: '龙悦悦 (女声)', value: 'longyueyue_v2' },
-  { label: '龙傲雪 (女声)', value: 'longaoxue_v2' },
-  { label: '龙景宇 (男声)', value: 'longjingyu_v2' },
-  { label: '龙泽涛 (男声)', value: 'longzetao_v2' }
-]
-
-/** Upload reference audio file to OSS */
-const uploadReferenceAudio = async (file: File) => {
-  if (!file) return
-
-  // Validate file type - more comprehensive check for audio files
-  const allowedTypes = ['audio/wav', 'audio/mp3', 'audio/m4a', 'audio/mp4', 'audio/x-m4a', 'audio/mpeg']
-  const allowedExtensions = ['.wav', '.mp3', '.m4a']
-
-  // Check both MIME type and file extension
-  const isValidMimeType = allowedTypes.includes(file.type)
-  const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase()
-  const isValidExtension = allowedExtensions.includes(fileExtension)
-
-  if (!isValidMimeType && !isValidExtension) {
-    errorNotify('只支持 WAV/MP3/M4A 格式的音频文件')
-    return
-  }
-
-  // Validate file size (max 10MB)
-  if (file.size > 10 * 1024 * 1024) {
-    errorNotify('音频文件大小不能超过 10MB')
-    return
-  }
-
-  isUploadingAudio.value = true
-  try {
-    const formData = new FormData()
-    formData.append('audio_file', file)
-    if (ttsForm.value.audioReferenceText) {
-      formData.append('reference_text', ttsForm.value.audioReferenceText)
-    }
-
-    const csrf = await getCSRFToken()
-    const res = await fetch(`${BACKEND}/api/tts/audio_upload`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'X-CSRFToken': csrf },
-      body: formData,
-    })
-
-    const result = await res.json()
-    if (result.success) {
-      audioReferenceUrl.value = result.audio_url
-      successNotify('音频上传成功')
-    } else {
-      errorNotify(result.error || '音频上传失败')
-    }
-  } catch (err) {
-    errorNotify('网络错误，音频上传失败')
-    console.error('Audio upload error:', err)
-  } finally {
-    isUploadingAudio.value = false
-  }
-}
-
-/** Trigger file input click */
-const triggerAudioFileInput = () => {
-  if (audioFileInput.value) {
-    audioFileInput.value.click()
-  }
-}
-
-/** Handle audio file selection */
-const handleAudioFileChange = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  const files = target.files
-  if (files && files.length > 0) {
-    uploadReferenceAudio(files[0])
-  }
-}
-
-/** Generate TTS voiceover for video */
-const generateTTSVoiceover = async (video: Video) => {
-  currentTTSVideo.value = video
-  ttsForm.value = {
-    language: 'zh',
-    voice: 'longxiaochun_v2',
-    useAudioClone: false,
-    audioReferenceText: ''
-  }
-  audioReferenceUrl.value = null
-  showTTSDialog.value = true
-  console.log(currentTTSVideo.value)
-  console.log("showTTSDialog is true")
-}
-
-/** Submit TTS generation */
-const submitTTSGeneration = async () => {
-  if (!currentTTSVideo.value) return
-
-  // Validate audio clone requirements
-  if (ttsForm.value.useAudioClone && !audioReferenceUrl.value) {
-    errorNotify('请先上传参考音频文件')
-    return
-  }
-
-  try {
-    const csrf = await getCSRFToken()
-    const requestBody: any = {
-      language: ttsForm.value.language,
-      voice: ttsForm.value.voice
-    }
-
-    // Add audio clone parameters if enabled
-    if (ttsForm.value.useAudioClone && audioReferenceUrl.value) {
-      requestBody.use_audio_clone = true
-      requestBody.audio_reference_url = audioReferenceUrl.value
-      requestBody.reference_text = ttsForm.value.audioReferenceText
-    }
-
-    const res = await fetch(`${BACKEND}/api/tts/generate/${currentTTSVideo.value.id}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-      body: JSON.stringify(requestBody),
-    })
-    const result = await res.json()
-    if (result.success) {
-      successNotify(`TTS 任务已创建：${result.task_id}`)
-      showTTSDialog.value = false
-    } else if (result.error === 'no subtitle for this video') {
-      errorNotify('该视频没有对应语言的字幕，请先生成字幕')
-    } else {
-      errorNotify(result.error || 'TTS 生成失败')
-    }
-  } catch (err) {
-    errorNotify('网络错误，TTS 生成失败')
-    console.error('TTS generation error:', err)
-  }
-}
-
 const FALLBACK_IMG =
   'https://pic.chaopx.com/chao_water_pic/23/03/03/e78a5cf45f9ebc92411a8f9531975dec.jpg'
 
-import { BACKEND } from '@/composables/ConfigAPI'
-
 const watchUrl = computed(() => `watch/${encodeURIComponent(props.video.url)}`)
-// 使用后端返回的 thumbnail_url 或 thumbnail 字段
 const filename = props.video.thumbnail_url || props.video.thumbnail || ''
+const thumbnailUrl = computed(() =>
+  filename ? `${BACKEND}/media/thumbnail/${encodeURIComponent(filename)}` : ''
+)
 
-// Inline editing state
+// ── Inline rename ──────────────────────────────────────────────
 const isEditing = ref(false)
 const editingName = ref('')
 const inputRef = ref<HTMLInputElement>()
@@ -270,27 +51,16 @@ const startEditing = async () => {
 
 const saveEdit = async () => {
   const newName = editingName.value.trim()
-  if (!newName) {
-    warningNotify('名称不能为空')
-    return
-  }
-  if (newName === props.video.name) {
-    isEditing.value = false
-    return
-  }
-
+  if (!newName) { warningNotify('名称不能为空'); return }
+  if (newName === props.video.name) { isEditing.value = false; return }
   try {
     const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/videos/${props.video.id}/rename`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrf,
-      },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
       credentials: 'include',
       body: JSON.stringify({ videoId: props.video.id, newName }),
     })
-
     const result = await response.json()
     if (result.success) {
       emit('rename-video', props.video, newName)
@@ -299,51 +69,103 @@ const saveEdit = async () => {
     } else {
       errorNotify(result.message || '重命名失败')
     }
-  } catch (error) {
+  } catch {
     errorNotify('网络错误，请重试')
-    console.error('Rename error:', error)
   }
 }
 
-const cancelEdit = () => {
-  isEditing.value = false
-  editingName.value = ''
-}
+const cancelEdit = () => { isEditing.value = false; editingName.value = '' }
 
 const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key === 'Enter') {
-    saveEdit()
-  } else if (event.key === 'Escape') {
-    cancelEdit()
+  if (event.key === 'Enter') saveEdit()
+  else if (event.key === 'Escape') cancelEdit()
+}
+
+// ── Video properties dialog ────────────────────────────────────
+const showPropsDialog = ref(false)
+const propsForm = ref({ rawLang: '', videoSource: '', sourceUrl: '' })
+const propsSaving = ref(false)
+
+const openPropsDialog = () => {
+  propsForm.value = {
+    rawLang: props.video.rawLang || '',
+    videoSource: props.video.videoSource || '',
+    sourceUrl: props.video.sourceUrl || '',
+  }
+  showPropsDialog.value = true
+}
+
+const saveProps = async () => {
+  propsSaving.value = true
+  try {
+    const csrf = await getCSRFToken()
+    const res = await fetch(`${BACKEND}/api/videos/${props.video.id}/props`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      credentials: 'include',
+      body: JSON.stringify({
+        raw_lang: propsForm.value.rawLang,
+        video_source: propsForm.value.videoSource,
+        source_url: propsForm.value.sourceUrl,
+      }),
+    })
+    const result = await res.json()
+    if (result.success) {
+      props.video.rawLang = result.raw_lang
+      props.video.videoSource = result.video_source
+      props.video.sourceUrl = result.source_url
+      emit('update-props', props.video)
+      showPropsDialog.value = false
+      successNotify('属性已保存')
+    } else {
+      errorNotify(result.error || '保存失败')
+    }
+  } catch {
+    errorNotify('网络错误，保存失败')
+  } finally {
+    propsSaving.value = false
   }
 }
 
-// 修复缩略图 URL：本地缩略图使用 /media/thumbnail/{filename} 格式
-// 注意：Django 的 serve_media 路由是 /media/<type>/<path:filename>
-const thumbnailUrl = filename ? `${BACKEND}/media/thumbnail/${encodeURIComponent(filename)}` : ''
+const openEditor = () => {
+  window.location.href = '/editor/' + encodeURIComponent(props.video.url)
+}
 
-/* ✨ 双向绑定小助手 */
 const modelChecked = computed({
   get: () => props.checked ?? false,
   set: (v) => emit('update:checked', v),
 })
+
+const PLATFORM_OPTIONS = [
+  { value: 'bilibili', label: 'Bilibili' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'podcast', label: 'Podcast' },
+  { value: 'upload', label: 'Upload' },
+]
+
+const LANG_OPTIONS = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: 'English' },
+  { value: 'jp', label: '日本語' },
+]
 </script>
 
 <template>
-  <!-- ───────────── GRID STYLE (card) ───────────── -->
+  <!-- ───────────── GRID STYLE ───────────── -->
   <div
     v-if="view === 'grid'"
     class="video-card-hover relative bg-gray-500/30 rounded-2xl overflow-hidden border border-gray-400/30 shadow-lg hover:shadow-xl group transition-all duration-300 hover:transform hover:scale-105"
+    :class="checked ? 'border-[rgb(34,124,46)] border-2' : ''"
   >
     <el-checkbox
       v-model="modelChecked"
       :label="''"
-      class="video-select !absolute top-3 left-3 z-30 transition-opacity opacity-0 group-hover:opacity-100"
-      :class="batchMode ? 'opacity-100' : ''"
-      size="large"
+      class="video-select !absolute top-1.5 left-1.5 z-30 transition-opacity opacity-0 group-hover:opacity-100"
+      :class="batchMode ? '!opacity-100' : ''"
     />
     <img :src="thumbnailUrl || FALLBACK_IMG" class="w-full h-40 object-cover" :alt="video.name" />
     <div
+      v-if="video.length"
       class="absolute top-2 right-2 bg-blue-500/90 text-white text-sm font-medium px-3 py-1 rounded-md"
     >
       {{ video.length }}
@@ -363,10 +185,7 @@ const modelChecked = computed({
       <div v-if="!isEditing" class="flex items-center gap-2 mb-2">
         <el-tooltip :content="video.name" placement="top">
           <h3 class="font-semibold text-white truncate flex-1 text-lg">
-            <a
-              :href="watchUrl"
-              class="no-underline text-inherit hover:text-blue-300 transition-colors"
-            >
+            <a :href="watchUrl" class="no-underline text-inherit hover:text-blue-300 transition-colors">
               {{ video.name }}
             </a>
           </h3>
@@ -380,34 +199,16 @@ const modelChecked = computed({
               <el-dropdown-menu>
                 <el-dropdown-item @click="emit('edit-thumbnail', video)">
                   <el-icon><PictureFilled /></el-icon>
-                  <el-icon style="margin-left: -8px; font-size: 0.75em"><Edit /></el-icon>
                   <span style="margin-left: 4px">更换预览图</span>
                 </el-dropdown-item>
-
-                <el-dropdown-item>
-                  <a
-                    :href="'/editor/' + encodeURIComponent(video.url)"
-                    class="flex items-center w-full"
-                  >
-                    <el-icon class="mr-2"><EditPen /></el-icon> 编辑字幕
-                  </a>
+                <el-dropdown-item @click="openEditor">
+                  <el-icon class="mr-2"><EditPen /></el-icon> 字幕/音频编辑
                 </el-dropdown-item>
-
-                <el-dropdown-item @click="emit('generate-subtitle', video)">
-                  <Sparkles class="w-4 h-4 mr-2" /> 字幕操作
+                <el-dropdown-item @click="startEditing" divided>
+                  <SquarePen class="w-4 h-4 mr-2" /> 重命名
                 </el-dropdown-item>
-                <el-dropdown-item @click="generateTTSVoiceover(video)">
-                  <Mic class="w-4 h-4 mr-2" /> TTS 配音
-                </el-dropdown-item>
-                <el-dropdown-item @click="confirmConvertAudio(video)">
-                  <Music class="w-4 h-4 mr-2" /> 转换音频
-                </el-dropdown-item>
-                <el-dropdown-item @click="confirmConvertHLS(video)">
-                  <VideoCamera class="w-4 h-4 mr-2" /> 转换为 HLS
-                </el-dropdown-item>
-
-                <el-dropdown-item @click="emit('delete', video)" divided class="text-red-500">
-                  <el-icon class="mr-2"><Delete /></el-icon> 删除
+                <el-dropdown-item @click="openPropsDialog">
+                  <Link class="w-4 h-4 mr-2" /> 视频属性
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -423,26 +224,14 @@ const modelChecked = computed({
           @blur="saveEdit"
         />
       </div>
-      <p class="text-white/70 text-sm mb-4 line-clamp-2">
-        {{ video.description }}
-      </p>
-
+      <p class="text-white/70 text-sm mb-4 line-clamp-2">{{ video.description }}</p>
       <div class="flex justify-between items-center pt-3 border-t border-white/20">
         <span class="text-xs text-white/60">{{ video.last_modified }}</span>
       </div>
     </div>
-
-    <!-- Edit icon positioned at bottom right -->
-    <div
-      class="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-all duration-200"
-    >
-      <button class="text-white hover:text-blue-300 transition-colors" @click.stop="startEditing">
-        <SquarePen :size="20" class="text-white" />
-      </button>
-    </div>
   </div>
 
-  <!-- ───────────── LIST STYLE (row) ───────────── -->
+  <!-- ───────────── LIST STYLE ───────────── -->
   <div
     v-else
     class="flex items-center justify-between p-4 hover:bg-gray-50 border-b border-gray-100 last:border-0"
@@ -450,7 +239,7 @@ const modelChecked = computed({
     <div class="flex items-center gap-4">
       <div class="relative">
         <img
-          :src="video.thumbnail || FALLBACK_IMG"
+          :src="thumbnailUrl || FALLBACK_IMG"
           class="w-20 h-12 rounded object-cover"
           :alt="video.name"
         />
@@ -470,12 +259,6 @@ const modelChecked = computed({
           <el-tooltip :content="video.name" placement="top">
             <div class="font-medium text-textmain">{{ video.name }}</div>
           </el-tooltip>
-          <el-icon
-            class="w-4 h-4 opacity-50 hover:opacity-100 cursor-pointer"
-            @click.stop="startEditing"
-          >
-            <EditPen />
-          </el-icon>
         </div>
         <div v-else class="flex items-center gap-2">
           <input
@@ -500,7 +283,6 @@ const modelChecked = computed({
           <el-icon class="mr-1"><VideoCamera /></el-icon> 视频
         </el-tag>
       </a>
-
       <el-dropdown trigger="click">
         <el-button circle class="!w-8 !h-8">
           <el-icon><More /></el-icon>
@@ -508,113 +290,90 @@ const modelChecked = computed({
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item @click="emit('edit-thumbnail', video)">
-              <el-icon class="mr-2"><EditPen /></el-icon> 更换预览图
+              <el-icon class="mr-2"><PictureFilled /></el-icon> 更换预览图
             </el-dropdown-item>
-
-            <el-dropdown-item>
-              <a
-                :href="'/editor/' + encodeURIComponent(video.url)"
-                class="flex items-center w-full"
-              >
-                <el-icon class="mr-2"><EditPen /></el-icon> 编辑字幕
-              </a>
+            <el-dropdown-item @click="openEditor">
+              <el-icon class="mr-2"><EditPen /></el-icon> 字幕/音频编辑
             </el-dropdown-item>
-
-            <el-dropdown-item @click="emit('generate-subtitle', video)">
-              <Sparkles class="w-4 h-4 mr-2" /> 字幕操作
+            <el-dropdown-item @click="startEditing" divided>
+              <SquarePen class="w-4 h-4 mr-2" /> 重命名
             </el-dropdown-item>
-            <el-dropdown-item @click="generateTTSVoiceover(video)">
-              <Mic class="w-4 h-4 mr-2" /> TTS 配音
-            </el-dropdown-item>
-
-            <el-dropdown-item @click="emit('delete', video)" divided class="text-red-500">
-              <el-icon class="mr-2"><Delete /></el-icon> 删除
+            <el-dropdown-item @click="openPropsDialog">
+              <Link class="w-4 h-4 mr-2" /> 视频属性
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
     </div>
   </div>
-  <!-- Hidden file input for audio upload -->
-  <input
-    ref="audioFileInput"
-    type="file"
-    accept="audio/wav,audio/mp3,audio/m4a,audio/mp4"
-    style="display: none"
-    @change="handleAudioFileChange"
-  />
 
-  <!-- TTS 配音 弹窗 -->
-  <el-dialog v-model="showTTSDialog" title="TTS 配音" width="40%" @close="showTTSDialog = false">
-    <el-form :model="ttsForm" label-width="80px">
-      <el-form-item label="语言">
-        <el-radio-group v-model="ttsForm.language">
-          <el-radio label="zh">中文</el-radio>
-          <el-radio label="en">英文</el-radio>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="语音">
-        <el-select v-model="ttsForm.voice" placeholder="选择语音">
+  <!-- ───────────── Video Properties Dialog ───────────── -->
+  <el-dialog
+    v-model="showPropsDialog"
+    title="视频属性"
+    width="420px"
+    @close="showPropsDialog = false"
+  >
+    <div class="space-y-5">
+      <!-- 原始语言 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">原始语言</label>
+        <el-select v-model="propsForm.rawLang" placeholder="不设置" clearable class="w-full">
           <el-option
-            v-for="opt in voiceOptions"
+            v-for="opt in LANG_OPTIONS"
             :key="opt.value"
             :label="opt.label"
-            :value="opt.value">
-          </el-option>
-        </el-select>
-      </el-form-item>
-
-      <!-- 音频克隆功能 -->
-      <el-form-item label="音频克隆">
-        <el-switch
-          v-model="ttsForm.useAudioClone"
-          active-text="使用自定义音色"
-        />
-        <div class="text-xs text-gray-500 mt-1">
-          上传参考音频文件克隆音色（建议10-20秒，至少5秒连续人声）
-        </div>
-      </el-form-item>
-
-      <!-- 音频文件上传和参考文本 -->
-      <template v-if="ttsForm.useAudioClone">
-        <el-form-item label="参考音频">
-          <div class="w-full">
-            <el-button
-              type="primary"
-              @click="triggerAudioFileInput"
-              :loading="isUploadingAudio"
-              size="small"
-            >
-              {{ audioReferenceUrl ? '重新上传' : '选择音频文件' }}
-            </el-button>
-            <div v-if="audioReferenceUrl" class="text-sm text-green-600 mt-1">
-              ✓ 音频已上传
-            </div>
-            <div v-if="isUploadingAudio" class="text-sm text-blue-600 mt-1">
-              上传中...
-            </div>
-          </div>
-        </el-form-item>
-
-        <el-form-item label="参考文本">
-          <el-input
-            v-model="ttsForm.audioReferenceText"
-            type="textarea"
-            :rows="2"
-            placeholder="请输入参考音频的文本内容（可选但推荐）"
+            :value="opt.value"
           />
-        </el-form-item>
-      </template>
-    </el-form>
+        </el-select>
+      </div>
+
+      <!-- 源平台 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">源平台</label>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="p in PLATFORM_OPTIONS"
+            :key="p.value"
+            @click="propsForm.videoSource = propsForm.videoSource === p.value ? '' : p.value"
+            :class="[
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-all',
+              propsForm.videoSource === p.value
+                ? 'border-blue-500 bg-blue-50 text-blue-600 font-medium'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300',
+            ]"
+          >
+            <!-- Bilibili icon -->
+            <svg v-if="p.value === 'bilibili'" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1 0-1.773 1.234 1.234 0 0 1 1.773 0l2.88 2.76h4.107l2.88-2.76a1.234 1.234 0 0 1 1.773 0 1.234 1.234 0 0 1 0 1.773zM5.333 7.24c-.853.036-1.548.32-2.08.853-.53.533-.808 1.227-.853 2.08v7.013c.045.853.322 1.544.853 2.08.532.533 1.227.81 2.08.853h13.334c.853-.043 1.544-.32 2.08-.853.535-.536.81-1.227.853-2.08V10.173c-.043-.853-.318-1.547-.853-2.08-.536-.533-1.227-.817-2.08-.853zM9.2 10.853v4.48c0 .32-.11.59-.333.8a1.106 1.106 0 0 1-.8.32 1.106 1.106 0 0 1-.8-.32 1.085 1.085 0 0 1-.333-.8v-4.48c0-.32.11-.59.333-.8.222-.213.48-.32.8-.32.32 0 .578.107.8.32.222.21.333.48.333.8zm7.466 0v4.48c0 .32-.11.59-.333.8a1.106 1.106 0 0 1-.8.32 1.106 1.106 0 0 1-.8-.32 1.085 1.085 0 0 1-.333-.8v-4.48c0-.32.11-.59.333-.8.222-.213.48-.32.8-.32.32 0 .578.107.8.32.222.21.333.48.333.8z"/>
+            </svg>
+            <!-- YouTube icon -->
+            <svg v-else-if="p.value === 'youtube'" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+            </svg>
+            <!-- Podcast icon -->
+            <Headphones v-else-if="p.value === 'podcast'" class="w-4 h-4" />
+            <!-- Upload icon -->
+            <Upload v-else class="w-4 h-4" />
+            {{ p.label }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 源链接 -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">源链接</label>
+        <el-input
+          v-model="propsForm.sourceUrl"
+          placeholder="https://..."
+          clearable
+        />
+      </div>
+    </div>
+
     <template #footer>
-      <el-button @click="showTTSDialog = false">取消</el-button>
-      <el-button
-        type="primary"
-        @click="submitTTSGeneration"
-        :disabled="ttsForm.useAudioClone && !audioReferenceUrl"
-      >
-        生成
-      </el-button>
+      <el-button @click="showPropsDialog = false">取消</el-button>
+      <el-button type="primary" :loading="propsSaving" @click="saveProps">保存</el-button>
     </template>
   </el-dialog>
 </template>
@@ -624,38 +383,43 @@ const modelChecked = computed({
 
 .video-card-hover:hover {
   @apply transition-shadow;
-  /* shadow-lg  */
 }
 
 .video-select {
   margin: 0 !important;
   padding: 0 !important;
+  height: 20px !important;
   background: transparent;
 }
 
-/* 深度选择内部生成的元素 */
 :deep(.video-select .el-checkbox__label) {
   display: none;
 }
 
-:deep(.video-select .el-checkbox__inner) {
-  border-radius: 4px;
+:deep(.video-select .el-checkbox__input) {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(59, 130, 246, 0.8);
-  background-color: transparent;
+}
+
+:deep(.video-select .el-checkbox__inner) {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.5);
+  transition: all 0.2s ease;
 }
 
 :deep(.video-select .el-checkbox__input.is-checked .el-checkbox__inner) {
-  background-color: #1e3a8a;
-  border-color: #1e3a8a;
+  background-color: rgb(34, 124, 46);
+  border-color: rgb(34, 124, 46);
 }
 
-:deep(.video-select .el-checkbox__inner::after) {
-  width: 6px;
-  height: 10px;
+:deep(.video-select .el-checkbox__input.is-checked .el-checkbox__inner::after) {
   border-width: 0 2px 2px 0;
   left: 6px;
   top: 2px;
+  width: 4px;
+  height: 8px;
 }
 </style>

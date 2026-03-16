@@ -113,21 +113,44 @@ export function saveHiddenCategories(hiddenCategories: number[]): void {
 export interface ConfigData {
   DEFAULT: {
     selected_model_provider: string
-    custom_model_name: string
-    use_proxy: string
+    split_use_proxy: string
     deepseek_api_key: string
     deepseek_base_url: string
-    glm_api_key: string
-    glm_base_url: string
+    deepseek_model: string
     openai_api_key: string
     openai_base_url: string
+    openai_model: string
+    glm_api_key: string
+    glm_base_url: string
+    glm_model: string
     qwen_api_key: string
     qwen_base_url: string
+    qwen_model: string
     local_api_key: string
     local_base_url: string
+    local_model: string
+    translate_selected_model_provider: string
+    translate_deepseek_api_key: string
+    translate_deepseek_base_url: string
+    translate_deepseek_model: string
+    translate_openai_api_key: string
+    translate_openai_base_url: string
+    translate_openai_model: string
+    translate_glm_api_key: string
+    translate_glm_base_url: string
+    translate_glm_model: string
+    translate_qwen_api_key: string
+    translate_qwen_base_url: string
+    translate_qwen_model: string
+    translate_local_api_key: string
+    translate_local_base_url: string
+    translate_local_model: string
+    translate_use_proxy: string
+    plain_translate: string
   }
   'Video watch': {
     raw_language: string
+    default_translate_lang: string
   }
   'Subtitle settings': {
     font_family: string
@@ -161,6 +184,7 @@ export interface ConfigData {
   }
   'Media Credentials': {
     bilibili_sessdata: string
+    stream_download_proxy: string
   }
   'Transcription Engine': {
     primary_engine: string
@@ -187,29 +211,53 @@ export interface ConfigData {
     oss_region: string
   }
   'TTS settings': {
+    tts_engine_chosen: string
     dashscope_api_key: string
   }
 }
 
 export interface FrontendSettings {
-  // Model settings
+  // Split LLM settings
   selectedModelProvider: string
-  customModelName: string  // Custom model name override
-  useProxy: boolean
-  // Provider-specific API keys
+  splitUseProxy: boolean
   deepseekApiKey: string
   deepseekBaseUrl: string
+  deepseekModel: string
   openaiApiKey: string
   openaiBaseUrl: string
+  openaiModel: string
   glmApiKey: string
   glmBaseUrl: string
+  glmModel: string
   qwenApiKey: string
   qwenBaseUrl: string
+  qwenModel: string
   localApiKey: string
   localBaseUrl: string
+  localModel: string
+  // Translate LLM settings
+  translateSelectedModelProvider: string
+  translateUseProxy: boolean
+  plainTranslate: boolean
+  translateDeepseekApiKey: string
+  translateDeepseekBaseUrl: string
+  translateDeepseekModel: string
+  translateOpenaiApiKey: string
+  translateOpenaiBaseUrl: string
+  translateOpenaiModel: string
+  translateGlmApiKey: string
+  translateGlmBaseUrl: string
+  translateGlmModel: string
+  translateQwenApiKey: string
+  translateQwenBaseUrl: string
+  translateQwenModel: string
+  translateLocalApiKey: string
+  translateLocalBaseUrl: string
+  translateLocalModel: string
   // Interface settings
   rawLanguage: string
-  hiddenCategories: number[] // 新增：隐藏的分类ID列表
+  defaultTranslateLang: string
+  hiddenCategories: number[]
   // Raw Subtitle settings
   fontFamily: string
   previewText: string
@@ -238,8 +286,8 @@ export interface FrontendSettings {
   foreignTextStrokeWidth: number
   foreignBackgroundStyle: 'none' | 'solid' | 'semi-transparent'
   foreignBottomDistance: number
-  // Media credentials
   bilibiliSessData: string
+  streamDownloadProxy: string
   // Transcription Engine settings
   transcriptionPrimaryEngine: string
   fwsrModel: string
@@ -261,7 +309,7 @@ export interface FrontendSettings {
   ossEndpoint: string
   ossBucket: string
   ossRegion: string
-  // TTS settings
+  ttsEngineChosen: string
   dashscopeApiKey: string
 }
 
@@ -289,24 +337,52 @@ export async function loadConfig(): Promise<FrontendSettings> {
 
     // Convert backend format to frontend format
     return {
-      // Model settings
       selectedModelProvider: data.DEFAULT?.selected_model_provider || 'deepseek',
-  customModelName: data.DEFAULT?.custom_model_name || '',
-      // Provider-specific API keys
       deepseekApiKey: data.DEFAULT?.deepseek_api_key || '',
       deepseekBaseUrl: data.DEFAULT?.deepseek_base_url || 'https://api.deepseek.com',
+      deepseekModel: data.DEFAULT?.deepseek_model || 'deepseek-chat',
       openaiApiKey: data.DEFAULT?.openai_api_key || '',
       openaiBaseUrl: data.DEFAULT?.openai_base_url || 'https://api.chatanywhere.tech/v1',
+      openaiModel: data.DEFAULT?.openai_model || 'gpt-4o',
       glmApiKey: data.DEFAULT?.glm_api_key || '',
-      glmBaseUrl: data.DEFAULT?.glm_base_url || 'https://api.deepseek.com',
+      glmBaseUrl: data.DEFAULT?.glm_base_url || 'https://open.bigmodel.cn/api/paas/v4',
+      glmModel: data.DEFAULT?.glm_model || 'glm-4',
       qwenApiKey: data.DEFAULT?.qwen_api_key || '',
       qwenBaseUrl:
         data.DEFAULT?.qwen_base_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      qwenModel: data.DEFAULT?.qwen_model || 'qwen-plus',
       localApiKey: data.DEFAULT?.local_api_key || '',
       localBaseUrl: data.DEFAULT?.local_base_url || 'http://localhost:1234/v1',
-      useProxy: data.DEFAULT?.use_proxy === 'true',
+      localModel: data.DEFAULT?.local_model || '',
+      splitUseProxy: data.DEFAULT?.split_use_proxy === 'true',
+      translateSelectedModelProvider:
+        data.DEFAULT?.translate_selected_model_provider || 'deepseek',
+      translateDeepseekApiKey: data.DEFAULT?.translate_deepseek_api_key || '',
+      translateDeepseekBaseUrl:
+        data.DEFAULT?.translate_deepseek_base_url || 'https://api.deepseek.com',
+      translateDeepseekModel: data.DEFAULT?.translate_deepseek_model || 'deepseek-chat',
+      translateOpenaiApiKey: data.DEFAULT?.translate_openai_api_key || '',
+      translateOpenaiBaseUrl:
+        data.DEFAULT?.translate_openai_base_url || 'https://api.chatanywhere.tech/v1',
+      translateOpenaiModel: data.DEFAULT?.translate_openai_model || 'gpt-4o',
+      translateGlmApiKey: data.DEFAULT?.translate_glm_api_key || '',
+      translateGlmBaseUrl:
+        data.DEFAULT?.translate_glm_base_url || 'https://open.bigmodel.cn/api/paas/v4',
+      translateGlmModel: data.DEFAULT?.translate_glm_model || 'glm-4',
+      translateQwenApiKey: data.DEFAULT?.translate_qwen_api_key || '',
+      translateQwenBaseUrl:
+        data.DEFAULT?.translate_qwen_base_url ||
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      translateQwenModel: data.DEFAULT?.translate_qwen_model || 'qwen-plus',
+      translateLocalApiKey: data.DEFAULT?.translate_local_api_key || '',
+      translateLocalBaseUrl:
+        data.DEFAULT?.translate_local_base_url || 'http://localhost:1234/v1',
+      translateLocalModel: data.DEFAULT?.translate_local_model || '',
+      translateUseProxy: data.DEFAULT?.translate_use_proxy === 'true',
+      plainTranslate: data.DEFAULT?.plain_translate === 'true',
       // Interface settings
       rawLanguage: data['Video watch']?.raw_language || 'zh',
+      defaultTranslateLang: data['Video watch']?.default_translate_lang || 'zh',
       hiddenCategories: [], // Will be loaded separately via loadUserHiddenCategories
       // Raw Subtitle settings
       fontFamily: data['Subtitle settings']?.font_family || '宋体',
@@ -352,8 +428,8 @@ export async function loadConfig(): Promise<FrontendSettings> {
       foreignBottomDistance: parseInt(
         data['Foreign Subtitle settings']?.foreign_bottom_distance || '120',
       ),
-      // Media credentials
       bilibiliSessData: data['Media Credentials']?.bilibili_sessdata || '',
+      streamDownloadProxy: data['Media Credentials']?.stream_download_proxy || '',
       // Transcription Engine settings
       transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'faster_whisper',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
@@ -378,6 +454,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
       ossBucket: data['OSS Service']?.oss_bucket ?? '',
       ossRegion: data['OSS Service']?.oss_region ?? '',
       // TTS settings
+      ttsEngineChosen: data['TTS settings']?.tts_engine_chosen || 'glm_asr_local',
       dashscopeApiKey: data['TTS settings']?.dashscope_api_key ?? '',
     }
   } catch (error) {
@@ -394,21 +471,44 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
     const configData: ConfigData = {
       DEFAULT: {
         selected_model_provider: settings.selectedModelProvider,
-        custom_model_name: settings.customModelName,
         deepseek_api_key: settings.deepseekApiKey,
         deepseek_base_url: settings.deepseekBaseUrl,
+        deepseek_model: settings.deepseekModel,
         openai_api_key: settings.openaiApiKey,
         openai_base_url: settings.openaiBaseUrl,
+        openai_model: settings.openaiModel,
         glm_api_key: settings.glmApiKey,
         glm_base_url: settings.glmBaseUrl,
+        glm_model: settings.glmModel,
         qwen_api_key: settings.qwenApiKey,
         qwen_base_url: settings.qwenBaseUrl,
+        qwen_model: settings.qwenModel,
         local_api_key: settings.localApiKey,
         local_base_url: settings.localBaseUrl,
-        use_proxy: settings.useProxy.toString(),
+        local_model: settings.localModel,
+        split_use_proxy: settings.splitUseProxy.toString(),
+        translate_selected_model_provider: settings.translateSelectedModelProvider,
+        translate_deepseek_api_key: settings.translateDeepseekApiKey,
+        translate_deepseek_base_url: settings.translateDeepseekBaseUrl,
+        translate_deepseek_model: settings.translateDeepseekModel,
+        translate_openai_api_key: settings.translateOpenaiApiKey,
+        translate_openai_base_url: settings.translateOpenaiBaseUrl,
+        translate_openai_model: settings.translateOpenaiModel,
+        translate_glm_api_key: settings.translateGlmApiKey,
+        translate_glm_base_url: settings.translateGlmBaseUrl,
+        translate_glm_model: settings.translateGlmModel,
+        translate_qwen_api_key: settings.translateQwenApiKey,
+        translate_qwen_base_url: settings.translateQwenBaseUrl,
+        translate_qwen_model: settings.translateQwenModel,
+        translate_local_api_key: settings.translateLocalApiKey,
+        translate_local_base_url: settings.translateLocalBaseUrl,
+        translate_local_model: settings.translateLocalModel,
+        translate_use_proxy: settings.translateUseProxy.toString(),
+        plain_translate: settings.plainTranslate.toString(),
       },
       'Video watch': {
         raw_language: settings.rawLanguage,
+        default_translate_lang: settings.defaultTranslateLang,
       },
       'Subtitle settings': {
         font_family: settings.fontFamily,
@@ -442,6 +542,7 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
       },
       'Media Credentials': {
         bilibili_sessdata: settings.bilibiliSessData,
+        stream_download_proxy: settings.streamDownloadProxy,
       },
       'Transcription Engine': {
         primary_engine: settings.transcriptionPrimaryEngine,
@@ -468,6 +569,7 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         oss_region: settings.ossRegion,
       },
       'TTS settings': {
+        tts_engine_chosen: settings.ttsEngineChosen,
         dashscope_api_key: settings.dashscopeApiKey,
       },
     }

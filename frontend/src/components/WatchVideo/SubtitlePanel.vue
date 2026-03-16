@@ -119,8 +119,7 @@ onMounted(async () => {
   // Load user's interface language preference
   try {
     const config = await loadConfig()
-    userInterfaceLanguage.value = config.rawLanguage || 'zh'
-    console.log('User interface language:', userInterfaceLanguage.value)
+    userInterfaceLanguage.value = config.defaultTranslateLang || 'zh'
   } catch (error) {
     console.warn('Failed to load user config, using default zh:', error)
     userInterfaceLanguage.value = 'zh'

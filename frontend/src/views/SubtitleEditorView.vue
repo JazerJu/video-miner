@@ -166,9 +166,8 @@ const videoData = ref<VideoInfoData>(defaultVideoInfo)
 
 const showRegions = ref(true) // 控制波形区域可见性
 const videoId = ref(-1)
-const subtitleFont = ref('Arial')
-const subtitleColor = ref('#6a9749')
-const subtitleSize = ref(18)
+
+// 字幕样式现在通过 useSubtitleStyle 从首页设置中加载
 
 const currentTime = ref(0)
 function handleSeekFromSubs(t: number) {
@@ -202,6 +201,10 @@ const progressPercentage = computed(() => {
 })
 
 import { BACKEND } from '@/composables/ConfigAPI'
+import { useSubtitleStyle } from '@/composables/SubtitleStyle'
+
+// 加载字幕样式设置
+const { subtitleSettings, foreignSubtitleSettings, loadSubtitleSettings } = useSubtitleStyle()
 const videoSrc = computed(() => {
   const mediaType = isAudio ? 'audio' : 'video'
   const src = `${BACKEND}/media/${mediaType}/${fileName.value}`
@@ -258,17 +261,13 @@ onMounted(async () => {
   // console.log('Current path:', route.path)
   await loadVideoData(fileName.value)
   waveformReady.value = true // 再让子组件挂载
-    // 加载已保存的用户偏好
-  try {
-    const savedFont = localStorage.getItem('subtitleFont')
-    const savedColor = localStorage.getItem('subtitleColor')
-    const savedSize = localStorage.getItem('subtitleSize')
-    if (savedFont) subtitleFont.value = savedFont
-    if (savedColor) subtitleColor.value = savedColor
-    if (savedSize) subtitleSize.value = parseInt(savedSize, 10)
-  } catch (e) {
-    console.error('Failed to load subtitle preferences:', e)
-  }
+  
+  // 加载首页保存的字幕样式设置
+  await loadSubtitleSettings()
+  console.log('[SubtitleEditorView] Loaded subtitle settings:', {
+    raw: subtitleSettings.value,
+    foreign: foreignSubtitleSettings.value
+  })
 
   // 设置波形容器的 ResizeObserver
   if (waveformContainerRef.value) {

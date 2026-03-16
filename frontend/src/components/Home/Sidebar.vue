@@ -14,13 +14,18 @@ import {
   Video,
   Settings,
   User,
-  UserPlus,
   LogOut,
   ChevronUp,
   UserCircle,
+  Bot,
+  Monitor,
+  Captions,
+  Mic,
+  Tag,
+  KeyRound,
+  Volume2,
 } from 'lucide-vue-next'
 import { ElMessage, ElTooltip, ElMessageBox } from 'element-plus'
-import UsersDialog from '@/components/dialogs/UsersDialog.vue'
 import ProfileDialog from '@/components/dialogs/ProfileDialog.vue'
 import { BACKEND } from '@/composables/ConfigAPI'
 
@@ -37,14 +42,13 @@ function openSearch() {
 
 // Settings Tabs - 固定显示，不随菜单切换
 const settingsTabs = [
-  { id: 'model', label: 'LLM 设置' },
-  { id: 'interface', label: '界面设置' },
-  { id: 'subtitle', label: '字幕设置' },
-  { id: 'transcription', label: '转录设置' },
-  { id: 'tags', label: '标签管理' },
-  { id: 'media', label: '媒体认证' },
-  { id: 'oss', label: 'OSS 服务' },
-  { id: 'tts', label: 'TTS 配音' },
+  { id: 'model', label: 'LLM 设置', icon: Bot },
+  { id: 'interface', label: '界面设置', icon: Monitor },
+  { id: 'subtitle', label: '字幕设置', icon: Captions },
+  { id: 'transcription', label: '转录设置', icon: Mic },
+  { id: 'tags', label: '标签管理', icon: Tag },
+  { id: 'media', label: '媒体认证', icon: KeyRound },
+  { id: 'tts', label: 'TTS 配音', icon: Volume2 },
 ]
 
 // 折叠侧边栏
@@ -63,7 +67,7 @@ interface User {
 
 const currentUser = ref<User | null>(null)
 const showUserDropdown = ref(false)
-const showUsersDialog = ref(false)
+
 const showProfileDialog = ref(false)
 
 const checkUserStatus = async () => {
@@ -105,11 +109,6 @@ const handleUserAreaClick = async () => {
   } else {
     router.push('/login')
   }
-}
-
-const handleUserManagementClick = () => {
-  showUsersDialog.value = true
-  showUserDropdown.value = false
 }
 
 const handleProfileClick = () => {
@@ -183,11 +182,11 @@ const emit = defineEmits<{
           <div
             v-for="(item, i) in menuList"
             :key="i"
-            class="flex items-center p-3 rounded-xl cursor-pointer backdrop-blur-sm border border-white/10 shadow-sm transition-all duration-200"
+            class="flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200"
             :class="
               props.currentMenuIdx === i
-                ? 'bg-white/20 text-white border-white/30 shadow-lg'
-                : 'hover:bg-white/10 text-white/80 hover:border-white/20 hover:shadow-md'
+                ? 'bg-teal-600/90 text-white shadow-md'
+                : 'text-white/80 hover:bg-white/10 hover:text-white'
             "
             @click="item.action()"
           >
@@ -218,14 +217,15 @@ const emit = defineEmits<{
           <div
             v-for="tab in settingsTabs"
             :key="tab.id"
-            class="group p-3 mb-2 rounded-xl flex items-center cursor-pointer relative backdrop-blur-sm border border-white/10 shadow-sm transition-all duration-200"
+            class="p-3 mb-1 rounded-r-lg flex items-center cursor-pointer transition-all duration-200 border-l-3"
             :class="
               props.activeSettingsTab === tab.id
-                ? 'bg-white/25 text-white border-white/30 shadow-lg transform translate-x-1'
-                : 'hover:bg-white/15 text-white/90 hover:border-white/20 hover:shadow-md hover:transform hover:translate-x-0.5'
+                ? 'bg-teal-600/90 text-white border-l-cyan-300'
+                : 'text-white/80 border-l-transparent hover:bg-white/8 hover:border-l-cyan-400/70'
             "
             @click="emit('updateMenuIndex', 3); emit('update-settings-tab', tab.id)"
           >
+            <component :is="tab.icon" :size="16" class="shrink-0" />
             <span class="font-medium ml-2">{{ tab.label }}</span>
           </div>
         </div>
@@ -271,14 +271,6 @@ const emit = defineEmits<{
             <span class="text-sm text-white/90">我的资料</span>
           </div>
           <div
-            v-if="currentUser.is_root"
-            @click="handleUserManagementClick"
-            class="flex items-center px-3 py-2 hover:bg-white/10 cursor-pointer transition-colors border-t border-white/10"
-          >
-            <UserPlus :size="14" class="text-white/80 mr-3" />
-            <span class="text-sm text-white/90">{{ t('userManagement') }}</span>
-          </div>
-          <div
             @click="handleLogout"
             class="flex items-center px-3 py-2 hover:bg-white/10 cursor-pointer transition-colors border-t border-white/10"
           >
@@ -310,13 +302,6 @@ const emit = defineEmits<{
       </div>
     </template>
   </div>
-
-  <!-- Users Dialog Placeholder -->
-  <UsersDialog
-    v-if="showUsersDialog"
-    v-model:visible="showUsersDialog"
-    @users-updated="checkUserStatus"
-  />
 
   <!-- Profile Dialog -->
   <ProfileDialog
@@ -361,16 +346,5 @@ const emit = defineEmits<{
   .sidebar-collapsed {
     width: 4%;
   }
-}
-
-.group {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.group:hover {
-  transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.25);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 </style>

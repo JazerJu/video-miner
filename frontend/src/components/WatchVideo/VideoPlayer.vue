@@ -7,10 +7,9 @@ import videojs from 'video.js'
 import type Player from 'video.js/dist/types/player'
 import { ChapterAPI } from '@/composables/ChapterAPI'
 import { useLanguageTracks, type LanguageTrack } from '@/composables/LanguageTracksAPI'
-import { Languages } from 'lucide-vue-next'
+import { Languages, Check, Settings as SettingsIcon } from 'lucide-vue-next'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
-import { ElDropdown, ElDropdownMenu, ElDropdownItem, ElSwitch, ElButton, ElIcon } from 'element-plus'
-import { ArrowDown, Check, Setting } from '@element-plus/icons-vue'
+import { ElSwitch } from 'element-plus'
 import { useMediaFiles } from '@/composables/useMediaFiles'
 
 const { fetchSubtitle } = useSubtitles()
@@ -32,6 +31,39 @@ const availableDubbings = ref<Record<string, boolean>>({})
 const availableSubtitles = ref<Record<string, boolean>>({})
 const playerReady = ref(false)
 
+const showLanguagePanel = ref(false)
+const activeLanguageTab = ref<'dubbing' | 'subtitle'>('subtitle')
+const languagePanelRef = ref<HTMLElement | null>(null)
+const languageBtnRef = ref<HTMLElement | null>(null)
+
+const toggleLanguagePanel = () => {
+        showLanguagePanel.value = !showLanguagePanel.value
+}
+
+const closeLanguagePanel = () => {
+        showLanguagePanel.value = false
+}
+
+const onDocumentClick = (e: MouseEvent) => {
+        if (!showLanguagePanel.value) return
+        const target = e.target as Node
+        if (
+                languagePanelRef.value?.contains(target) ||
+                languageBtnRef.value?.contains(target)
+        ) {
+                return
+        }
+        closeLanguagePanel()
+}
+
+onMounted(() => {
+        document.addEventListener('click', onDocumentClick, true)
+})
+
+onBeforeUnmount(() => {
+        document.removeEventListener('click', onDocumentClick, true)
+})
+
 const checkFiles = async () => {
   if (!props.src || !props.videoId) return
   
@@ -49,24 +81,7 @@ const checkFiles = async () => {
   }
 }
 
-const loadSubtitleSettings = async () => {
-  // Placeholder for loading settings from local storage or API
-  console.log('Loading subtitle settings...')
-}
-
-const injectGlobalSubtitleStyles = () => {
-  const style = document.createElement('style')
-  style.id = 'vidgo-subtitle-styles'
-  style.textContent = `
-    .video-js .vjs-text-track-display div {
-      font-family: "Microsoft YaHei", sans-serif;
-      text-shadow: 0 0 4px rgba(0,0,0,0.8);
-    }
-  `
-  if (!document.getElementById('vidgo-subtitle-styles')) {
-    document.head.appendChild(style)
-  }
-}
+const { loadSubtitleSettings, injectGlobalSubtitleStyles } = useSubtitleStyle()
 
 const emit = defineEmits<{
   (e: 'time-update', t: number): void
@@ -1052,8 +1067,8 @@ onMounted(async () => {
     loadChapters()
   }
 
-  injectGlobalSubtitleStyles()
-  
+  await loadSubtitleSettings()
+
   await checkFiles()
   playerReady.value = true
 })
@@ -1648,7 +1663,7 @@ function createCameraSnapshotControl() {
           color: white;
           padding: 6px 8px;
           cursor: pointer;
-          background: rgba(0, 0, 0, 0.3);
+          background: transparent;
           border-radius: 4px;
           margin: 0 2px;
           display: flex;
@@ -1834,7 +1849,7 @@ function createVideoSpeedControl() {
           color: white;
           padding: 6px 8px;
           cursor: pointer;
-          background: rgba(0, 0, 0, 0.3);
+          background: transparent;
           border-radius: 4px;
           margin: 0 2px;
           display: flex;
@@ -2039,108 +2054,125 @@ onBeforeUnmount(() => {
 
     <Teleport to="#vue-custom-controls" v-if="playerReady">
       <div class="flex items-center space-x-2 h-full">
-        <!-- Unified Language/Subtitle Control -->
-        <el-dropdown trigger="click">
-          <el-button type="primary" link class="!text-white hover:!text-[#13f5f5]">
-            <el-icon class="el-icon--right"><Languages /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu class="bg-slate-800 border-slate-700 w-[200px]">
-              <!-- AI Dubbing Section -->
-              <div class="px-3 py-2 text-xs text-slate-400 font-medium border-b border-slate-700">
-                AI原声翻译
-              </div>
-              <el-dropdown-item :command="null as any" @click="handleDubbingChange(null)" class="text-slate-200 hover:bg-slate-700">
-                <div class="flex items-center justify-between w-full">
-                  <span>关闭</span>
-                  <el-icon v-if="dubbingLang === null" class="text-[#13f5f5]"><Check /></el-icon>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item 
-                @click="handleDubbingChange('en')"
-                :disabled="!availableDubbings.en"
-                class="text-slate-200 hover:bg-slate-700"
-              >
-                <div class="flex items-center justify-between w-full">
-                  <span>English (AI)</span>
-                  <el-icon v-if="dubbingLang === 'en'" class="text-[#13f5f5]"><Check /></el-icon>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item 
-                @click="handleDubbingChange('ja')"
-                :disabled="!availableDubbings.ja"
-                class="text-slate-200 hover:bg-slate-700"
-              >
-                <div class="flex items-center justify-between w-full">
-                  <span>日本語 (AI)</span>
-                  <el-icon v-if="dubbingLang === 'ja'" class="text-[#13f5f5]"><Check /></el-icon>
-                </div>
-              </el-dropdown-item>
+        <!-- Language/Subtitle Control -->
+        <div class="relative h-full flex items-center">
+          <button
+            ref="languageBtnRef"
+            class="lang-panel-btn"
+            :class="{ 'active': showLanguagePanel }"
+            @click="toggleLanguagePanel"
+          >
+            <Languages :size="18" />
+          </button>
 
-              <!-- Subtitle Section -->
-              <div class="px-3 py-2 text-xs text-slate-400 font-medium border-b border-slate-700 mt-1">
-                字幕
+          <Transition name="lang-panel">
+            <div
+              v-if="showLanguagePanel"
+              ref="languagePanelRef"
+              class="lang-panel"
+            >
+              <!-- Tab bar -->
+              <div class="lang-panel-tabs">
+                <button
+                  class="lang-panel-tab"
+                  :class="{ 'active': activeLanguageTab === 'dubbing' }"
+                  @click="activeLanguageTab = 'dubbing'"
+                >
+                  AI原声翻译
+                  <span class="lang-panel-tab-badge">Beta</span>
+                </button>
+                <button
+                  class="lang-panel-tab"
+                  :class="{ 'active': activeLanguageTab === 'subtitle' }"
+                  @click="activeLanguageTab = 'subtitle'"
+                >
+                  字幕
+                </button>
               </div>
-              <el-dropdown-item :command="null as any" @click="handleSubtitleChange(null)" class="text-slate-200 hover:bg-slate-700">
-                <div class="flex items-center justify-between w-full">
-                  <span>关闭</span>
-                  <el-icon v-if="subtitleLang === null" class="text-[#13f5f5]"><Check /></el-icon>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item 
-                @click="handleSubtitleChange('zh')"
-                :disabled="!availableSubtitles.zh"
-                class="text-slate-200 hover:bg-slate-700"
-              >
-                <div class="flex items-center justify-between w-full">
-                  <span>中文 (AI)</span>
-                  <el-icon v-if="subtitleLang === 'zh'" class="text-[#13f5f5]"><Check /></el-icon>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item 
-                @click="handleSubtitleChange('en')"
-                :disabled="!availableSubtitles.en"
-                class="text-slate-200 hover:bg-slate-700"
-              >
-                <div class="flex items-center justify-between w-full">
-                  <span>English (AI)</span>
-                  <el-icon v-if="subtitleLang === 'en'" class="text-[#13f5f5]"><Check /></el-icon>
-                </div>
-              </el-dropdown-item>
-              <el-dropdown-item 
-                @click="handleSubtitleChange('ja')"
-                :disabled="!availableSubtitles.ja"
-                class="text-slate-200 hover:bg-slate-700"
-              >
-                <div class="flex items-center justify-between w-full">
-                  <span>日本語 (AI)</span>
-                  <el-icon v-if="subtitleLang === 'ja'" class="text-[#13f5f5]"><Check /></el-icon>
-                </div>
-              </el-dropdown-item>
 
-              <!-- Bilingual Toggle -->
-              <el-dropdown-item divided class="text-slate-200 hover:bg-slate-700">
-                <div class="flex items-center justify-between w-full" @click.stop>
+              <!-- Dubbing tab content -->
+              <div v-if="activeLanguageTab === 'dubbing'" class="lang-panel-body">
+                <button class="lang-panel-item" @click="handleDubbingChange(null)">
+                  <span :class="{ 'text-accent': dubbingLang === null }">关闭</span>
+                  <Check v-if="dubbingLang === null" :size="14" class="text-accent" />
+                </button>
+                <button
+                  class="lang-panel-item"
+                  :class="{ 'disabled': !availableDubbings.en }"
+                  :disabled="!availableDubbings.en"
+                  @click="availableDubbings.en && handleDubbingChange('en')"
+                >
+                  <span :class="{ 'text-accent': dubbingLang === 'en' }">English (AI)</span>
+                  <Check v-if="dubbingLang === 'en'" :size="14" class="text-accent" />
+                </button>
+                <button
+                  class="lang-panel-item"
+                  :class="{ 'disabled': !availableDubbings.ja }"
+                  :disabled="!availableDubbings.ja"
+                  @click="availableDubbings.ja && handleDubbingChange('ja')"
+                >
+                  <span :class="{ 'text-accent': dubbingLang === 'ja' }">日本語 (AI)</span>
+                  <Check v-if="dubbingLang === 'ja'" :size="14" class="text-accent" />
+                </button>
+              </div>
+
+              <!-- Subtitle tab content -->
+              <div v-if="activeLanguageTab === 'subtitle'" class="lang-panel-body">
+                <button class="lang-panel-item" @click="handleSubtitleChange(null)">
+                  <span :class="{ 'text-accent': subtitleLang === null }">关闭</span>
+                  <Check v-if="subtitleLang === null" :size="14" class="text-accent" />
+                </button>
+                <button
+                  class="lang-panel-item"
+                  :class="{ 'disabled': !availableSubtitles.zh }"
+                  :disabled="!availableSubtitles.zh"
+                  @click="availableSubtitles.zh && handleSubtitleChange('zh')"
+                >
+                  <span :class="{ 'text-accent': subtitleLang === 'zh' }">中文 (AI)</span>
+                  <Check v-if="subtitleLang === 'zh'" :size="14" class="text-accent" />
+                </button>
+                <button
+                  class="lang-panel-item"
+                  :class="{ 'disabled': !availableSubtitles.en }"
+                  :disabled="!availableSubtitles.en"
+                  @click="availableSubtitles.en && handleSubtitleChange('en')"
+                >
+                  <span :class="{ 'text-accent': subtitleLang === 'en' }">English (AI)</span>
+                  <Check v-if="subtitleLang === 'en'" :size="14" class="text-accent" />
+                </button>
+                <button
+                  class="lang-panel-item"
+                  :class="{ 'disabled': !availableSubtitles.ja }"
+                  :disabled="!availableSubtitles.ja"
+                  @click="availableSubtitles.ja && handleSubtitleChange('ja')"
+                >
+                  <span :class="{ 'text-accent': subtitleLang === 'ja' }">日本語 (AI)</span>
+                  <Check v-if="subtitleLang === 'ja'" :size="14" class="text-accent" />
+                </button>
+
+                <!-- Divider -->
+                <div class="lang-panel-divider" />
+
+                <!-- Bilingual toggle -->
+                <div class="lang-panel-row" @click.stop>
                   <span>双语字幕</span>
-                  <el-switch 
-                    v-model="isBilingual" 
-                    size="small" 
-                    @change="(val: any) => toggleBilingual(val)"
+                  <el-switch
+                    v-model="isBilingual"
+                    size="small"
+                    @change="(val: string | number | boolean) => toggleBilingual(Boolean(val))"
                     :disabled="!subtitleLang"
                   />
                 </div>
-              </el-dropdown-item>
 
-              <!-- Settings -->
-              <el-dropdown-item class="text-slate-200 hover:bg-slate-700" @click="emit('open-subtitle-settings')">
-                <div class="flex items-center space-x-2">
+                <!-- Subtitle settings -->
+                <button class="lang-panel-item" @click="emit('open-subtitle-settings'); closeLanguagePanel()">
                   <span>字幕设置</span>
-                  <el-icon><Setting /></el-icon>
-                </div>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+                  <SettingsIcon :size="14" class="opacity-60" />
+                </button>
+              </div>
+            </div>
+          </Transition>
+        </div>
       </div>
     </Teleport>
   </div>
@@ -2211,5 +2243,162 @@ onBeforeUnmount(() => {
 :deep(.el-switch.is-checked .el-switch__core) {
   border-color: #13f5f5;
   background-color: #13f5f5;
+}
+
+/* ── Language Panel ── */
+
+.text-accent {
+  color: #13f5f5;
+}
+
+.lang-panel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.lang-panel-btn:hover,
+.lang-panel-btn.active {
+  color: #13f5f5;
+}
+
+.lang-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  background: rgba(15, 15, 20, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow:
+    0 -4px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(19, 245, 245, 0.06);
+  z-index: 9999;
+}
+
+/* Tab bar */
+.lang-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.lang-panel-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s ease;
+  letter-spacing: 0.02em;
+}
+
+.lang-panel-tab:hover {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.lang-panel-tab.active {
+  color: #13f5f5;
+}
+
+.lang-panel-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: #13f5f5;
+  border-radius: 2px 2px 0 0;
+}
+
+.lang-panel-tab-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(19, 245, 245, 0.15);
+  color: #13f5f5;
+  line-height: 1.2;
+  letter-spacing: 0.03em;
+}
+
+/* Panel body */
+.lang-panel-body {
+  padding: 4px 0;
+}
+
+.lang-panel-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-align: left;
+}
+
+.lang-panel-item:hover:not(.disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lang-panel-item.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.lang-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+}
+
+.lang-panel-divider {
+  height: 1px;
+  margin: 4px 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Transition */
+.lang-panel-enter-active {
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lang-panel-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.lang-panel-enter-from {
+  opacity: 0;
+  transform: translateY(6px) scale(0.97);
+}
+
+.lang-panel-leave-to {
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
 }
 </style>

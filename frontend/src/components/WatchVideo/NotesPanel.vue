@@ -405,6 +405,164 @@ const autoSave = () => {
   }, 30000) // Auto-save after 30 seconds of no typing
 }
 
+// --- Toolbar: Bold/Italic Toggle ---
+const toggleBold = () => {
+  const textarea = textareaRef.value
+  if (!textarea) return
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+
+  if (start === end) return // No selection
+
+  const selectedText = notesContent.value.substring(start, end)
+  const before = notesContent.value.substring(0, start)
+  const after = notesContent.value.substring(end)
+
+  // Check if already wrapped with **
+  if (before.endsWith('**') && after.startsWith('**')) {
+    // Remove the markers
+    notesContent.value = before.slice(0, -2) + selectedText + after.slice(2)
+    nextTick(() => {
+      textarea.setSelectionRange(start - 2, end - 2)
+      textarea.focus()
+    })
+  } else {
+    // Add markers
+    notesContent.value = before + '**' + selectedText + '**' + after
+    nextTick(() => {
+      textarea.setSelectionRange(start + 2, end + 2)
+      textarea.focus()
+    })
+  }
+}
+
+const toggleItalic = () => {
+  const textarea = textareaRef.value
+  if (!textarea) return
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+
+  if (start === end) return // No selection
+
+  const selectedText = notesContent.value.substring(start, end)
+  const before = notesContent.value.substring(0, start)
+  const after = notesContent.value.substring(end)
+
+  // Check if already wrapped with single * (not **)
+  // Look for exactly one * before and after, not two
+  if (before.endsWith('*') && !before.endsWith('**') && after.startsWith('*') && !after.startsWith('**')) {
+    // Remove the markers
+    notesContent.value = before.slice(0, -1) + selectedText + after.slice(1)
+    nextTick(() => {
+      textarea.setSelectionRange(start - 1, end - 1)
+      textarea.focus()
+    })
+  } else {
+    // Add markers (but don't conflict with existing bold)
+    // If the selection already has **, we should not wrap with *
+    if (selectedText.includes('**')) return
+
+    notesContent.value = before + '*' + selectedText + '*' + after
+    nextTick(() => {
+      textarea.setSelectionRange(start + 1, end + 1)
+      textarea.focus()
+    })
+  }
+}
+
+// --- Toolbar: Image Layout Toggle ---
+const setImageLayout = (layout: 'grid' | 'carousel' | 'thumbnail') => {
+  const textarea = textareaRef.value
+  if (!textarea) return
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const selectedText = notesContent.value.substring(start, end)
+
+  if (!selectedText.trim()) {
+    ElMessage.warning('请先选择图片行')
+    return
+  }
+
+  // Regex to match existing album block: ```album[ mode]?\n...\n```
+  const albumBlockRegex = /^(\s*)```album(\s+(\w+))?\n([\s\S]*?)\n(\s*)```(\s*)$/
+  const match = selectedText.match(albumBlockRegex)
+
+  if (match) {
+    // Case B: Selection is already an album block
+    const [, leadingSpaces, , currentMode, imageLines, trailingSpaces] = match
+    const existingMode = currentMode || 'grid'
+
+    if (existingMode === layout) {
+      // Same mode clicked: unwrap (remove album markers)
+      const unwrapped = imageLines
+      notesContent.value =
+        notesContent.value.substring(0, start) + unwrapped + notesContent.value.substring(end)
+      nextTick(() => {
+        textarea.setSelectionRange(start, start + unwrapped.length)
+        textarea.focus()
+      })
+    } else {
+      // Different mode: switch mode
+      const newMode = layout === 'grid' ? '' : ` ${layout}`
+      const wrapped = `${leadingSpaces}\`\`\`album${newMode}\n${imageLines}\n${trailingSpaces}\`\`\`${trailingSpaces ? '\n' : ''}`
+      notesContent.value =
+        notesContent.value.substring(0, start) + wrapped + notesContent.value.substring(end)
+      nextTick(() => {
+        textarea.setSelectionRange(start, start + wrapped.length)
+        textarea.focus()
+      })
+    }
+  } else {
+    // Case A: Selection contains bare image lines (not wrapped)
+    // Check if there are any image markdown lines
+    const imageLineRegex = /^!\[.*?\]\(.*?\)$/
+    const lines = selectedText.split('\n')
+    const imageLines = lines.filter(line => imageLineRegex.test(line.trim()))
+
+    if (imageLines.length === 0) {
+      ElMessage.warning('选中的内容中没有图片')
+      return
+    }
+
+    // Wrap with album block
+    const mode = layout === 'grid' ? '' : ` ${layout}`
+    const wrapped = `\`\`\`album${mode}\n${imageLines.join('\n')}\n\`\`\`\n`
+    notesContent.value =
+      notesContent.value.substring(0, start) + wrapped + notesContent.value.substring(end)
+    nextTick(() => {
+      textarea.setSelectionRange(start, start + wrapped.length)
+      textarea.focus()
+    })
+  }
+}
+
+// Check current active layout for selected text
+const getActiveLayout = (): 'grid' | 'carousel' | 'thumbnail' | null => {
+  const textarea = textareaRef.value
+  if (!textarea) return null
+
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const selectedText = notesContent.value.substring(start, end)
+
+  const albumBlockRegex = /^(\s*)```album(\s+(\w+))?\n([\s\S]*?)\n(\s*)```(\s*)$/
+  const match = selectedText.match(albumBlockRegex)
+
+  if (match) {
+    const currentMode = match[3] || 'grid'
+    if (currentMode === 'carousel') return 'carousel'
+    if (currentMode === 'thumbnail') return 'thumbnail'
+    return 'grid'
+  }
+
+  return null
+}
+
+const activeLayout = computed(() => getActiveLayout())
+
 // Watch for content changes to re-render markdown and auto-save
 watch(() => notesContent.value, async () => {
   await renderMarkdown()
@@ -523,6 +681,70 @@ watch(
             ]"
             :placeholder="t('notePlaceholder')"
           ></textarea>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="bg-slate-700/40 border border-slate-600/30 rounded-lg p-1.5 flex items-center">
+          <!-- Bold -->
+          <button
+            @click="toggleBold"
+            title="粗体 (Bold)"
+            class="p-1.5 rounded hover:bg-slate-600/50 text-slate-400 hover:text-white transition-colors"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/>
+            </svg>
+          </button>
+
+          <!-- Italic -->
+          <button
+            @click="toggleItalic"
+            title="斜体 (Italic)"
+            class="p-1.5 rounded hover:bg-slate-600/50 text-slate-400 hover:text-white transition-colors"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/>
+            </svg>
+          </button>
+
+          <!-- Separator -->
+          <div class="w-px h-5 bg-slate-600/50 mx-1"></div>
+
+          <!-- Grid Layout -->
+          <button
+            @click="setImageLayout('grid')"
+            title="网格布局 (Grid)"
+            class="p-1.5 rounded hover:bg-slate-600/50 transition-colors"
+            :class="activeLayout === 'grid' ? 'text-blue-400 bg-slate-600/50' : 'text-slate-400 hover:text-white'"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"/>
+            </svg>
+          </button>
+
+          <!-- Carousel Layout -->
+          <button
+            @click="setImageLayout('carousel')"
+            title="轮播布局 (Carousel)"
+            class="p-1.5 rounded hover:bg-slate-600/50 transition-colors"
+            :class="activeLayout === 'carousel' ? 'text-blue-400 bg-slate-600/50' : 'text-slate-400 hover:text-white'"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/>
+            </svg>
+          </button>
+
+          <!-- Thumbnail Layout -->
+          <button
+            @click="setImageLayout('thumbnail')"
+            title="缩略图布局 (Thumbnail)"
+            class="p-1.5 rounded hover:bg-slate-600/50 transition-colors"
+            :class="activeLayout === 'thumbnail' ? 'text-blue-400 bg-slate-600/50' : 'text-slate-400 hover:text-white'"
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M4 4h10v10H4V4zm12 0h4v10h-4V4zM4 16h10v4H4v-4zm12 0h4v4h-4v-4z"/>
+            </svg>
+          </button>
         </div>
 
         <!-- Help text -->
@@ -872,5 +1094,17 @@ watch(
 :deep(.notes-content .carousel-thumb-item.active) {
   border-color: rgb(96 165 250);
   opacity: 1;
+}
+
+:deep(.notes-content .image-figure) {
+  margin: 1rem 0;
+  display: inline-block;
+}
+
+:deep(.notes-content .image-caption) {
+  text-align: center;
+  color: rgb(148 163 184);
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
 }
 </style>

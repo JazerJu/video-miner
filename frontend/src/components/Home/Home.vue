@@ -671,16 +671,6 @@ onMounted(() => {
 
       <!-- 📌 媒体库 -->
       <template v-if="currentMenuIdx === 1">
-        <!-- 批量操作栏 -->
-        <BatchToolbar
-          :batch-mode="isBatchMode"
-          :selected-ids="selectedIds"
-          @show-move-dialog="showBatchMoveDialog = true"
-          @generate-subtitles="batchSubtitle"
-          @delete-videos="batchDelete"
-          @concat-videos="batchConcat"
-        />
-
         <!-- 新的媒体库视图，带完整筛选和排序功能 -->
         <LibraryView
           :videos="allVideos"
@@ -690,6 +680,10 @@ onMounted(() => {
           @delete="deleteVideo"
           @edit-thumbnail="onEditThumbnail"
           @rename-video="handleVideoRenamed"
+          @show-move-dialog="showBatchMoveDialog = true"
+          @generate-subtitles="batchSubtitle"
+          @delete-videos="batchDelete"
+          @videos-updated="fetchVideoData"
         />
       </template>
 

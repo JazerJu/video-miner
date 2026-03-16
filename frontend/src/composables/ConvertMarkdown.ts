@@ -210,15 +210,36 @@ md.renderer.rules.fence = function (tokens: any, idx: any, options: any, env: an
   return defaultFence(tokens, idx, options, env, self);
 };
 
-// Custom Image Rule (for Tailwind classes)
-const defaultImage = md.renderer.rules.image || function (tokens: any, idx: any, options: any, env: any, self: any) {
-    return self.renderToken(tokens, idx, options);
-};
+// Custom Image Rule
 md.renderer.rules.image = function (tokens: any, idx: any, options: any, env: any, self: any) {
     const token = tokens[idx];
-    token.attrSet('class', 'max-w-full h-auto rounded-lg shadow-sm my-2');
-    token.attrSet('loading', 'lazy');
-    return defaultImage(tokens, idx, options, env, self);
+    const src = token.attrGet('src') || '';
+    const rawAlt = token.children
+        ? self.renderInlineAsText(token.children, options, env)
+        : '';
+
+    let caption = rawAlt;
+    let widthVal = '';
+
+    if (rawAlt.includes('|')) {
+        const altParts = rawAlt.split('|');
+        caption = altParts[0].trim();
+        widthVal = altParts[1].trim();
+    }
+
+    let imgHtml = `<img src="${src}" alt="${caption}" class="max-w-full h-auto rounded-lg shadow-sm my-2" loading="lazy"`;
+
+    if (widthVal && widthVal !== 'auto') {
+        imgHtml += ` style="width: ${widthVal}"`;
+    }
+
+    imgHtml += '>';
+
+    if (caption) {
+        return `<figure class="image-figure">${imgHtml}<figcaption class="image-caption">${caption}</figcaption></figure>`;
+    }
+
+    return imgHtml;
 };
 
 // Copy function (same as before)
