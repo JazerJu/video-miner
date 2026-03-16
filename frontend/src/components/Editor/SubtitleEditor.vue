@@ -17,6 +17,28 @@
               <span class="font-semibold">{{ (filterStartTime !== null || filterEndTime !== null) ? '已筛选' : t('subtitleList') }}</span>
             </button>
             <div class="flex space-x-3">
+              <!-- 批量删除 -->
+              <template v-if="selectedIndices.size > 0">
+                <el-tooltip content="删除所选" placement="bottom">
+                  <button
+                    @click="batchDelete"
+                    class="px-4 py-2 bg-red-600/80 hover:bg-red-600 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-red-500/30"
+                  >
+                    <el-icon><Delete /></el-icon>
+                  </button>
+                </el-tooltip>
+                <!-- 批量合并（至少选2条才启用） -->
+                <el-tooltip content="合并所选" placement="bottom">
+                  <button
+                    @click="batchMerge"
+                    :disabled="selectedIndices.size < 2"
+                    class="px-4 py-2 bg-purple-600/80 hover:bg-purple-600 disabled:opacity-40 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-purple-500/30"
+                  >
+                    <el-icon><Finished /></el-icon>
+                  </button>
+                </el-tooltip>
+              </template>
+
               <!-- 添加字幕的按钮 -->
               <el-tooltip :content="t('addSubtitle')" placement="bottom">
                 <button
@@ -24,26 +46,6 @@
                   class="px-4 py-2 bg-blue-600/80 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-blue-500/30"
                 >
                   <el-icon><Plus /></el-icon>
-                </button>
-              </el-tooltip>
-
-              <!-- 标记开始时间的按钮 -->
-              <el-tooltip :content="t('markStartTime')" placement="bottom">
-                <button
-                  @click="markCurrentAsStart"
-                  class="px-4 py-2 bg-green-600/80 hover:bg-green-600 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-green-500/30"
-                >
-                  <FlagTriangleLeft class="w-3 h-3" />
-                </button>
-              </el-tooltip>
-
-              <!-- 标记结束时间的按钮 -->
-              <el-tooltip :content="t('markEndTime')" placement="bottom">
-                <button
-                  @click="markCurrentAsEnd"
-                  class="px-4 py-2 bg-orange-600/80 hover:bg-orange-600 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-orange-500/30"
-                >
-                  <FlagTriangleRight class="w-3 h-3" />
                 </button>
               </el-tooltip>
 
@@ -125,6 +127,12 @@
             >
               <div class="flex items-start justify-between mb-3">
                 <div class="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    :checked="selectedIndices.has(s.originalIndex)"
+                    @click.stop="toggleSelect(s.originalIndex)"
+                    class="w-4 h-4 rounded accent-blue-500 cursor-pointer"
+                  />
                   <span class="text-sm font-medium text-slate-400">#{{ s.originalIndex }}</span>
                   <span
                     :class="[
@@ -142,12 +150,6 @@
                   >
                     <Edit3Icon class="w-3 h-3" />
                   </button>
-                  <button
-                    @click.stop="deleteSubtitle(s.originalIndex)"
-                    class="h-6 w-6 p-0 hover:bg-red-600/20 rounded flex items-center justify-center transition-colors text-slate-400 hover:text-red-400"
-                  >
-                    <Trash2Icon class="w-3 h-3" />
-                  </button>
                 </div>
               </div>
 
@@ -158,6 +160,30 @@
                 <!-- if Editing index !=i display plain text as below,if Editing index ==i,change into input -->
                 <!-- ▸ EDITING STATE  -->
                 <template v-if="editSubtitleIndex === s.originalIndex">
+                  <!-- 时间区域 -->
+                  <div class="flex gap-3 mb-3">
+                    <div class="flex-1">
+                      <label class="text-xs text-slate-400 block mb-1">开始时间 (秒)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        v-model.number="rawSubtitle[s.originalIndex].start"
+                        @change="foreignSubtitle[s.originalIndex].start = rawSubtitle[s.originalIndex].start"
+                        class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white text-sm"
+                      />
+                    </div>
+                    <div class="flex-1">
+                      <label class="text-xs text-slate-400 block mb-1">结束时间 (秒)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        v-model.number="rawSubtitle[s.originalIndex].end"
+                        @change="foreignSubtitle[s.originalIndex].end = rawSubtitle[s.originalIndex].end"
+                        class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white text-sm"
+                      />
+                    </div>
+                  </div>
+
                   <!-- 原文 -->
                   <div class="space-y-2">
                     <label class="text-xs text-slate-400 block">{{ t('original') }}:</label>
@@ -200,14 +226,14 @@
 
                 <!-- ▸ READ-ONLY STATE  -->
                 <template v-else>
-                  <div class="text-sm text-white leading-relaxed">
+                  <div class="text-sm text-white leading-relaxed" v-show="displayMode === 'both' || displayMode === 'raw'">
                     <span class="text-xs text-slate-400 block mb-1">{{ t('original') }}:</span>
                     {{ s.text }}
                   </div>
 
-                  <div class="border-t border-slate-600/30 my-2" />
+                  <div class="border-t border-slate-600/30 my-2" v-show="displayMode === 'both'" />
 
-                  <div class="text-sm text-slate-200 leading-relaxed">
+                  <div class="text-sm text-slate-200 leading-relaxed" v-show="displayMode === 'both' || displayMode === 'translated'">
                     <span class="text-xs text-slate-400 block mb-1"
                       >{{ t('translatedSubtitle') }}:</span
                     >
@@ -304,6 +330,24 @@
               class="w-full px-4 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400"
             />
           </div>
+          <div>
+            <label class="block text-sm text-slate-400 mb-2">字幕显示</label>
+            <div class="flex gap-2">
+              <button
+                v-for="mode in [{ value: 'both', label: '双语' }, { value: 'raw', label: '原文' }, { value: 'translated', label: '译文' }]"
+                :key="mode.value"
+                @click="editDisplayMode = mode.value as any"
+                :class="[
+                  'flex-1 py-2 rounded-lg text-sm transition-colors border',
+                  editDisplayMode === mode.value
+                    ? 'bg-blue-600/80 border-blue-500/30 text-white'
+                    : 'bg-slate-600/50 border-slate-500/50 text-slate-300 hover:bg-slate-500/50'
+                ]"
+              >
+                {{ mode.label }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="flex justify-between items-center mt-8">
@@ -337,15 +381,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
-import { Plus, ArrowDown } from '@element-plus/icons-vue'
+import { Plus, ArrowDown, Delete, Finished } from '@element-plus/icons-vue'
 import { useSubtitles } from '@/composables/useSubtitles'
 import { blobUrls, generateVTT } from '@/composables/Buildvtt'
 import type { Subtitle } from '@/types/subtitle'
 import {
   Edit3 as Edit3Icon,
-  Trash2 as Trash2Icon,
-  FlagTriangleLeft,
-  FlagTriangleRight,
   ArrowBigDown,
   Clock,
 } from 'lucide-vue-next'
@@ -396,6 +437,10 @@ const showTimeFilterDialog = ref(false)
 const editFilterStart = ref<number | null>(null)
 const editFilterEnd = ref<number | null>(null)
 
+// 显示模式：'both' | 'raw' | 'translated'
+const displayMode = ref<'both' | 'raw' | 'translated'>('both')
+const editDisplayMode = ref<'both' | 'raw' | 'translated'>('both')
+
 // Filtered subtitles based on time range
 const filteredSubtitles = computed(() => {
   if (filterStartTime.value === null && filterEndTime.value === null) {
@@ -412,6 +457,7 @@ const filteredSubtitles = computed(() => {
 const openTimeFilter = () => {
   editFilterStart.value = filterStartTime.value
   editFilterEnd.value = filterEndTime.value
+  editDisplayMode.value = displayMode.value
   showTimeFilterDialog.value = true
 }
 
@@ -426,6 +472,7 @@ const applyTimeFilter = () => {
   }
   filterStartTime.value = editFilterStart.value
   filterEndTime.value = editFilterEnd.value
+  displayMode.value = editDisplayMode.value
   showTimeFilterDialog.value = false
 }
 
@@ -1006,7 +1053,7 @@ function addSubtitle() {
   successNotify('已添加新字幕')
 }
 
-function deleteSubtitle(index: number) {
+async function deleteSubtitle(index: number) {
   // 1 actually remove the cue
   console.log('delete index :', index)
   rawSubtitle.value.splice(index, 1)
@@ -1024,22 +1071,72 @@ function deleteSubtitle(index: number) {
   } else if (editSubtitleIndex.value !== null && editSubtitleIndex.value > index) {
     editSubtitleIndex.value--
   }
+
+  // 3 persist changes to backend
+  const primaryLang = props.rawLang || 'zh'
+  const foreignLang = locale.value as string
+  await linkSubtitles(props.id, primaryLang, rawSubtitle)
+  await linkSubtitles(props.id, foreignLang, foreignSubtitle)
 }
 
-function markCurrentAsStart() {
-  if (activeSubtitleIndex.value == null) return
-  rawSubtitle.value[activeSubtitleIndex.value].start = props.currentTime
-  foreignSubtitle.value[activeSubtitleIndex.value].start = props.currentTime
+function toggleSelect(index: number) {
+  const s = new Set(selectedIndices.value)
+  if (s.has(index)) s.delete(index)
+  else s.add(index)
+  selectedIndices.value = s
 }
 
-function markCurrentAsEnd() {
-  if (activeSubtitleIndex.value == null) return
-  rawSubtitle.value[activeSubtitleIndex.value].end = props.currentTime
-  foreignSubtitle.value[activeSubtitleIndex.value].end = props.currentTime
+async function batchDelete() {
+  const indices = Array.from(selectedIndices.value).sort((a, b) => b - a) // 倒序删除
+  for (const idx of indices) {
+    rawSubtitle.value.splice(idx, 1)
+    foreignSubtitle.value.splice(idx, 1)
+  }
+  selectedIndices.value = new Set()
+  const primaryLang = props.rawLang || 'zh'
+  const foreignLang = locale.value as string
+  await linkSubtitles(props.id, primaryLang, rawSubtitle)
+  await linkSubtitles(props.id, foreignLang, foreignSubtitle)
+  successNotify(`已删除 ${indices.length} 条字幕`)
+}
+
+async function batchMerge() {
+  if (selectedIndices.value.size < 2) return
+  const indices = Array.from(selectedIndices.value).sort((a, b) => a - b) // 升序
+  const first = rawSubtitle.value[indices[0]]
+  const last = rawSubtitle.value[indices[indices.length - 1]]
+  
+  // 合并原文
+  const mergedText = indices.map(i => rawSubtitle.value[i].text).join(' ')
+  // 合并译文
+  const mergedTrans = indices.map(i => foreignSubtitle.value[i].text).join(' ')
+  
+  // 新字幕：start=第一条start，end=最后一条end
+  const merged = { start: first.start, end: last.end, text: mergedText }
+  const mergedForeign = { start: first.start, end: last.end, text: mergedTrans }
+  
+  // 从后往前删除选中项，在第一个位置插入合并结果
+  const toDelete = [...indices].reverse()
+  for (const idx of toDelete) {
+    rawSubtitle.value.splice(idx, 1)
+    foreignSubtitle.value.splice(idx, 1)
+  }
+  rawSubtitle.value.splice(indices[0], 0, merged)
+  foreignSubtitle.value.splice(indices[0], 0, mergedForeign)
+  
+  selectedIndices.value = new Set()
+  const primaryLang = props.rawLang || 'zh'
+  const foreignLang = locale.value as string
+  await linkSubtitles(props.id, primaryLang, rawSubtitle)
+  await linkSubtitles(props.id, foreignLang, foreignSubtitle)
+  successNotify('已合并所选字幕')
 }
 
 const rawBeforeEdit = ref('') // 原文旧值
 const transBeforeEdit = ref('') // 译文旧值
+
+// 多选状态
+const selectedIndices = ref<Set<number>>(new Set())
 function startEdit(i: number) {
   // 把当前字幕内容缓存下来
   rawBeforeEdit.value = rawSubtitle.value[i].text
