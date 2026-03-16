@@ -22,6 +22,7 @@ from .views.videos import (
     VideoInfoView,
     BatchVideoActionView,
     VideoLanguageView,
+    VideoPropsView,
     VideoSearchView,
     SimilarVideosView,
 )
@@ -203,6 +204,11 @@ urlpatterns = [
         "api/videos/<int:video_id>/language",
         VideoLanguageView.as_view(),
         name="set_video_language",
+    ),
+    path(
+        "api/videos/<int:video_id>/props",
+        VideoPropsView.as_view(),
+        name="video_props",
     ),
     path(
         "api/videos/<int:video_id>/<str:action>",

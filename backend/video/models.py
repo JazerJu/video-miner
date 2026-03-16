@@ -85,10 +85,17 @@ class Video(models.Model):
             ("youtube", "YouTube"),
             ("ar_glass", "AR Glass"),
             ("upload", "Upload"),
+            ("podcast", "Podcast"),
         ],
         blank=True,
         null=True,
         help_text="视频来源",
+    )
+    source_url = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text="视频原始链接",
     )
     raw_lang = models.CharField(
         max_length=5,
