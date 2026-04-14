@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { Refresh, More } from '@element-plus/icons-vue'
 import { getCookie } from '@/composables/GetCSRFToken'
 import { useI18n } from 'vue-i18n'
@@ -8,9 +8,9 @@ import { useI18n } from 'vue-i18n'
 interface TaskRow {
   id: number
   fileName: string
-  transcribe: number
-  optimize: number
-  translate: number
+  transcribe: TaskStageStatus
+  optimize: TaskStageStatus
+  translate: TaskStageStatus
   totalProgress: number  // 🆕 总进度百分比
 }
 
@@ -18,7 +18,7 @@ type TaskStageStatus = 'Queued' | 'Running' | 'Completed' | 'Failed'
 
 interface SubtitleTaskInfo {
   video_id: number
-  fileName: string
+  filename: string
   src_lang: 'zh' | 'en' | 'jp' | 'system_define'
   trans_lang: 'None' | 'zh' | 'en' | 'jp'
   stages: {
@@ -70,41 +70,11 @@ interface ExportTaskInfo {
   error_message: string
 }
 
-interface TTSTaskRow {
-  id: string
-  videoName: string
-  language: string
-  voice: string
-  status: string
-  progress: number
-  completedSegments: number
-  totalSegments: number
-  outputFile: string
-  errorMessage: string
-}
-
-interface TTSTaskInfo {
-  task_id: string
-  video_id: number
-  video_name: string
-  language: 'zh' | 'en' | 'jp'
-  voice: string
-  status: string
-  progress: number
-  total_segments: number
-  completed_segments: number
-  output_file: string
-  error_message: string
-  use_audio_clone?: boolean
-  audio_reference_url?: string
-}
-
 import { BACKEND } from '@/composables/ConfigAPI'
 const TASKS_URL = '/api/tasks/subtitle_generate/status'
 const DOWNLOAD_STATUS_URL = '/api/stream_media/download_status'
 const EXPORT_STATUS_URL = '/api/export/status'
-const TTS_STATUS_URL = '/api/tts/status'
-const POLL_INTERVAL = 20_000 // 20 s
+const POLL_INTERVAL = 3_000
 
 // i18n functionality
 const { t } = useI18n()
@@ -112,18 +82,16 @@ const { t } = useI18n()
 const subtitleTasks = ref<TaskRow[]>([])
 const downloadTasks = ref<DownloadTaskRow[]>([])
 const exportTasks = ref<ExportTaskRow[]>([])
-const ttsTasks = ref<TTSTaskRow[]>([])
 let timer_download: number | undefined
 let timer_subtitle: number | undefined
 let timer_export: number | undefined
-let timer_tts: number | undefined
 
 async function fetchSubtitleTasks() {
   try {
     const res = await fetch(`${BACKEND}${TASKS_URL}`, { credentials: 'include' })
     if (!res.ok) throw new Error(await res.text())
 
-    const raw = (await res.json()) as SubtitleTaskInfo
+    const raw = (await res.json()) as Record<string, SubtitleTaskInfo>
 
     subtitleTasks.value = Object.entries(raw).map(([id, info]) => ({
       id: +id,
@@ -181,35 +149,6 @@ async function fetchExportTasks() {
     }))
   } catch (err) {
     ElMessage.error(`${t('exportTaskListFailed')}：${err}`)
-  }
-}
-
-async function fetchTTSTasks() {
-  try {
-    const res = await fetch(`${BACKEND}${TTS_STATUS_URL}`, { credentials: 'include' })
-    if (!res.ok) throw new Error(await res.text())
-
-    const result = await res.json()
-    if (!result.success) {
-      throw new Error(result.message || '获取TTS任务失败')
-    }
-
-    const raw = result.data as Record<string, TTSTaskInfo>
-
-    ttsTasks.value = Object.entries(raw).map(([id, info]) => ({
-      id: id,
-      videoName: info.video_name,
-      language: info.language,
-      voice: info.use_audio_clone ? 'self_defined' : info.voice,
-      status: info.status,
-      progress: info.progress,
-      completedSegments: info.completed_segments,
-      totalSegments: info.total_segments,
-      outputFile: info.output_file,
-      errorMessage: info.error_message,
-    }))
-  } catch (err) {
-    ElMessage.error(`获取TTS任务列表失败：${err}`)
   }
 }
 
@@ -383,65 +322,23 @@ async function deleteExport(id: string) {
   }
 }
 
-// TTS任务重试／删除函数
-async function retryTTS(id: string) {
-  try {
-    const res = await fetch(`${BACKEND}/api/tts/${id}/retry`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrfToken,
-      },
-    })
-    if (!res.ok) throw new Error(await res.text())
-    ElMessage.success('TTS任务已重新调度')
-    await fetchTTSTasks()
-  } catch (err: any) {
-    ElMessage.error(`${t('retryFailed')}：${err.message}`)
-  }
-}
-
-async function deleteTTS(id: string) {
-  try {
-    const res = await fetch(`${BACKEND}/api/tts/${id}/delete`, {
-      method: 'DELETE',
-      credentials: 'include',
-    })
-    if (!res.ok) throw new Error(await res.text())
-    ElMessage.success('TTS任务已删除')
-    await fetchTTSTasks()
-  } catch (err: any) {
-    ElMessage.error(`${t('deleteFailed')}：${err.message}`)
-  }
-}
-
-// （同理，如果你要给字幕任务也加 retry/delete，就写 retrySubtitle/deleteSubtitle）
-
-function handleCommand(row: TaskRow | DownloadTaskRow | ExportTaskRow | TTSTaskRow, command: Command): void {
+function handleCommand(row: TaskRow | DownloadTaskRow | ExportTaskRow, command: Command): void {
   console.log('handleCommand → row:', row, 'command:', command)
   if (command === 'retry') {
     if ('bvid' in row) {
       retryDownload(row.id)
-    } else if ('language' in row) {
-      // TTS tasks have 'language' property
-      retryTTS(row.id)
     } else if ('videoName' in row) {
       retryExport(row.id)
     } else {
       retrySubtitle(row.id)
     }
   } else if (command === 'download') {
-    // 只有导出任务支持下载
-    if ('videoName' in row && !('language' in row)) {
+    if ('videoName' in row) {
       downloadExportedVideo(row.id, row.outputFilename)
     }
   } else {
     if ('bvid' in row) {
       deleteDownload(row.id)
-    } else if ('language' in row) {
-      // TTS tasks have 'language' property
-      deleteTTS(row.id)
     } else if ('videoName' in row) {
       deleteExport(row.id)
     } else {
@@ -454,18 +351,15 @@ onMounted(() => {
   fetchDownloadTasks()
   fetchSubtitleTasks()
   fetchExportTasks()
-  fetchTTSTasks()
   timer_download = window.setInterval(fetchDownloadTasks, POLL_INTERVAL)
   timer_subtitle = window.setInterval(fetchSubtitleTasks, POLL_INTERVAL)
   timer_export = window.setInterval(fetchExportTasks, POLL_INTERVAL)
-  timer_tts = window.setInterval(fetchTTSTasks, POLL_INTERVAL)
 })
 
 onBeforeUnmount(() => {
   clearInterval(timer_download)
   clearInterval(timer_subtitle)
   clearInterval(timer_export)
-  clearInterval(timer_tts)
 })
 </script>
 
@@ -821,129 +715,6 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <!-- TTS配音生成任务 -->
-  <div class="mb-8">
-    <div
-      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
-    >
-      <!-- 标题栏 -->
-      <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-white">TTS配音生成</h2>
-        <el-button
-          type="primary"
-          size="small"
-          class="bg-blue-600 hover:bg-blue-700 border-blue-600"
-          @click="fetchTTSTasks"
-        >
-          <el-icon><Refresh /></el-icon>
-        </el-button>
-      </div>
-
-      <!-- 深色主题表格 -->
-      <el-table
-        :data="ttsTasks"
-        class="dark-table"
-        :header-cell-style="{ background: '#1e293b', color: '#e2e8f0', borderColor: '#475569' }"
-        :cell-style="{ background: '#334155', color: '#e2e8f0', borderColor: '#475569' }"
-        :row-style="{ background: '#334155' }"
-        style="width: 100%; background: #334155"
-      >
-        <!-- 视频名称 -->
-        <el-table-column prop="videoName" label="视频名称" width="400" />
-
-        <!-- 总进度条 -->
-        <el-table-column label="进度" width="200">
-          <template #default="{ row }">
-            <div class="flex items-center">
-              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
-                <div
-                  class="h-3 rounded-full transition-all duration-300"
-                  :class="{
-                    'bg-blue-500': row.progress < 100,
-                    'bg-green-500': row.progress === 100,
-                  }"
-                  :style="{ width: `${row.progress}%` }"
-                ></div>
-              </div>
-              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.progress }}%</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <!-- 语言 -->
-        <el-table-column prop="language" label="语言" min-width="80">
-          <template #default="{ row }">
-            <span class="text-sm">
-              {{ row.language === 'zh' ? '中文' : row.language === 'en' ? '英文' : row.language === 'jp' ? '日文' : row.language }}
-            </span>
-          </template>
-        </el-table-column>
-
-        <!-- 声音 -->
-        <el-table-column prop="voice" label="音色" min-width="140" />
-
-        <!-- 状态 -->
-        <el-table-column label="状态" min-width="150">
-          <template #default="{ row }">
-            <div class="flex items-center">
-              <span
-                class="status-dot"
-                :class="{
-                  waiting: row.status === 'Queued',
-                  progressing: row.status === 'Running',
-                  success: row.status === 'Completed',
-                  error: row.status === 'Failed',
-                }"
-              ></span>
-              <span class="ml-2 text-sm">
-                <span v-if="row.status === 'Failed'" class="text-red-400">任务失败</span>
-                <span v-else-if="row.status === 'Running'" class="text-blue-400">进行中</span>
-                <span v-else-if="row.status === 'Completed'" class="text-green-400">已完成</span>
-                <span v-else>{{ getStatusLabel(row.status) }}</span>
-              </span>
-              <span v-if="row.status === 'Running' && row.totalSegments > 0" class="ml-2 text-xs text-gray-400">
-                ({{ row.completedSegments }}/{{ row.totalSegments }})
-              </span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <!-- 输出文件 -->
-        <el-table-column label="输出文件" min-width="180">
-          <template #default="{ row }">
-            <span v-if="row.outputFile" class="text-sm text-gray-300">{{
-              row.outputFile
-            }}</span>
-            <span v-else-if="row.errorMessage" class="text-xs text-red-400">{{
-              row.errorMessage
-            }}</span>
-            <span v-else class="text-xs text-gray-500">-</span>
-          </template>
-        </el-table-column>
-
-        <!-- 操作 -->
-        <el-table-column label="操作" width="80" align="center" fixed="right">
-          <template #default="{ row }">
-            <div class="action-cell">
-              <el-dropdown
-                trigger="click"
-                @command="(cmd: 'retry' | 'delete') => handleCommand(row, cmd)"
-              >
-                <!-- More 图标，slot default 用 span 包一下 -->
-                <span class="more-icon">
-                  <el-icon><More /></el-icon>
-                </span>
-                <template #dropdown>
-                  <el-dropdown-item command="retry">{{ t('retry') }}</el-dropdown-item>
-                  <el-dropdown-item command="delete">{{ t('deleteTask') }}</el-dropdown-item>
-                </template>
-              </el-dropdown>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
-  </div>
 </template>
 
 <style scoped>
