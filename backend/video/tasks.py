@@ -31,7 +31,6 @@ subtitle_task_queue: Queue[str] = (
     Queue()
 )  # 改为 str 类型，支持 video_id 和 external_task_id
 download_queue: Queue[int] = Queue()
-tts_queue: Queue[str] = Queue()  # TTS任务队列
 SAVE_DIR = "media/saved_srt"
 
 # 线程锁保护 download_status 的并发访问
@@ -64,24 +63,6 @@ realtime_subtitle_status = defaultdict(
         "completed_entries": 0,
         "current_entry": None,  # 当前处理的字幕条目
         "subtitle_entries": [],  # 已完成的字幕条目列表
-        "error_message": "",
-        "created_at": 0,
-    }
-)
-
-# TTS任务状态跟踪
-tts_task_status = defaultdict(
-    lambda: {
-        "task_id": "",
-        "video_id": 0,
-        "video_name": "",
-        "language": "zh",  # zh/en/jp
-        "voice": "longxiaochun_v2",
-        "status": "Queued",  # Queued/Running/Completed/Failed
-        "progress": 0,  # 进度百分比 0-100
-        "total_segments": 0,
-        "completed_segments": 0,
-        "output_file": "",  # 生成的音频文件名
         "error_message": "",
         "created_at": 0,
     }
@@ -152,7 +133,11 @@ def _update(
         progress: 该阶段进度百分比 (0-100)，可选
         detail: 详细进度信息（如"Segment 2/6 (33%)"），可选
     """
-    task = subtitle_task_status[video_id]
+    task = subtitle_task_status.get(video_id)
+    if task is None:
+        return
+    if stage not in task["stages"]:
+        return
     task["stages"][stage] = status
 
     # 更新详细进度信息
@@ -163,7 +148,11 @@ def _update(
 
     # 更新阶段进度
     if progress is not None:
-        task["stage_progress"][stage] = min(100, max(0, progress))
+        clamped = min(100, max(0, progress))
+        if status == "Running":
+            task["stage_progress"][stage] = max(task["stage_progress"][stage], clamped)
+        else:
+            task["stage_progress"][stage] = clamped
     elif status == "Completed":
         task["stage_progress"][stage] = 100
     elif status == "Running" and task["stage_progress"][stage] == 0:
@@ -668,14 +657,22 @@ def dl_set(task_id: str, stage: str, status: str, progress: int = None):
         progress: 该阶段进度百分比 (0-100)，可选
     """
     with download_status_lock:
-        task = download_status[task_id]
+        task = download_status.get(task_id)
+        if task is None:
+            return
+        if stage not in task["stages"]:
+            return
 
         # 更新状态
         task["stages"][stage] = status
 
         # 更新阶段进度
         if progress is not None:
-            task["stage_progress"][stage] = min(100, max(0, progress))
+            clamped = min(100, max(0, progress))
+            if status == "Running":
+                task["stage_progress"][stage] = max(task["stage_progress"][stage], clamped)
+            else:
+                task["stage_progress"][stage] = clamped
         elif status == "Completed":
             task["stage_progress"][stage] = 100
         elif status == "Running" and task["stage_progress"][stage] == 0:
@@ -791,7 +788,13 @@ def download_youtube_video(task_id: str):
     try:
         # 下载视频到临时目录
         dl_set(task_id, "video", "Running")
-        output_path = downloader.download_video(url, work_dir)
+        output_path = downloader.download_video(
+            url,
+            work_dir,
+            progress_callback=lambda percent: dl_set(
+                task_id, "video", "Running", progress=int(percent)
+            ),
+        )
         if not output_path or not os.path.exists(output_path):
             dl_set(task_id, "video", "Failed")
             return
@@ -840,6 +843,8 @@ def download_youtube_video(task_id: str):
             url=f"{md5_value}.mp4",
             thumbnail_url=thumbnail_filename,
             video_length=formatted_duration,
+            video_source="youtube",
+            source_url=url,
             category=None,  # 临时分类，后续可以修改
         )
 
@@ -1054,6 +1059,8 @@ def download_bilibili_video(task_id: str):
         url=f"{md5_value}.mp4",
         thumbnail_url=thumbnail_filename,  # 保存缩略图文件名
         video_length=formatted_duration,  # 保存视频时长
+        video_source="bilibili",
+        source_url=url,
         category=None,  # temperaryly no,Can be set later
     )
 
@@ -1088,29 +1095,62 @@ def download_podcast_audio(task_id: str):
             "outtmpl": f"{work_dir}/{title}.%(ext)s",
             "writeinfojson": False,  # 不保存元数据
         }
+        ydl_opts["progress_hooks"] = [
+            lambda d: dl_set(
+                task_id,
+                "video",
+                "Running",
+                progress=int(
+                    min(
+                        (
+                            ((d.get("downloaded_bytes") or 0) / (d.get("total_bytes") or d.get("total_bytes_estimate") or 1))
+                            * 100
+                        ),
+                        99.0,
+                    )
+                ),
+            )
+            if d.get("status") == "downloading"
+            else (
+                dl_set(task_id, "video", "Running", progress=100)
+                if d.get("status") == "finished"
+                else None
+            )
+        ]
 
-        # Check proxy settings - read from [Media Credentials] section
+        # 配置代理
         try:
             settings_data = load_all_settings()
-            stream_download_proxy = settings_data.get("Media Credentials", {}).get(
-                "stream_download_proxy", ""
+            use_download_proxy = (
+                settings_data.get("Media Credentials", {})
+                .get("download_use_proxy", "false")
+                .lower()
+                == "true"
             )
-            if stream_download_proxy:
-                ydl_opts["proxy"] = stream_download_proxy
-            else:
-                ydl_opts["proxy"] = ""
+            from video.proxy import get_effective_proxy
+
+            proxy = get_effective_proxy(use_download_proxy)
+            if proxy:
+                ydl_opts["proxy"] = proxy
         except Exception as e:
             print(f"Error checking proxy settings for podcast: {e}")
 
+        # 加载 cookies（仅 YouTube 链接需要）
+        if "youtube.com" in url or "youtu.be" in url:
+            _cookies_path = os.path.join(
+                settings.MEDIA_ROOT, "cookies", "youtube-cookies.txt"
+            )
+            if os.path.exists(_cookies_path):
+                ydl_opts["cookiefile"] = _cookies_path
+
         # 获取音频信息包括缩略图
         info = None
-        with YoutubeDL(
-            {
-                "quiet": True,
-                "no_download": True,
-                **({"proxy": ""} if ydl_opts.get("proxy") == "" else {}),
-            }
-        ) as ydl:
+        info_ydl_opts = {"quiet": True, "no_download": True}
+        if "proxy" in ydl_opts:
+            info_ydl_opts["proxy"] = ydl_opts["proxy"]
+        if "cookiefile" in ydl_opts:
+            info_ydl_opts["cookiefile"] = ydl_opts["cookiefile"]
+        with YoutubeDL(info_ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
         if not info:
@@ -1183,6 +1223,8 @@ def download_podcast_audio(task_id: str):
             url=f"{md5_value}{file_ext}",  # 保存带扩展名的文件名
             thumbnail_url=thumbnail_filename,
             video_length=formatted_duration,
+            video_source="podcast",
+            source_url=url,
             category=None,  # 使用不同的分类ID区分播客音频
         )
 
@@ -1244,6 +1286,8 @@ def export_update_status(
     task_id: str, status: str, progress: int = 0, error_message: str = ""
 ):
     """更新导出任务状态"""
+    if task_id not in export_task_status:
+        return
     export_task_status[task_id]["status"] = status
     export_task_status[task_id]["progress"] = progress
     if error_message:
@@ -1709,194 +1753,3 @@ def process_export_task() -> None:
     finally:
         export_queue.task_done()
 
-
-def generate_tts_audio(task_id: str) -> None:
-    """
-    TTS配音生成任务处理函数
-
-    从字幕文件生成配音音频，并与原视频合成
-    """
-    task = tts_task_status[task_id]
-
-    try:
-        task["status"] = "Running"
-        task["progress"] = 5
-
-        video_id = task["video_id"]
-        language = task["language"]
-        voice = task["voice"]
-
-        # 获取字幕文件路径
-        srt_filename = f"{video_id}_{language}.srt"
-        srt_path = os.path.join("media/saved_srt", srt_filename)
-
-        if not os.path.exists(srt_path):
-            raise FileNotFoundError(f"Subtitle file not found: {srt_path}")
-
-        print(f"[TTS] Starting audio generation for task {task_id}")
-        print(f"[TTS] SRT file: {srt_path}, Voice: {voice}")
-
-        # 获取API密钥和配置
-        from .views.set_setting import load_all_settings
-
-        settings_data = load_all_settings()
-        tts_settings = settings_data.get("TTS settings", {})
-
-        api_key = tts_settings.get("dashscope_api_key", "")
-        if not api_key:
-            raise ValueError("DashScope API key not configured")
-
-        # 加载TTS配置参数
-        max_retries = int(tts_settings.get("max_retries", "5"))
-        enable_checkpointing = (
-            tts_settings.get("enable_checkpointing", "true").lower() == "true"
-        )
-
-        # Time-stretch configuration
-        time_stretch_algorithm = tts_settings.get("time_stretch_algorithm", "librosa")
-        time_stretch_quality = tts_settings.get("time_stretch_quality", "high")
-        max_compression_ratio = float(tts_settings.get("max_compression_ratio", "2.0"))
-
-        print(
-            f"[TTS] Config: max_retries={max_retries}, checkpointing={enable_checkpointing}"
-        )
-        print(
-            f"[TTS] Time-stretch: algorithm={time_stretch_algorithm}, quality={time_stretch_quality}, max_ratio={max_compression_ratio}"
-        )
-
-        # 创建输出目录
-        tts_output_dir = "work_dir/tts_output"
-        os.makedirs(tts_output_dir, exist_ok=True)
-
-        # 生成临时音频文件
-        temp_audio_path = os.path.join(tts_output_dir, f"{task_id}_temp.wav")
-
-        # 进度回调
-        def progress_callback(completed: int, total: int):
-            task["total_segments"] = total
-            task["completed_segments"] = completed
-            # 进度从5%到85%（留15%给视频合成）
-            progress = 5 + int((completed / total) * 80)
-            task["progress"] = progress
-            print(f"[TTS] Progress: {completed}/{total} segments ({progress}%)")
-
-        # 调用TTS生成器（带重试和检查点支持）
-        from utils.tts.tts_generator import synthesize_audio_from_srt
-
-        # 获取音频克隆参数（如果有的话）
-        use_audio_clone = task.get("use_audio_clone", False)
-        audio_reference_url = task.get("audio_reference_url", None)
-        reference_text = task.get("reference_text", None)
-
-        task["progress"] = 10
-        segment_count, duration_ms = synthesize_audio_from_srt(
-            srt_path=srt_path,
-            output_wav=temp_audio_path,
-            api_key=api_key,
-            voice=voice,
-            progress_callback=progress_callback,
-            task_id=task_id,
-            enable_checkpointing=enable_checkpointing,
-            max_retries_per_segment=max_retries,
-            time_stretch_algorithm=time_stretch_algorithm,
-            time_stretch_quality=time_stretch_quality,
-            max_compression_ratio=max_compression_ratio,
-            audio_reference_url=audio_reference_url if use_audio_clone else None,
-            reference_text=reference_text if use_audio_clone else None,
-        )
-
-        print(
-            f"[TTS] Audio generation completed: {segment_count} segments, {duration_ms}ms"
-        )
-        task["progress"] = 85
-
-        # 获取原视频
-        video = Video.objects.get(pk=video_id)
-        from .views.videos import get_media_path_info
-
-        directory_name, _ = get_media_path_info(video.url)
-        video_path = os.path.join(settings.MEDIA_ROOT, directory_name, video.url)
-
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(f"Original video not found: {video_path}")
-
-        # 合成音频和视频
-        import subprocess
-
-        # 生成输出文件名
-        output_filename = f"{os.path.splitext(video.url)[0]}_{language}.mp4"
-        # 保存到 media/saved_video/ 目录以便前端访问
-        saved_video_dir = os.path.join(settings.MEDIA_ROOT, "saved_video")
-        os.makedirs(saved_video_dir, exist_ok=True)
-        output_path = os.path.join(saved_video_dir, output_filename)
-
-        # FFmpeg命令：替换视频的音频轨道
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-i",
-            video_path,  # 输入视频
-            "-i",
-            temp_audio_path,  # 输入音频
-            "-c:v",
-            "copy",  # 复制视频流（不重新编码）
-            "-map",
-            "0:v:0",  # 使用第一个输入的视频
-            "-map",
-            "1:a:0",  # 使用第二个输入的音频
-            "-c:a",
-            "aac",  # 音频编码为AAC
-            "-b:a",
-            "192k",  # 音频比特率
-            "-shortest",  # 以最短的流为准
-            "-y",  # 覆盖输出文件
-            output_path,
-        ]
-
-        print(f"[TTS] Merging audio with video: {' '.join(ffmpeg_cmd)}")
-        task["progress"] = 90
-
-        result = subprocess.run(
-            ffmpeg_cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10分钟超时
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(f"FFmpeg merge failed: {result.stderr}")
-
-        # 检查输出文件
-        if not os.path.exists(output_path):
-            raise RuntimeError("Output video file was not created")
-
-        # 清理临时音频文件
-        try:
-            os.remove(temp_audio_path)
-        except:
-            pass
-
-        # 更新任务状态
-        task["status"] = "Completed"
-        task["progress"] = 100
-        task["output_file"] = output_filename
-
-        print(f"[TTS] Task completed: {task_id}, output: {output_filename}")
-
-    except Exception as exc:
-        error_msg = str(exc)
-        print(f"[TTS] Task failed: {task_id}, error: {error_msg}")
-        task["status"] = "Failed"
-        task["error_message"] = error_msg
-
-
-def process_tts_task() -> None:
-    """被后台线程循环调用处理TTS任务"""
-    try:
-        task_id = tts_queue.get_nowait()
-    except Empty:
-        return
-
-    try:
-        generate_tts_audio(task_id)
-    finally:
-        tts_queue.task_done()
