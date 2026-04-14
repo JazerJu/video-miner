@@ -92,7 +92,8 @@ def _ensure_ini():
         }
         cfg["Media Credentials"] = {
             "bilibili_sessdata": "",
-            "stream_download_proxy": "",
+            "proxy_url": "",
+            "download_use_proxy": "false",
         }
         cfg["Transcription Engine"] = {
             "primary_engine": "faster_whisper",
@@ -109,26 +110,6 @@ def _ensure_ini():
             "openai_base_url": "https://api.openai.com/v1",
         }
         cfg["Remote VidGo Service"] = {"host": "", "port": "8000", "use_ssl": "false"}
-        cfg["TTS settings"] = {
-            "tts_engine_chosen": "glm_asr_local",
-            "dashscope_api_key": "",
-            "default_voice": "longxiaochun_v2",
-            "default_model": "cosyvoice-v2",
-            "request_timeout": "30",
-            "max_retries": "5",
-            "enable_checkpointing": "true",
-            "checkpoint_interval": "10",
-            "time_stretch_algorithm": "librosa",
-            "time_stretch_quality": "high",
-            "max_compression_ratio": "2.0",
-        }
-        cfg["OSS Service"] = {
-            "oss_access_key_id": "",
-            "oss_access_key_secret": "",
-            "oss_endpoint": "oss-cn-beijing.aliyuncs.com",
-            "oss_bucket": "vidgo-test",
-            "oss_region": "cn-beijing",
-        }
         with open(SETTINGS_FILE, "w") as fp:
             cfg.write(fp)
 
@@ -180,52 +161,27 @@ def load_all_settings():
                         dst_key,
                         cfg.get("DEFAULT", src_key, fallback=""),
                     )
-    # Auto-migrate: add stream_download_proxy to Media Credentials
-    if cfg.has_section("Media Credentials") and not cfg.has_option(
-        "Media Credentials", "stream_download_proxy"
-    ):
-        cfg.set("Media Credentials", "stream_download_proxy", "")
-        modified = True
+    # Auto-migrate: stream_download_proxy → proxy_url + download_use_proxy
+    if cfg.has_section("Media Credentials"):
+        if cfg.has_option("Media Credentials", "stream_download_proxy"):
+            old_proxy = cfg.get("Media Credentials", "stream_download_proxy").strip()
+            if old_proxy and not cfg.has_option("Media Credentials", "proxy_url"):
+                cfg.set("Media Credentials", "proxy_url", old_proxy)
+                cfg.set("Media Credentials", "download_use_proxy", "true")
+            cfg.remove_option("Media Credentials", "stream_download_proxy")
+            modified = True
+        if not cfg.has_option("Media Credentials", "proxy_url"):
+            cfg.set("Media Credentials", "proxy_url", "")
+            modified = True
+        if not cfg.has_option("Media Credentials", "download_use_proxy"):
+            cfg.set("Media Credentials", "download_use_proxy", "false")
+            modified = True
 
     # Auto-migrate: add default_translate_lang to Video watch
     if cfg.has_section("Video watch") and not cfg.has_option(
         "Video watch", "default_translate_lang"
     ):
         cfg.set("Video watch", "default_translate_lang", "zh")
-        modified = True
-
-    # Auto-migrate: add tts_engine_chosen to TTS settings
-    if cfg.has_section("TTS settings") and not cfg.has_option(
-        "TTS settings", "tts_engine_chosen"
-    ):
-        cfg.set("TTS settings", "tts_engine_chosen", "glm_asr_local")
-        modified = True
-
-    # Check for TTS settings section
-    if not cfg.has_section("TTS settings"):
-        cfg["TTS settings"] = {
-            "dashscope_api_key": "",
-            "default_voice": "longxiaochun_v2",
-            "default_model": "cosyvoice-v2",
-            "request_timeout": "30",
-            "max_retries": "5",
-            "enable_checkpointing": "true",
-            "checkpoint_interval": "10",
-            "time_stretch_algorithm": "librosa",
-            "time_stretch_quality": "high",
-            "max_compression_ratio": "2.0",
-        }
-        modified = True
-
-    # Check for OSS settings section
-    if not cfg.has_section("OSS Service"):
-        cfg["OSS Service"] = {
-            "oss_access_key_id": "",
-            "oss_access_key_secret": "",
-            "oss_endpoint": "oss-cn-beijing.aliyuncs.com",
-            "oss_bucket": "vidgo-test",
-            "oss_region": "cn-beijing",
-        }
         modified = True
 
     # Save config if sections were added
