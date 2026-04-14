@@ -184,7 +184,8 @@ export interface ConfigData {
   }
   'Media Credentials': {
     bilibili_sessdata: string
-    stream_download_proxy: string
+    proxy_url: string
+    download_use_proxy: string
   }
   'Transcription Engine': {
     primary_engine: string
@@ -202,17 +203,6 @@ export interface ConfigData {
     host: string
     port: string
     use_ssl: string
-  }
-  'OSS Service': {
-    oss_access_key_id: string
-    oss_access_key_secret: string
-    oss_endpoint: string
-    oss_bucket: string
-    oss_region: string
-  }
-  'TTS settings': {
-    tts_engine_chosen: string
-    dashscope_api_key: string
   }
 }
 
@@ -287,7 +277,8 @@ export interface FrontendSettings {
   foreignBackgroundStyle: 'none' | 'solid' | 'semi-transparent'
   foreignBottomDistance: number
   bilibiliSessData: string
-  streamDownloadProxy: string
+  proxyUrl: string
+  downloadUseProxy: boolean
   // Transcription Engine settings
   transcriptionPrimaryEngine: string
   fwsrModel: string
@@ -303,14 +294,6 @@ export interface FrontendSettings {
   remoteVidGoHost: string
   remoteVidGoPort: string
   remoteVidGoUseSsl: boolean
-  // OSS Service settings
-  ossAccessKeyId: string
-  ossAccessKeySecret: string
-  ossEndpoint: string
-  ossBucket: string
-  ossRegion: string
-  ttsEngineChosen: string
-  dashscopeApiKey: string
 }
 
 export async function loadConfig(): Promise<FrontendSettings> {
@@ -429,7 +412,8 @@ export async function loadConfig(): Promise<FrontendSettings> {
         data['Foreign Subtitle settings']?.foreign_bottom_distance || '120',
       ),
       bilibiliSessData: data['Media Credentials']?.bilibili_sessdata || '',
-      streamDownloadProxy: data['Media Credentials']?.stream_download_proxy || '',
+      proxyUrl: data['Media Credentials']?.proxy_url || '',
+      downloadUseProxy: data['Media Credentials']?.download_use_proxy === 'true',
       // Transcription Engine settings
       transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'faster_whisper',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
@@ -447,15 +431,6 @@ export async function loadConfig(): Promise<FrontendSettings> {
       remoteVidGoHost: data['Remote VidGo Service']?.host || '',
       remoteVidGoPort: data['Remote VidGo Service']?.port || '8000',
       remoteVidGoUseSsl: data['Remote VidGo Service']?.use_ssl === 'true',
-      // OSS Service settings
-      ossAccessKeyId: data['OSS Service']?.oss_access_key_id ?? '',
-      ossAccessKeySecret: data['OSS Service']?.oss_access_key_secret ?? '',
-      ossEndpoint: data['OSS Service']?.oss_endpoint ?? '',
-      ossBucket: data['OSS Service']?.oss_bucket ?? '',
-      ossRegion: data['OSS Service']?.oss_region ?? '',
-      // TTS settings
-      ttsEngineChosen: data['TTS settings']?.tts_engine_chosen || 'glm_asr_local',
-      dashscopeApiKey: data['TTS settings']?.dashscope_api_key ?? '',
     }
   } catch (error) {
     console.error('Error loading config:', error)
@@ -542,7 +517,8 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
       },
       'Media Credentials': {
         bilibili_sessdata: settings.bilibiliSessData,
-        stream_download_proxy: settings.streamDownloadProxy,
+        proxy_url: settings.proxyUrl,
+        download_use_proxy: settings.downloadUseProxy.toString(),
       },
       'Transcription Engine': {
         primary_engine: settings.transcriptionPrimaryEngine,
@@ -560,17 +536,6 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         host: settings.remoteVidGoHost,
         port: settings.remoteVidGoPort,
         use_ssl: settings.remoteVidGoUseSsl.toString(),
-      },
-      'OSS Service': {
-        oss_access_key_id: settings.ossAccessKeyId,
-        oss_access_key_secret: settings.ossAccessKeySecret,
-        oss_endpoint: settings.ossEndpoint,
-        oss_bucket: settings.ossBucket,
-        oss_region: settings.ossRegion,
-      },
-      'TTS settings': {
-        tts_engine_chosen: settings.ttsEngineChosen,
-        dashscope_api_key: settings.dashscopeApiKey,
       },
     }
 
