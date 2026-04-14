@@ -115,9 +115,22 @@ class Video(models.Model):
         help_text="视频标签",
     )
 
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        blank=True,
+        null=True,
+        help_text="视频加入 VidGo 项目的时间",
+    )
+
     last_modified = models.DateTimeField(
         verbose_name="最后打开时间",
         default=timezone.now,
+    )
+
+    content_updated_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="字幕/笔记最近修改时间",
     )
 
     last_played_time = models.FloatField(
