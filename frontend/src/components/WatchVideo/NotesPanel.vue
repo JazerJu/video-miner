@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { markdownToHtml, processMarkdownContent } from '@/composables/ConvertMarkdown'
 import { NotesAPI } from '@/composables/NotesAPI'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { useI18n } from 'vue-i18n'
 
 import { BACKEND } from '@/composables/ConfigAPI'

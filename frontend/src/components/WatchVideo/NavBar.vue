@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
-import { ElMessage, ElTooltip } from 'element-plus'
+import { ElTooltip } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { useRouter, useRoute } from 'vue-router'
 import { FilePen, Video, Settings } from 'lucide-vue-next'
 import { useUser } from '@/composables/useUser'

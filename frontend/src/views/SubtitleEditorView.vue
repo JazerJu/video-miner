@@ -36,22 +36,23 @@
 
         <!-- 波形查看器 -->
         <div
-          ref="waveformContainerRef"
-          class="flex-[1] p-4 border border-slate-600/50 bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl shadow-2xl min-w-0"
+          class="flex-none px-2 py-1 border border-slate-600/50 bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-lg shadow-2xl min-w-0"
         >
           <WaveformViewer
             v-if="waveformReady"
-            :subtitles="subtitles"
+            :raw-subtitles="rawSubtitles"
+            :foreign-subtitles="foreignSubtitles"
             :video-id="videoData.id"
             :video-url="videoSrc"
             :blobUrls="blobUrls"
             :current-time="currentTime"
             :duration="duration"
-            :show-regions="showRegions"
+            :show-raw-track="showRawTrack"
+            :show-foreign-track="showForeignTrack"
             :height="waveformHeight"
             @seek="handleSeekFromWaveform"
-            @update:show-regions="showRegions = $event"
-            @subtitle-updated="handleSubtitleUpdated"
+            @update:show-raw-track="showRawTrack = $event"
+            @update:show-foreign-track="showForeignTrack = $event"
           />
         </div>
       </div>
@@ -83,7 +84,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Subtitle } from '@/types/subtitle'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { blobUrls } from '@/composables/Buildvtt'
 import type { VideoInfoData } from '@/types/media.d.ts'
 import { getVideoInfo } from '@/composables/GetVideoInfo'
@@ -95,15 +96,18 @@ import VideoPlayer from '@/components/WatchVideo/VideoPlayer.vue'
 import SubtitleEditor from '@/components/Editor/SubtitleEditor.vue'
 import WaveformViewer from '@/components/Editor/WaveformViewer.vue'
 
-const subtitles = ref<Subtitle[]>([]) // 存真正的字幕数组
-const waveformContainerRef = ref<HTMLDivElement>()
-const waveformHeight = ref(200) // 默认高度
-let waveformResizeObserver: ResizeObserver | null = null
+const subtitles = ref<Subtitle[]>([]) // 存真正的字幕数组（兼容旧逻辑）
+const rawSubtitles = ref<Subtitle[]>([]) // 原文字幕
+const foreignSubtitles = ref<Subtitle[]>([]) // 译文字幕
+const showRawTrack = ref(true)
+const showForeignTrack = ref(true)
+const waveformHeight = ref(32)
 
-function subsLoad(raw: Subtitle[]) {
-  // 注意 raw 是数组
-  console.log('subtitles accepted by editor:', raw)
+function subsLoad(raw: Subtitle[], foreign: Subtitle[]) {
+  console.log('subtitles accepted by editor:', raw.length, 'raw,', foreign.length, 'foreign')
   subtitles.value = raw
+  rawSubtitles.value = raw
+  foreignSubtitles.value = foreign
 }
 
 const defaultVideoInfo: VideoInfoData = {
@@ -164,7 +168,6 @@ function handleTimeUpdate(t: number) {
 
 const videoData = ref<VideoInfoData>(defaultVideoInfo)
 
-const showRegions = ref(true) // 控制波形区域可见性
 const videoId = ref(-1)
 
 // 字幕样式现在通过 useSubtitleStyle 从首页设置中加载
@@ -174,24 +177,6 @@ function handleSeekFromSubs(t: number) {
   // 点击对应位置的字幕,视频自动跳转到对应时间.
   currentTime.value = t
   playerRef.value?.seek(t) // ← ② 跳转播放器至对应时间
-}
-
-function handleSubtitleUpdated(index: number, newStart: number, newEnd: number) {
-// 拖动波形区域时更新字幕数据
-  if (subtitles.value[index]) {
-    subtitles.value[index].start = newStart
-    subtitles.value[index].end = newEnd
-
-    // 强制触发响应式更新
-    subtitles.value = [...subtitles.value]
-
-    // 同时更新字幕编辑器内部数据
-    if (subtitleEditorRef.value && 'updateSubtitleTiming' in subtitleEditorRef.value) {
-      ;(subtitleEditorRef.value as any).updateSubtitleTiming(index, newStart, newEnd)
-    }
-
-    console.log(`Subtitle ${index} updated: ${newStart}s - ${newEnd}s`)
-  }
 }
 
 const duration = ref(0)
@@ -268,29 +253,7 @@ onMounted(async () => {
     raw: subtitleSettings.value,
     foreign: foreignSubtitleSettings.value
   })
-
-  // 设置波形容器的 ResizeObserver
-  if (waveformContainerRef.value) {
-    waveformResizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { height } = entry.contentRect
-        // 计算波形高度，并考虑内边距调整
-        const newHeight = Math.max(150, height - 80) // 更保守的内边距调整，以适应头部和边距
-        // 仅在变化显著时更新，防止循环反馈
-        if (Math.abs(newHeight - waveformHeight.value) > 10) {
-          console.log('Updating waveform height from', waveformHeight.value, 'to', newHeight)
-          waveformHeight.value = newHeight
-        }
-      }
-    })
-    waveformResizeObserver.observe(waveformContainerRef.value)
-  }
 })
 
-onBeforeUnmount(() => {
-  if (waveformResizeObserver) {
-    waveformResizeObserver.disconnect()
-    waveformResizeObserver = null
-  }
-})
+onBeforeUnmount(() => {})
 </script>

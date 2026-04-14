@@ -1,5 +1,6 @@
 // 笔记API
 import { getCSRFToken } from './GetCSRFToken'
+import { markVideoDirty } from './useVideoDirtyState'
 
 import { BACKEND } from '@/composables/ConfigAPI'
 
@@ -27,6 +28,7 @@ export class NotesAPI {
           'Content-Type': 'application/json',
           'X-CSRFToken': csrfToken,
         },
+        credentials: 'include',
         body: JSON.stringify({ notes }),
       })
 
@@ -39,6 +41,7 @@ export class NotesAPI {
 
       if (data.success) {
         console.log('Notes saved successfully')
+        markVideoDirty(videoId)
         return true
       } else {
         throw new Error(data.error || 'Failed to save notes')

@@ -262,11 +262,16 @@ class DownloadActionView(View):
         # 2. 初始化任务状态
         with download_status_lock:
             download_status[task_id] = {
+                **_new_download_status(),
                 "video_id": video_id, # youtube的video_id,例如q_sQUK418mM
                 "title": filename,
                 "url": url,
                 "platform": "youtube",
-                **_new_download_status(),
+                "stage_weights": {
+                    "video": 1.0,
+                    "audio": 0.0,
+                    "merge": 0.0,
+                },
             }
 
         print(f"YouTube download task created: {task_id}, {filename}")
@@ -286,11 +291,16 @@ class DownloadActionView(View):
         # 2. 初始化任务状态
         with download_status_lock:
             download_status[task_id] = {
+                **_new_download_status(),
                 "episode_id": episode_id,  # Apple podcast的episode id
                 "title": filename,
                 "url": url,
                 "platform": "apple_podcast",
-                **_new_download_status(),
+                "stage_weights": {
+                    "video": 1.0,
+                    "audio": 0.0,
+                    "merge": 0.0,
+                },
             }
 
         print(f"Apple Podcast download task created: {task_id}, {filename}")
@@ -302,13 +312,11 @@ class DownloadActionView(View):
 
 class DownloadStatusView(View):
     def get(self, request, task_id):
-        task = download_status.get(int(task_id))
+        task = download_status.get(task_id)
         if not task:
             return JsonResponse({"error": "Task not found"}, status=404)
         return JsonResponse({
-            "status": task.status,
-            "progress": task.progress,
-            "video_id": task.video_id
+            "status": task,
         })
 
 class AllDownloadStatusView(View):
@@ -345,8 +353,13 @@ class RetryDownloadTaskView(View):
                 "video":  "Queued",
                 "audio": "Queued",
                 "merge": "Queued",
-                "convert": "Queued"
             }
+            new_status["stage_progress"] = {
+                "video": 0,
+                "audio": 0,
+                "merge": 0,
+            }
+            new_status["total_progress"] = 0
             # 覆写回 download_status 同一个 key
             download_status[old_id] = new_status
         download_queue.put(old_id)

@@ -17,6 +17,7 @@ const router = useRouter()
 
 const similarVideos = ref<SimilarVideoResponse[]>([])
 const isLoading = ref(false)
+const showThumbnails = ref(true)
 
 const loadSimilarVideos = async () => {
   if (props.currentVideoId === -1) {
@@ -104,18 +105,41 @@ defineExpose({
 })
 
 onMounted(() => {
+  try {
+    const saved = localStorage.getItem('vidgo_playlist_show_thumbnails')
+    if (saved !== null) {
+      showThumbnails.value = saved === 'true'
+    }
+  } catch (error) {
+    console.error('Failed to restore playlist thumbnail preference:', error)
+  }
   loadSimilarVideos()
 })
 
 watch(() => props.currentVideoId, () => {
   loadSimilarVideos()
 })
+
+watch(showThumbnails, (nextValue) => {
+  try {
+    localStorage.setItem('vidgo_playlist_show_thumbnails', String(nextValue))
+  } catch (error) {
+    console.error('Failed to persist playlist thumbnail preference:', error)
+  }
+})
 </script>
 <template>
   <div class="bg-slate-800/30 rounded-2xl p-6 backdrop-blur-lg border border-slate-600/30">
-    <h2 class="text-xl font-semibold text-white mb-6">
-      {{ t('collectionPlaylist') }}
-    </h2>
+    <div class="mb-6 flex items-center justify-between gap-4">
+      <h2 class="text-xl font-semibold text-white">
+        {{ t('collectionPlaylist') }}
+      </h2>
+
+      <label class="flex items-center gap-2 text-sm text-slate-300">
+        <span>展示缩略图</span>
+        <el-switch v-model="showThumbnails" inline-prompt class="playlist-thumbnail-toggle" />
+      </label>
+    </div>
 
     <div v-if="isLoading" class="text-center py-8">
       <div class="text-slate-400">{{ t('loadingVideoInfo') }}</div>
@@ -146,14 +170,18 @@ watch(() => props.currentVideoId, () => {
         :key="video.id"
         @click="switchVideo(video)"
         :class="[
-          'flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200',
+          'flex items-center rounded-xl cursor-pointer transition-all duration-200',
+          showThumbnails ? 'gap-3 p-3' : 'gap-2.5 px-3 py-2.5',
           'hover:bg-slate-700/50',
           isCurrentVideo(video)
             ? 'bg-blue-600/30 ring-2 ring-blue-500/50'
             : 'bg-slate-700/20',
         ]"
       >
-        <div class="relative w-32 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-slate-800">
+        <div
+          v-if="showThumbnails"
+          class="relative h-20 w-32 flex-shrink-0 overflow-hidden rounded-lg bg-slate-800"
+        >
           <img
             v-if="getThumbnailUrl(video)"
             :src="getThumbnailUrl(video)"
@@ -180,12 +208,15 @@ watch(() => props.currentVideoId, () => {
 
         <div class="flex-1 min-w-0">
           <div
-            class="text-sm font-medium text-white truncate"
-            :class="{ 'text-blue-400': isCurrentVideo(video) }"
+            :class="[
+              'truncate font-medium',
+              showThumbnails ? 'text-sm' : 'text-[0.95rem]',
+              isCurrentVideo(video) ? 'text-blue-400' : 'text-white',
+            ]"
           >
             {{ video.name }}
           </div>
-          <div class="text-xs text-slate-400 mt-1">
+          <div class="mt-1 text-slate-400" :class="showThumbnails ? 'text-xs' : 'text-[0.8rem]'">
             {{ video.video_length || '时长未知' }}
           </div>
         </div>
@@ -209,6 +240,11 @@ watch(() => props.currentVideoId, () => {
 </template>
 
 <style scoped>
+.playlist-thumbnail-toggle {
+  --el-switch-on-color: #0891b2;
+  --el-switch-off-color: #334155;
+}
+
 /* Custom scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;

@@ -62,7 +62,11 @@ const basename = basenameRaw?.replace(/\.$/, '') || ''
 const fileName = ref(`${basename}.${ext?.toLowerCase() || ''}`)
 
 // const isVideo = /^(mp4|webm|mkv)$/.test(ext?.toLowerCase() || '')
-const isAudio = /^(m4a|mp3|wav|aac|flac|alac)$/.test(ext?.toLowerCase() || '')
+// Make isAudio reactive to fileName changes (fixes stale media type on route change)
+const isAudio = computed(() => {
+  const fileExt = fileName.value.split('.').pop()?.toLowerCase() || ''
+  return /^(m4a|mp3|wav|aac|flac|alac)$/.test(fileExt)
+})
 
 // i18n functionality
 const { t } = useI18n()
@@ -106,7 +110,7 @@ const videoSrc = computed(() => {
     const filename = fileName.value.replace(/\.[^/.]+$/, '') // Remove extension
     return `${BACKEND}/media/stream_video/${filename}/index.m3u8`
   }
-  const mediaType = isAudio ? 'audio' : 'video'
+  const mediaType = isAudio.value ? 'audio' : 'video'
   const src = `${BACKEND}/media/${mediaType}/${fileName.value}`
   console.log('videoSrc updated:', src)
   return src
@@ -120,6 +124,7 @@ const isAutoPlayEnabled = ref(false)
 const duration = ref(0)
 const currentTime = ref(0)
 const videoProgress = computed(() => (duration.value ? currentTime.value / duration.value : 0))
+const pendingResumeTime = ref<number | null>(null)
 
 function handleTimeUpdate(t: number) {
   currentTime.value = t
@@ -142,25 +147,41 @@ const saveProgress = async () => {
 
   try {
     const csrf = await getCSRFToken()
-    await fetch(`${BACKEND}/api/videos/${videoData.value.id}/update_progress`, {
+    const response = await fetch(`${BACKEND}/api/videos/${videoData.value.id}/update_progress`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': csrf,
       },
+      credentials: 'include',
       body: JSON.stringify({ time: currentTime.value }),
     })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+    }
     console.log('Progress saved:', currentTime.value)
   } catch (err) {
     console.error('Failed to save progress:', err)
   }
 }
 
-// Function to load video data
-async function loadVideoData(filename: string) {
+// Navigation guard: prevents stale loadVideoData from overwriting newer data
+// when user switches videos rapidly (A → B, if A finishes after B, discard A)
+let navigationId = 0
+
+// Function to load video data.
+// Accepts expectedNavId so that if a newer navigation happened while awaiting,
+// we skip the state mutation entirely (prevents stale data from overwriting newer data).
+async function loadVideoData(filename: string, expectedNavId?: number) {
   try {
     console.log('Loading video data for:', filename)
     const data = await getVideoInfo(filename)
+
+    // Guard: if another navigation started while we were fetching, discard
+    if (expectedNavId !== undefined && expectedNavId !== navigationId) {
+      console.log('Stale loadVideoData detected, skipping for', filename)
+      return
+    }
 
     // Ensure description is never null
     videoData.value = {
@@ -172,11 +193,13 @@ async function loadVideoData(filename: string) {
     console.log('Video rawLang:', videoData.value.rawLang)
 
     duration.value = hhmmssToSeconds(videoData.value.videoLength)
+    pendingResumeTime.value = null
 
     // Resume from last played time if available
     if (data.last_played_time && data.last_played_time > 0) {
        console.log('Resuming from last played time:', data.last_played_time)
        currentTime.value = data.last_played_time
+       pendingResumeTime.value = data.last_played_time
     }
 
     // Update browser tab title - check if name is not the default
@@ -191,11 +214,13 @@ async function loadVideoData(filename: string) {
     }
   } catch (error) {
     console.error('Failed to load video info:', error)
-    // Set default video data
-    videoData.value = { ...defaultVideoInfo }
-    // Fallback to filename without extension
-    const nameFromFile = filename.replace(/\.[^/.]+$/, '')
-    document.title = `${nameFromFile} - VidGo`
+    // Only set default if this navigation is still current
+    if (expectedNavId === undefined || expectedNavId === navigationId) {
+      videoData.value = { ...defaultVideoInfo }
+      // Fallback to filename without extension
+      const nameFromFile = filename.replace(/\.[^/.]+$/, '')
+      document.title = `${nameFromFile} - VidGo`
+    }
   }
 }
 
@@ -218,13 +243,23 @@ watch(
     if (newFileName !== oldFileName && newFileName !== '.') {
       console.log('Route changed from', oldFileName, 'to', newFileName)
 
+      // Increment navigation ID to invalidate any in-flight loads
+      const currentNavigationId = ++navigationId
+
       // Update fileName to trigger videoSrc update
       fileName.value = newFileName
 
       currentTime.value = 0
       duration.value = 0
+      pendingResumeTime.value = null
       videoData.value = { ...defaultVideoInfo }
-      await loadVideoData(newFileName)
+      await loadVideoData(newFileName, currentNavigationId)
+
+      // Discard result if a newer navigation started while we were loading
+      if (currentNavigationId !== navigationId) {
+        console.log('Stale navigation detected, discarding result for', newFileName)
+        return
+      }
 
       // Handle time jumping after loading new video
       nextTick(() => {
@@ -243,6 +278,17 @@ watch(currentTime, (newVal) => {
     playerRef.value?.seek(newVal)
   }
 })
+
+function handlePlayerReady() {
+  const targetTime = pendingResumeTime.value ?? currentTime.value
+  if (!targetTime || targetTime <= 0) return
+
+  setTimeout(() => {
+    playerRef.value?.seek(targetTime)
+  }, 50)
+
+  pendingResumeTime.value = null
+}
 
 function handlePlayPauseToggle() {
   if (!playerRef.value) return
@@ -553,6 +599,7 @@ onMounted(() => {
                 @autoplay-next="handleAutoPlayNext"
                 @autoplay-settings-changed="handleAutoPlaySettingsChanged"
                 @fullscreen-change="handleFullscreenChange"
+                @ready="handlePlayerReady"
                 class="w-full h-full"
               />
             </div>

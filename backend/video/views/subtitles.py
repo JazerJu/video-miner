@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404,render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 from urllib.parse import unquote
 import json,copy 
 import os
@@ -32,6 +33,11 @@ def _new_subtitle_task():
             "transcribe": 0.40,
             "optimize": 0.30,
             "translate": 0.30,
+        },
+        "stage_detail": {
+            "transcribe": "",
+            "optimize": "",
+            "translate": "",
         },
         "total_progress": 0,
         "optimize_total_chunks": 0,
@@ -102,7 +108,8 @@ class SubtitleActionView(View):
             
             # 更新数据库记录
             video.srt_path = file_name
-            video.save()
+            video.content_updated_at = timezone.now()
+            video.save(update_fields=["srt_path", "content_updated_at"])
             
             # logger.info(f"Updated subtitles for video {video_id}")
             return JsonResponse({
@@ -216,20 +223,30 @@ class SubtitleGenerationTaskView(View):
 
         # 深拷贝旧状态，避免并发污染
         new_status = copy.deepcopy(old)
-        # 重置各阶段
-        new_status["finished"] = False
-        new_status["stages"] = {
-            "transcribe":  "Queued",
-            "optimize": "Queued",
-            "traslate": "Queued"
-        }
-        # 重置进度信息
-        new_status["stage_progress"] = {
-            "transcribe": 0,
-            "optimize": 0,
-            "translate": 0,
-        }
-        new_status["total_progress"] = 0
+        if new_status.get("translation_only"):
+            new_status["stages"] = {
+                "transcribe": "Skipped",
+                "optimize": "Skipped",
+                "translate": "Queued",
+            }
+            new_status["stage_progress"] = {
+                "transcribe": 100,
+                "optimize": 100,
+                "translate": 0,
+            }
+            new_status["total_progress"] = 70
+        else:
+            new_status["stages"] = {
+                "transcribe": "Queued",
+                "optimize": "Queued",
+                "translate": "Queued",
+            }
+            new_status["stage_progress"] = {
+                "transcribe": 0,
+                "optimize": 0,
+                "translate": 0,
+            }
+            new_status["total_progress"] = 0
         new_status["stage_detail"] = {
             "transcribe": "",
             "optimize": "",

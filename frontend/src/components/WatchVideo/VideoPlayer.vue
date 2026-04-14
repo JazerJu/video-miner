@@ -22,6 +22,9 @@ const props = defineProps<{
   rawLang?: string // Original language of the video (e.g., 'en', 'zh')
   videoName?: string // Original video filename for URL construction
   showChapterMarkers?: boolean // Control chapter marker visibility
+  sourceType?: 'file' | 'hls'
+  audioSrc?: string
+  audioSourceType?: 'file' | 'hls'
 }>()
 
 const dubbingLang = ref<string | null>(null)
@@ -89,6 +92,7 @@ const emit = defineEmits<{
   (e: 'autoplay-settings-changed', enabled: boolean): void
   (e: 'fullscreen-change', isFullscreen: boolean): void
   (e: 'open-subtitle-settings'): void
+  (e: 'ready'): void
 }>()
 
 const handleDubbingChange = (command: string | null) => {
@@ -355,9 +359,16 @@ function getVideoSources(url: string): Array<{ src: string; type: string }> {
   const sources = []
   const av1Supported = supportsAV1()
   const hevcSupported = supportsHEVC()
+  const isRemoteHttpSource = /^https?:\/\//i.test(url)
 
   console.log(`[VideoPlayer] Codec Support - AV1: ${av1Supported}, HEVC: ${hevcSupported}`)
   console.log(`[VideoPlayer] File MIME type: ${baseMimeType}`)
+
+  if (isRemoteHttpSource) {
+    const remoteSources = [{ src: url, type: baseMimeType }, { src: url, type: 'video/mp4' }]
+    console.log('[VideoPlayer] Using direct remote sources:', remoteSources)
+    return remoteSources
+  }
 
   // Always try the file as-is first (let the browser decide the best codec)
   sources.push({ src: url, type: baseMimeType })
@@ -457,6 +468,210 @@ const hotkeyHintText = ref('')
 
 let player: Player | null = null
 const videoEl = ref<HTMLVideoElement | null>(null) // <- THE ONLY REF
+const audioEl = ref<HTMLAudioElement | null>(null)
+let hlsInstance: any = null
+let audioHlsInstance: any = null
+let separateAudioCleanup: (() => void) | null = null
+
+function destroyHlsInstance() {
+  if (hlsInstance) {
+    hlsInstance.destroy()
+    hlsInstance = null
+  }
+}
+
+function destroyAudioHlsInstance() {
+  if (audioHlsInstance) {
+    audioHlsInstance.destroy()
+    audioHlsInstance = null
+  }
+}
+
+function resetSeparateAudioElement() {
+  if (!audioEl.value) return
+  audioEl.value.pause()
+  audioEl.value.removeAttribute('src')
+  audioEl.value.load()
+}
+
+async function loadSeparateAudioSource(src?: string, sourceType: 'file' | 'hls' = 'file') {
+  destroyAudioHlsInstance()
+  resetSeparateAudioElement()
+
+  if (!audioEl.value || !src) return
+
+  if (sourceType === 'hls') {
+    const { default: Hls } = await import('hls.js')
+
+    if (!audioEl.value) return
+
+    if (Hls.isSupported()) {
+      const hls = new Hls()
+      hls.loadSource(src)
+      hls.attachMedia(audioEl.value)
+      audioHlsInstance = hls
+      return
+    }
+
+    if (audioEl.value.canPlayType('application/vnd.apple.mpegurl')) {
+      audioEl.value.src = src
+      audioEl.value.load()
+      return
+    }
+  }
+
+  audioEl.value.src = src
+  audioEl.value.load()
+}
+
+function syncSeparateAudioSettings() {
+  if (!player || !audioEl.value || !props.audioSrc) return
+
+  audioEl.value.volume = player.volume() ?? 1
+  audioEl.value.muted = player.muted() ?? false
+  audioEl.value.playbackRate = player.playbackRate() ?? 1
+}
+
+function syncSeparateAudioCurrentTime(force = false) {
+  if (!player || !audioEl.value || !props.audioSrc) return
+
+  const nextTime = player.currentTime()
+  if (typeof nextTime !== 'number' || Number.isNaN(nextTime)) return
+
+  if (force || Math.abs(audioEl.value.currentTime - nextTime) > 0.2) {
+    try {
+      audioEl.value.currentTime = nextTime
+    } catch {
+      // Ignore sync errors before audio metadata is ready.
+    }
+  }
+}
+
+function syncSeparateAudioState(forceSeek = false) {
+  syncSeparateAudioSettings()
+  syncSeparateAudioCurrentTime(forceSeek)
+}
+
+async function playSeparateAudio(forceSeek = false) {
+  if (!player || !audioEl.value || !props.audioSrc) return
+
+  syncSeparateAudioState(forceSeek)
+
+  if (player.paused()) return
+
+  try {
+    await audioEl.value.play()
+  } catch (error) {
+    console.error('[VideoPlayer] Separate audio play failed:', error)
+  }
+}
+
+function pauseSeparateAudio() {
+  audioEl.value?.pause()
+}
+
+function setupSeparateAudioSync() {
+  if (!player) return
+
+  const handlePlay = () => {
+    void playSeparateAudio(true)
+  }
+  const handlePause = () => {
+    pauseSeparateAudio()
+  }
+  const handleSeeking = () => {
+    syncSeparateAudioState(true)
+  }
+  const handleSeeked = () => {
+    if (player?.paused()) {
+      syncSeparateAudioState(true)
+      return
+    }
+
+    void playSeparateAudio(true)
+  }
+  const handlePlaying = () => {
+    void playSeparateAudio(true)
+  }
+  const handleWaiting = () => {
+    pauseSeparateAudio()
+  }
+  const handleVolumeChange = () => {
+    syncSeparateAudioSettings()
+  }
+  const handleRateChange = () => {
+    syncSeparateAudioSettings()
+  }
+  const handleTimeUpdate = () => {
+    if (!player || !audioEl.value || !props.audioSrc) return
+
+    syncSeparateAudioCurrentTime(false)
+
+    if (!player.paused() && audioEl.value.paused) {
+      void playSeparateAudio(false)
+    }
+  }
+  const handleEnded = () => {
+    pauseSeparateAudio()
+  }
+  const handleLoadedMetadata = () => {
+    syncSeparateAudioState(true)
+    if (!player?.paused()) {
+      void playSeparateAudio(true)
+    }
+  }
+
+  player.on('play', handlePlay)
+  player.on('playing', handlePlaying)
+  player.on('pause', handlePause)
+  player.on('waiting', handleWaiting)
+  player.on('seeking', handleSeeking)
+  player.on('seeked', handleSeeked)
+  player.on('volumechange', handleVolumeChange)
+  player.on('ratechange', handleRateChange)
+  player.on('timeupdate', handleTimeUpdate)
+  player.on('ended', handleEnded)
+
+  audioEl.value?.addEventListener('loadedmetadata', handleLoadedMetadata)
+
+  separateAudioCleanup = () => {
+    if (!player) return
+    player.off('play', handlePlay)
+    player.off('playing', handlePlaying)
+    player.off('pause', handlePause)
+    player.off('waiting', handleWaiting)
+    player.off('seeking', handleSeeking)
+    player.off('seeked', handleSeeked)
+    player.off('volumechange', handleVolumeChange)
+    player.off('ratechange', handleRateChange)
+    player.off('timeupdate', handleTimeUpdate)
+    player.off('ended', handleEnded)
+    audioEl.value?.removeEventListener('loadedmetadata', handleLoadedMetadata)
+  }
+}
+
+function loadHlsSource(src: string) {
+  if (!player || !videoEl.value) return
+
+  destroyHlsInstance()
+
+  import('hls.js').then(({ default: Hls }) => {
+    if (!player || !videoEl.value) return
+
+    if (Hls.isSupported()) {
+      const hls = new Hls()
+      hls.loadSource(src)
+      hls.attachMedia(videoEl.value)
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        playerReady.value = true
+      })
+      hlsInstance = hls
+    } else if (videoEl.value?.canPlayType('application/vnd.apple.mpegurl')) {
+      player.src({ src, type: 'application/x-mpegURL' })
+      playerReady.value = true
+    }
+  })
+}
 
 defineExpose({
   seek: (t: number) => player?.currentTime(t),
@@ -924,9 +1139,17 @@ onMounted(async () => {
     },
   })
 
-  // Init source + tracks with multiple codec support
-  const sources = getVideoSources(props.src)
-  player.src(sources)
+  if (props.sourceType === 'hls') {
+    loadHlsSource(props.src)
+  } else {
+    destroyHlsInstance()
+    const sources = getVideoSources(props.src)
+    player.src(sources)
+  }
+
+  await loadSeparateAudioSource(props.audioSrc, props.audioSourceType ?? 'file')
+  setupSeparateAudioSync()
+  syncSeparateAudioState(true)
 
   // Add error handling for source loading
   let errorRetryCount = 0
@@ -942,7 +1165,7 @@ onMounted(async () => {
         retryCount: errorRetryCount
       })
       
-      if (playerError.code === 4 && errorRetryCount < maxRetries) {
+      if (props.sourceType !== 'hls' && playerError.code === 4 && errorRetryCount < maxRetries) {
         errorRetryCount++
         console.log(`[VideoPlayer] Attempting source recovery ${errorRetryCount}/${maxRetries}`)
         
@@ -972,7 +1195,7 @@ onMounted(async () => {
           console.log('[VideoPlayer] Trying fallback sources:', fallbackSources)
           player?.src(fallbackSources)
         }
-      } else if (playerError.code === 4 && errorRetryCount >= maxRetries) {
+      } else if (props.sourceType !== 'hls' && playerError.code === 4 && errorRetryCount >= maxRetries) {
         console.error('[VideoPlayer] All source recovery attempts failed')
         showMediaError('这个视频文件无法播放。可能是编码格式不被浏览器支持，或文件已损坏。')
       }
@@ -985,6 +1208,7 @@ onMounted(async () => {
 
   player.on('canplay', () => {
     console.log('[VideoPlayer] Video can play - codec supported!')
+    emit('ready')
   })
 
   player.on('timeupdate', () => {
@@ -1006,6 +1230,7 @@ onMounted(async () => {
   })
 
   player.ready(() => {
+    emit('ready')
     setTimeout(() => {
       addChapterMarkers()
     }, 100)
@@ -1132,9 +1357,29 @@ watch(
 watch(
   () => props.src,
   async (src) => {
-    const sources = getVideoSources(src)
-    player?.src(sources)
+    if (props.sourceType === 'hls') {
+      loadHlsSource(src)
+    } else {
+      destroyHlsInstance()
+      const sources = getVideoSources(src)
+      player?.src(sources)
+    }
     await checkFiles()
+  },
+)
+watch(
+  () => [props.audioSrc, props.audioSourceType] as const,
+  async ([src, sourceType]) => {
+    await loadSeparateAudioSource(src, sourceType ?? 'file')
+
+    if (!src) return
+
+    if (player?.paused()) {
+      syncSeparateAudioState(true)
+      return
+    }
+
+    void playSeparateAudio(true)
   },
 )
 watch(
@@ -1959,14 +2204,17 @@ function createLoopCountControl() {
     }
 
     updateDisplay() {
-      const textEl = this.el().querySelector('.loop-count-text')
-      if (textEl) {
-        if (this.loopCount === 0) {
-          textEl.textContent = '停止'
-          ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(244, 67, 54, 0.3)'
-        } else {
-          textEl.textContent = `循环${this.loopCount}次`
-          ;(this.el() as HTMLElement).style.backgroundColor = 'rgba(76, 175, 80, 0.3)'
+      const iconEl = this.el().querySelector('.loop-icon') as HTMLElement
+      const countEl = this.el().querySelector('.loop-count-text') as HTMLElement
+
+      if (this.loopCount === 0) {
+        if (iconEl) iconEl.style.color = 'rgba(255, 255, 255, 0.4)'
+        if (countEl) countEl.style.display = 'none'
+      } else {
+        if (iconEl) iconEl.style.color = 'rgba(255, 255, 255, 1)'
+        if (countEl) {
+          countEl.style.display = 'block'
+          countEl.textContent = String(this.loopCount)
         }
       }
     }
@@ -1976,41 +2224,54 @@ function createLoopCountControl() {
         className: 'vjs-loop-count-control vjs-control vjs-button',
         style: `
           position: relative;
-          color: white;
-          padding: 6px 8px;
-          cursor: pointer;
-          background: rgba(244, 67, 54, 0.3);
-          border-radius: 4px;
-          margin: 0 2px;
-          display: flex;
+          display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 4px;
           width: auto;
           height: auto;
+          background: transparent;
+          cursor: pointer;
+          padding: 6px;
+          margin: 0 2px;
         `,
         title: '循环次数',
       })
 
       const iconEl = videojs.dom.createEl('span', {
         className: 'loop-icon',
-        style: 'display: flex; align-items: center;',
+        style: `
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: rgba(255, 255, 255, 0.4);
+          transition: color 0.2s ease;
+        `,
       })
       iconEl.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>
-          <path d="M13 5l3 3-3 3"/>
-          <path d="M18 8h-3a2 2 0 0 0-2 2v6"/>
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+          <path d="M3 3v5h5"/>
+          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+          <path d="M16 21v-5h5"/>
         </svg>
       `
       el.appendChild(iconEl)
 
-      const textEl = videojs.dom.createEl('span', {
+      const countEl = videojs.dom.createEl('span', {
         className: 'loop-count-text',
-        style: 'font-size: 12px; white-space: nowrap;',
-        textContent: '停止',
+        style: `
+          position: absolute;
+          font-size: 10px;
+          font-weight: 800;
+          font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+          color: white;
+          line-height: 1;
+          display: none;
+          pointer-events: none;
+          letter-spacing: -0.5px;
+        `,
       })
-      el.appendChild(textEl)
+      el.appendChild(countEl)
 
       return el
     }
@@ -2025,6 +2286,10 @@ onBeforeUnmount(() => {
   if (hotkeyCleanup) {
     hotkeyCleanup()
   }
+  separateAudioCleanup?.()
+  destroyAudioHlsInstance()
+  resetSeparateAudioElement()
+  destroyHlsInstance()
   // Clean up player
   player?.dispose()
 })
@@ -2040,6 +2305,7 @@ onBeforeUnmount(() => {
       crossorigin="anonymous"
       @dblclick="handleVideoDoubleClick"
     />
+    <audio ref="audioEl" class="hidden" preload="metadata" crossorigin="anonymous" />
     
     <!-- Hotkey hint display -->
     <div 
@@ -2052,7 +2318,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <Teleport to="#vue-custom-controls" v-if="playerReady">
+    <Teleport to="#vue-custom-controls" v-if="playerReady && props.sourceType !== 'hls'">
       <div class="flex items-center space-x-2 h-full">
         <!-- Language/Subtitle Control -->
         <div class="relative h-full flex items-center">
@@ -2166,7 +2432,7 @@ onBeforeUnmount(() => {
 
                 <!-- Subtitle settings -->
                 <button class="lang-panel-item" @click="emit('open-subtitle-settings'); closeLanguagePanel()">
-                  <span>字幕设置</span>
+                  <span>字幕样式</span>
                   <SettingsIcon :size="14" class="opacity-60" />
                 </button>
               </div>

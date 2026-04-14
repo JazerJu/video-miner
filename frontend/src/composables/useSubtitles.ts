@@ -2,8 +2,9 @@ import { ref, computed, watch } from 'vue'
 import type { Ref } from 'vue'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import { generateVTT } from '@/composables/Buildvtt'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import type { Subtitle, SubtitleBilingual } from '@/types/subtitle'
+import { markVideoDirty } from '@/composables/useVideoDirtyState'
 
 // Subtitle management composable with editing state tracking
 const _defaultrawSub: Subtitle[] = [
@@ -102,16 +103,14 @@ function asRef(arr: SubtitleBilingual[] | null): Ref<SubtitleBilingual[]> {
 
 import { BACKEND } from '@/composables/ConfigAPI'
 
-/** Parse SRT text into `subtitles` */
-function parseSRT(srt: string) {
-  // console.log('Parsing SRT data...')
+/** Parse SRT text into a fresh local Subtitle[] array (no shared state) */
+function parseSRT(srt: string): Subtitle[] {
   const regex =
     /\d+\r?\n(\d{1,2}:\d{2}:\d{2}[.,]\d{3}) --> (\d{1,2}:\d{2}:\d{2}[.,]\d{3})\r?\n([\s\S]*?)(?=\r?\n\r?\n|\r?\n$)/g
+  const result: Subtitle[] = []
   let match
-  subtitles.value = []
 
   while ((match = regex.exec(srt)) !== null) {
-    // console.log(match)
     const timePartsStart = match[1].split(':')
     const secondsStart =
       +timePartsStart[0] * 3600 +
@@ -124,21 +123,20 @@ function parseSRT(srt: string) {
       +timePartsEnd[1] * 60 +
       +parseFloat(timePartsEnd[2].replace(/,/, '.'))
 
-    subtitles.value.push({
+    result.push({
       start: secondsStart,
       end: secondsEnd,
       text: match[3].trim(),
     })
   }
-  console.log('subtitles:', subtitles.value)
-  return subtitles
+  console.log('parsed subtitles:', result.length, 'items')
+  return result
 }
 
 /** Serialize subtitles to SRT format (for download/upload) */
-// Convert subtitle array to SRT text content
-function serializeSRT(subs: Ref<Subtitle[]> = subtitles) {
+function serializeSRT(subs: Subtitle[]): string {
   let srtContent = ''
-  subs.value.forEach((sub, index) => {
+  subs.forEach((sub, index) => {
     srtContent += `${index + 1}\n${new Date(sub.start * 1000)
       .toISOString()
       .substr(11, 12)
@@ -166,9 +164,9 @@ function serializeSRT(subs: Ref<Subtitle[]> = subtitles) {
 async function linkSubtitles(
   id: number, // Video ID
   lang: string = 'zh', // Subtitle language
-  subtitles: Ref<Subtitle[]>,
+  subs: Subtitle[],
 ): Promise<void> {
-  const srtContent = serializeSRT(subtitles)
+  const srtContent = serializeSRT(subs)
   const csrf = await getCSRFToken()
   const xhr = new XMLHttpRequest()
   const uploadUrl = `${BACKEND}/api/subtitle/upload/${id}?lang=${encodeURIComponent(lang)}`
@@ -194,6 +192,7 @@ async function linkSubtitles(
         const response = JSON.parse(xhr.responseText)
         if (response.success) {
           ElMessage.success('Subtitles successfully uploaded.')
+          markVideoDirty(id)
         } else {
           ElMessage.error(response.message || 'Failed to upload subtitles.')
         }
@@ -223,10 +222,8 @@ async function fetchSubtitle(id: number, lang: string): Promise<Subtitle[]> {
     throw new Error(`HTTP ${res.status}`)
   }
   const text = await res.text()
-  const subtitles = parseSRT(text)
-
-  // generateVTT('primary', subtitles)
-  return subtitles.value
+  // parseSRT now returns a fresh local Subtitle[] (no shared state)
+  return parseSRT(text)
 }
 
 export function useSubtitles() {

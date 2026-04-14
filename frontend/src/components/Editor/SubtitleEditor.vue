@@ -168,7 +168,7 @@
                         type="number"
                         step="0.01"
                         v-model.number="rawSubtitle[s.originalIndex].start"
-                        @change="foreignSubtitle[s.originalIndex].start = rawSubtitle[s.originalIndex].start"
+                        @change="syncForeignTiming(s.originalIndex)"
                         class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white text-sm"
                       />
                     </div>
@@ -178,14 +178,14 @@
                         type="number"
                         step="0.01"
                         v-model.number="rawSubtitle[s.originalIndex].end"
-                        @change="foreignSubtitle[s.originalIndex].end = rawSubtitle[s.originalIndex].end"
+                        @change="syncForeignTiming(s.originalIndex)"
                         class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white text-sm"
                       />
                     </div>
                   </div>
 
                   <!-- 原文 -->
-                  <div class="space-y-2">
+                  <div v-if="showRawEditor" class="space-y-2">
                     <label class="text-xs text-slate-400 block">{{ t('original') }}:</label>
                     <textarea
                       v-model="rawSubtitle[s.originalIndex].text"
@@ -196,7 +196,7 @@
                   </div>
 
                   <!-- 译文 -->
-                  <div class="space-y-2">
+                  <div v-if="showTranslatedEditor" class="space-y-2">
                     <label class="text-xs text-slate-400 block"
                       >{{ t('translatedSubtitle') }}:</label
                     >
@@ -390,7 +390,7 @@ import {
   ArrowBigDown,
   Clock,
 } from 'lucide-vue-next'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { Upload, Download } from '@element-plus/icons-vue'
 import { loadConfig } from '@/composables/ConfigAPI'
 import { useI18n } from 'vue-i18n'
@@ -440,6 +440,68 @@ const editFilterEnd = ref<number | null>(null)
 // 显示模式：'both' | 'raw' | 'translated'
 const displayMode = ref<'both' | 'raw' | 'translated'>('both')
 const editDisplayMode = ref<'both' | 'raw' | 'translated'>('both')
+const showRawEditor = computed(() => displayMode.value !== 'translated')
+const showTranslatedEditor = computed(() => displayMode.value !== 'raw')
+const foreignTrackLoaded = ref(false)
+
+function hasForeignContent(track: Subtitle[] = foreignSubtitle.value) {
+  return track.some((sub) => sub?.text?.trim())
+}
+
+function shouldPersistForeignTrack() {
+  return foreignTrackLoaded.value || hasForeignContent()
+}
+
+function ensureForeignSubtitle(index: number): Subtitle {
+  if (!foreignSubtitle.value[index]) {
+    const raw = rawSubtitle.value[index]
+    foreignSubtitle.value[index] = {
+      start: raw?.start ?? 0,
+      end: raw?.end ?? raw?.start ?? 0,
+      text: '',
+    }
+  }
+
+  return foreignSubtitle.value[index]
+}
+
+function syncForeignTiming(index: number) {
+  const raw = rawSubtitle.value[index]
+  const foreign = foreignSubtitle.value[index]
+
+  if (!raw || !foreign) return
+
+  foreign.start = raw.start
+  foreign.end = raw.end
+}
+
+function setBlobUrl(index: number, nextUrl: string | undefined) {
+  const currentUrl = blobUrls.value[index]
+  if (currentUrl && currentUrl !== nextUrl) {
+    URL.revokeObjectURL(currentUrl)
+  }
+  blobUrls.value[index] = nextUrl
+}
+
+function updateBlobTracks() {
+  setBlobUrl(
+    0,
+    rawSubtitle.value.length > 0 ? generateVTT('primary', [rawSubtitle.value]) : undefined,
+  )
+
+  const hasForeignTrack = foreignSubtitle.value.length > 0 && shouldPersistForeignTrack()
+
+  setBlobUrl(
+    1,
+    hasForeignTrack ? generateVTT('translation', [foreignSubtitle.value]) : undefined,
+  )
+  setBlobUrl(
+    2,
+    rawSubtitle.value.length > 0 && hasForeignTrack
+      ? generateVTT('both', [rawSubtitle.value, foreignSubtitle.value])
+      : undefined,
+  )
+}
 
 // Filtered subtitles based on time range
 const filteredSubtitles = computed(() => {
@@ -853,15 +915,15 @@ async function tryInit(id: number) {
 
   try {
     foreignSubtitle.value = await fetchSubtitle(id, foreignLang) // 译文字幕
+    foreignTrackLoaded.value = true
     console.log('Translation subtitles loaded:', foreignSubtitle.value.length, 'items')
   } catch (error) {
     console.warn(`Translation subtitles (${foreignLang}) not found:`, error)
     foreignSubtitle.value = []
+    foreignTrackLoaded.value = false
   }
 
-  blobUrls.value[0] = generateVTT('primary', [rawSubtitle.value])
-  blobUrls.value[1] = generateVTT('translation', [foreignSubtitle.value])
-  blobUrls.value[2] = generateVTT('both', [rawSubtitle.value, foreignSubtitle.value])
+  updateBlobTracks()
 }
 
 /** which subtitle row is highlighted/being edited **/
@@ -883,7 +945,11 @@ const isUserManualScrolling = ref(false)
 const showLanguageDialog = ref(false)
 const pendingExportFormat = ref<string>('')
 
-const emit = defineEmits(['seek-time', 'update-bloburls', 'subs-loaded'])
+const emit = defineEmits<{
+  (e: 'seek-time', t: number): void
+  (e: 'update-bloburls', urls: (string | undefined)[]): void
+  (e: 'subs-loaded', raw: Subtitle[], foreign: Subtitle[]): void
+}>()
 
 // Function to update subtitle timing from external sources (like waveform)
 function updateSubtitleTiming(index: number, newStart: number, newEnd: number) {
@@ -906,26 +972,21 @@ defineExpose({
 // 1) WATCH THE RAW TRACK (index 0)
 watch(
   () => rawSubtitle.value,
-  (newRaw, oldRaw) => {
-    if (oldRaw && blobUrls.value[0]) URL.revokeObjectURL(blobUrls.value[0])
-
-    blobUrls.value[0] = generateVTT('primary', [newRaw])
-    blobUrls.value[2] = generateVTT('both', [newRaw, foreignSubtitle.value]) // ✨ .value
+  () => {
+    updateBlobTracks()
     console.log('emit update bloburls signal')
     emit('update-bloburls', blobUrls.value)
-    emit('subs-loaded', rawSubtitle.value)
+    emit('subs-loaded', rawSubtitle.value, foreignSubtitle.value)
   },
   { deep: true },
 )
 // 2) WATCH THE Foreign TRACK (index 1)
 watch(
   () => foreignSubtitle.value,
-  (newTrans, oldTrans) => {
-    if (oldTrans && blobUrls.value[1]) URL.revokeObjectURL(blobUrls.value[1])
-
-    blobUrls.value[1] = generateVTT('translation', [newTrans])
-    blobUrls.value[2] = generateVTT('both', [rawSubtitle.value, newTrans]) // ✨ .value
+  () => {
+    updateBlobTracks()
     emit('update-bloburls', blobUrls.value)
+    emit('subs-loaded', rawSubtitle.value, foreignSubtitle.value)
   },
   { deep: true },
 )
@@ -993,18 +1054,31 @@ function getSpeedUnit(text: string) {
 }
 
 async function saveSubtitle(index: number) {
-  const rawChanged = rawSubtitle.value[index].text !== rawBeforeEdit.value
-  const tranChanged = foreignSubtitle.value[index].text !== transBeforeEdit.value
+  const rawCurrent = rawSubtitle.value[index]
+  const foreignCurrent = foreignSubtitle.value[index]
+
+  if (!rawCurrent) return
+
+  const rawChanged =
+    rawCurrent.text !== rawBeforeEdit.value ||
+    rawCurrent.start !== rawStartBeforeEdit.value ||
+    rawCurrent.end !== rawEndBeforeEdit.value
+  const tranChanged = !!foreignCurrent && (
+    foreignCurrent.text !== transBeforeEdit.value ||
+    foreignCurrent.start !== transStartBeforeEdit.value ||
+    foreignCurrent.end !== transEndBeforeEdit.value
+  )
 
   // 只把有改动的字幕推到后端
   const primaryLang = props.rawLang || 'zh'
   const foreignLang = locale.value as string
 
   if (rawChanged) {
-    await linkSubtitles(props.id, primaryLang, rawSubtitle)
+    await linkSubtitles(props.id, primaryLang, rawSubtitle.value)
   }
-  if (tranChanged) {
-    await linkSubtitles(props.id, foreignLang, foreignSubtitle)
+  if (tranChanged && shouldPersistForeignTrack()) {
+    await linkSubtitles(props.id, foreignLang, foreignSubtitle.value)
+    foreignTrackLoaded.value = true
   }
 
   editSubtitleIndex.value = null
@@ -1037,8 +1111,13 @@ function addSubtitle() {
     end: endTime,
     text: '',
   }
+  const newForeignSubtitle = {
+    start: props.currentTime,
+    end: endTime,
+    text: '',
+  }
   rawSubtitle.value.push(newSubtitle)
-  foreignSubtitle.value.push(newSubtitle)
+  foreignSubtitle.value.push(newForeignSubtitle)
 
   // 排序后重新找到新字幕的索引
   rawSubtitle.value.sort((a, b) => a.start - b.start)
@@ -1075,8 +1154,11 @@ async function deleteSubtitle(index: number) {
   // 3 persist changes to backend
   const primaryLang = props.rawLang || 'zh'
   const foreignLang = locale.value as string
-  await linkSubtitles(props.id, primaryLang, rawSubtitle)
-  await linkSubtitles(props.id, foreignLang, foreignSubtitle)
+  await linkSubtitles(props.id, primaryLang, rawSubtitle.value)
+  if (shouldPersistForeignTrack()) {
+    await linkSubtitles(props.id, foreignLang, foreignSubtitle.value)
+    foreignTrackLoaded.value = true
+  }
 }
 
 function toggleSelect(index: number) {
@@ -1095,8 +1177,11 @@ async function batchDelete() {
   selectedIndices.value = new Set()
   const primaryLang = props.rawLang || 'zh'
   const foreignLang = locale.value as string
-  await linkSubtitles(props.id, primaryLang, rawSubtitle)
-  await linkSubtitles(props.id, foreignLang, foreignSubtitle)
+  await linkSubtitles(props.id, primaryLang, rawSubtitle.value)
+  if (shouldPersistForeignTrack()) {
+    await linkSubtitles(props.id, foreignLang, foreignSubtitle.value)
+    foreignTrackLoaded.value = true
+  }
   successNotify(`已删除 ${indices.length} 条字幕`)
 }
 
@@ -1109,7 +1194,7 @@ async function batchMerge() {
   // 合并原文
   const mergedText = indices.map(i => rawSubtitle.value[i].text).join(' ')
   // 合并译文
-  const mergedTrans = indices.map(i => foreignSubtitle.value[i].text).join(' ')
+  const mergedTrans = indices.map((i) => foreignSubtitle.value[i]?.text ?? '').join(' ')
   
   // 新字幕：start=第一条start，end=最后一条end
   const merged = { start: first.start, end: last.end, text: mergedText }
@@ -1127,20 +1212,36 @@ async function batchMerge() {
   selectedIndices.value = new Set()
   const primaryLang = props.rawLang || 'zh'
   const foreignLang = locale.value as string
-  await linkSubtitles(props.id, primaryLang, rawSubtitle)
-  await linkSubtitles(props.id, foreignLang, foreignSubtitle)
+  await linkSubtitles(props.id, primaryLang, rawSubtitle.value)
+  if (shouldPersistForeignTrack()) {
+    await linkSubtitles(props.id, foreignLang, foreignSubtitle.value)
+    foreignTrackLoaded.value = true
+  }
   successNotify('已合并所选字幕')
 }
 
 const rawBeforeEdit = ref('') // 原文旧值
 const transBeforeEdit = ref('') // 译文旧值
+const rawStartBeforeEdit = ref(0)
+const rawEndBeforeEdit = ref(0)
+const transStartBeforeEdit = ref(0)
+const transEndBeforeEdit = ref(0)
 
 // 多选状态
 const selectedIndices = ref<Set<number>>(new Set())
 function startEdit(i: number) {
+  const raw = rawSubtitle.value[i]
+  if (!raw) return
+
+  const foreign = showTranslatedEditor.value ? ensureForeignSubtitle(i) : foreignSubtitle.value[i]
+
   // 把当前字幕内容缓存下来
-  rawBeforeEdit.value = rawSubtitle.value[i].text
-  transBeforeEdit.value = foreignSubtitle.value[i].text
+  rawBeforeEdit.value = raw.text
+  transBeforeEdit.value = foreign?.text ?? ''
+  rawStartBeforeEdit.value = raw.start
+  rawEndBeforeEdit.value = raw.end
+  transStartBeforeEdit.value = foreign?.start ?? raw.start
+  transEndBeforeEdit.value = foreign?.end ?? raw.end
   editSubtitleIndex.value = i
 }
 
