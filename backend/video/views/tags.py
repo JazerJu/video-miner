@@ -4,6 +4,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
 from video.models import Tag
+from video.tag_colors import TAG_COLOR_PRESETS, get_random_tag_color
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -34,7 +35,9 @@ class TagCreateView(View):
         try:
             data = json.loads(request.body)
             name = data.get("name", "").strip()
-            color = data.get("color", "#3B82F6")
+            color = data.get("color") or get_random_tag_color(
+                Tag.objects.values_list("color", flat=True)
+            )
 
             if not name:
                 return JsonResponse(
@@ -50,6 +53,7 @@ class TagCreateView(View):
             return JsonResponse(
                 {
                     "success": True,
+                    "recommended_colors": TAG_COLOR_PRESETS,
                     "tag": {
                         "id": tag.id,
                         "name": tag.name,
