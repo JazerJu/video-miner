@@ -339,7 +339,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElMessage, ElSelect, ElOption } from 'element-plus'
+import { ElSelect, ElOption } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 
 interface User {

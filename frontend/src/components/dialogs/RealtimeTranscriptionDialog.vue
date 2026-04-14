@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ElMessage, ElButton, ElSelect, ElOption, ElSwitch, ElInput, ElIcon } from 'element-plus'
+import { ElButton, ElSelect, ElOption, ElSwitch, ElInput, ElIcon } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { Microphone, VideoPlay, VideoPause, Close } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 

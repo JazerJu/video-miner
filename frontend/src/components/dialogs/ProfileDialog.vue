@@ -127,7 +127,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { User } from 'lucide-vue-next'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { BACKEND } from '@/composables/ConfigAPI'
 
 interface User {

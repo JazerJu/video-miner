@@ -730,110 +730,6 @@
             </div>
           </div>
 
-          <!-- TTS Settings -->
-          <div v-if="activeTab === 'tts'" class="space-y-6">
-            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <h4 class="text-sm font-medium text-blue-800 mb-2">TTS 配音设置</h4>
-              <p class="text-sm text-blue-700">
-                配置 TTS 配音生成功能，支持本地 GLM-ASR 或云端 CosyVoice。
-              </p>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">TTS 引擎选择</label>
-              <select
-                v-model="settings.ttsEngineChosen"
-                class="w-full p-2 border border-gray-300 rounded-md"
-              >
-                <option value="glm_asr_local">GLM-ASR (本地)</option>
-                <option value="cosy_voice_cloud">CosyVoice (云端)</option>
-              </select>
-            </div>
-
-            <!-- Cloud TTS: Show DashScope and OSS settings -->
-            <div v-if="settings.ttsEngineChosen === 'cosy_voice_cloud'">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">DashScope API Key</label>
-                <input
-                  v-model="settings.dashscopeApiKey"
-                  type="password"
-                  class="w-full p-2 border border-gray-300 rounded-md"
-                  placeholder="输入您的 DashScope API Key"
-                />
-              </div>
-
-              <div class="pt-4 border-t border-gray-200 mt-6">
-                <p class="text-sm text-gray-500 mb-4">
-                  注意：API Key 将以加密形式存储。您可以在 <a href="https://dashscope.console.aliyun.com/apiKey" target="_blank" class="text-blue-600 hover:underline">DashScope 控制台</a> 获取您的 API Key。
-                </p>
-              </div>
-
-              <!-- OSS Settings (moved from OSS tab) -->
-              <div class="border-t border-gray-200 pt-4 mt-4">
-                <h4 class="text-sm font-semibold text-gray-800 mb-3">Aliyun OSS 配置</h4>
-                <p class="text-sm text-gray-500 mb-4">
-                  配置 Aliyun OSS 凭证以启用音频克隆功能。上传的参考音频将存储在您的 OSS Bucket 中。
-                </p>
-
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-2">Access Key ID</label>
-                  <input
-                    v-model="settings.ossAccessKeyId"
-                    type="text"
-                    class="w-full p-2 border border-gray-300 rounded-md"
-                    placeholder="输入您的 Aliyun Access Key ID"
-                  />
-                </div>
-
-                <div class="mt-4">
-                  <label class="block text-sm font-medium text-gray-700 mb-2">Access Key Secret</label>
-                  <input
-                    v-model="settings.ossAccessKeySecret"
-                    type="password"
-                    class="w-full p-2 border border-gray-300 rounded-md"
-                    placeholder="输入您的 Aliyun Access Key Secret"
-                  />
-                </div>
-
-                <div class="mt-4">
-                  <label class="block text-sm font-medium text-gray-700 mb-2">Endpoint</label>
-                  <input
-                    v-model="settings.ossEndpoint"
-                    type="text"
-                    class="w-full p-2 border border-gray-300 rounded-md"
-                    placeholder="oss-cn-beijing.aliyuncs.com"
-                  />
-                </div>
-
-                <div class="mt-4">
-                  <label class="block text-sm font-medium text-gray-700 mb-2">Bucket 名称</label>
-                  <input
-                    v-model="settings.ossBucket"
-                    type="text"
-                    class="w-full p-2 border border-gray-300 rounded-md"
-                    placeholder="vidgo-test"
-                  />
-                </div>
-
-                <div class="mt-4">
-                  <label class="block text-sm font-medium text-gray-700 mb-2">Region</label>
-                  <input
-                    v-model="settings.ossRegion"
-                    type="text"
-                    class="w-full p-2 border border-gray-300 rounded-md"
-                    placeholder="cn-beijing"
-                  />
-                </div>
-
-                <div class="pt-4 border-t border-gray-200 mt-4">
-                  <p class="text-sm text-gray-500">
-                    注意：Access Key Secret 将以加密形式存储。请确保使用具有适当权限的 RAM 用户凭证。
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
           <!-- Transcription Engine Settings -->
           <div v-if="activeTab === 'transcription'" class="space-y-6">
             <!-- Primary Engine Selection -->
@@ -1160,12 +1056,48 @@
               </p>
             </div>
 
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">流媒体下载代理</label>
-              <input v-model="settings.streamDownloadProxy" type="text" 
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="http://127.0.0.1:7890 (留空则不使用代理)" />
-              <p class="mt-2 text-sm text-gray-500">用于YouTube/B站/Podcast下载时的代理设置。</p>
+            <div class="border-t border-gray-200 pt-6 mt-6">
+              <h4 class="text-sm font-medium text-gray-700 mb-4">网络代理设置</h4>
+              <div>
+                <label class="block text-sm font-medium text-gray-600 mb-2">代理服务器地址</label>
+                <input
+                  v-model="settings.proxyUrl"
+                  type="text"
+                  class="w-full p-2 border border-gray-300 rounded-md"
+                  placeholder="http://host.docker.internal:7890 (留空则不使用代理)"
+                />
+                <p class="mt-2 text-sm text-gray-500">
+                  统一代理地址，用于 yt-dlp 下载和 LLM 调用。Docker 部署时也可通过
+                  <code class="bg-gray-100 px-1 rounded">HTTPS_PROXY</code>
+                  环境变量配置。
+                </p>
+              </div>
+              <div class="mt-4 space-y-3">
+                <label class="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="settings.downloadUseProxy"
+                    class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span class="text-sm text-gray-700">流媒体下载走代理 (YouTube / Podcast)</span>
+                </label>
+                <label class="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="settings.splitUseProxy"
+                    class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span class="text-sm text-gray-700">字幕分割 (LLM) 走代理</span>
+                </label>
+                <label class="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="settings.translateUseProxy"
+                    class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span class="text-sm text-gray-700">字幕翻译 (LLM) 走代理</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -1213,7 +1145,7 @@ import {
   type FrontendSettings,
   BACKEND,
 } from '@/composables/ConfigAPI'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
 import {
   loadWhisperModels,
@@ -1555,7 +1487,6 @@ const tabs = computed(() => [
   { id: 'subtitle', label: t('subtitleSettings') },
   { id: 'transcription', label: t('transcriptionSettings') },
   { id: 'media', label: t('mediaCredentials') },
-  { id: 'tts', label: 'TTS 配音' },
 ])
 
 const colorPresets = ['#000000', '#ff0000', '#00ff00', '#0000ff', '#ffff00']
@@ -1663,7 +1594,8 @@ const settings = reactive<FrontendSettings>({
   foreignBottomDistance: 120,
   // Media credentials
   bilibiliSessData: '',
-  streamDownloadProxy: '',
+  proxyUrl: '',
+  downloadUseProxy: false,
   // Transcription Engine settings
   transcriptionPrimaryEngine: 'faster_whisper',
   fwsrModel: 'large-v3',
@@ -1679,15 +1611,6 @@ const settings = reactive<FrontendSettings>({
   remoteVidGoHost: '',
   remoteVidGoPort: '8000',
   remoteVidGoUseSsl: false,
-  // OSS Service settings
-  ossAccessKeyId: '',
-  ossAccessKeySecret: '',
-  ossEndpoint: '',
-  ossBucket: '',
-  ossRegion: '',
-  // TTS settings
-  ttsEngineChosen: 'glm_asr_local',
-  dashscopeApiKey: '',
 })
 
 const loading = ref(false)
@@ -1969,7 +1892,8 @@ const resetSettings = () => {
     foreignBottomDistance: 120,
     // Media credentials
     bilibiliSessData: '',
-    streamDownloadProxy: '',
+    proxyUrl: '',
+    downloadUseProxy: false,
     // Transcription Engine settings
     transcriptionPrimaryEngine: 'faster_whisper',
     fwsrModel: 'large-v3',
@@ -1985,15 +1909,6 @@ const resetSettings = () => {
     remoteVidGoHost: '',
     remoteVidGoPort: '8000',
     remoteVidGoUseSsl: false,
-    // OSS Service settings
-    ossAccessKeyId: '',
-    ossAccessKeySecret: '',
-    ossEndpoint: '',
-    ossBucket: '',
-    ossRegion: '',
-    // TTS settings
-    ttsEngineChosen: 'glm_asr_local',
-    dashscopeApiKey: '',
   })
 }
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import axios from 'axios'
 
 import { BACKEND } from '@/composables/ConfigAPI'
@@ -46,17 +46,160 @@ async function confirm() {
 <template>
   <el-dialog
     title="批量移动到分类"
-    width="320px"
+    width="380px"
+    class="batch-move-dialog-shell"
     :model-value="modelValue"
     @update:modelValue="emit('update:modelValue', $event)"
   >
-    <el-select v-model="targetId" placeholder="请选择目标分类" class="w-full mb-4">
-      <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-    </el-select>
+    <div class="space-y-4 rounded-[20px] bg-[linear-gradient(180deg,rgba(15,23,42,0.84),rgba(17,24,39,0.78))] p-4">
+      <div>
+        <label class="mb-2 block text-sm font-medium text-slate-200">目标分类</label>
+        <el-select
+          v-model="targetId"
+          placeholder="请选择目标分类"
+          class="w-full"
+          popper-class="batch-move-select-popper"
+        >
+          <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+      </div>
+    </div>
 
     <template #footer>
-      <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" @click="confirm">确定</el-button>
+      <div class="flex items-center justify-end gap-3">
+        <button
+          class="inline-flex h-10 items-center justify-center rounded-xl border border-white/12 bg-white/[0.04] px-4 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08]"
+          @click="emit('update:modelValue', false)"
+        >
+          取消
+        </button>
+        <button
+          class="inline-flex h-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(59,130,246,0.24))] px-4 text-sm font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:shadow-[0_12px_28px_rgba(34,211,238,0.16)]"
+          @click="confirm"
+        >
+          确定
+        </button>
+      </div>
     </template>
   </el-dialog>
 </template>
+
+<style>
+.el-dialog.batch-move-dialog-shell,
+.batch-move-dialog-shell .el-dialog {
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.1);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.07), transparent 38%),
+    linear-gradient(180deg, #111827, #0f172a 52%, #020617);
+  box-shadow: 0 24px 56px rgba(2, 6, 23, 0.44);
+}
+
+.el-dialog.batch-move-dialog-shell .el-dialog__header,
+.el-dialog.batch-move-dialog-shell .el-dialog__body,
+.el-dialog.batch-move-dialog-shell .el-dialog__footer,
+.batch-move-dialog-shell .el-dialog__header,
+.batch-move-dialog-shell .el-dialog__body,
+.batch-move-dialog-shell .el-dialog__footer {
+  background: transparent;
+}
+
+.el-dialog.batch-move-dialog-shell .el-dialog__header,
+.batch-move-dialog-shell .el-dialog__header {
+  margin: 0;
+  padding: 18px 18px 6px;
+}
+
+.el-dialog.batch-move-dialog-shell .el-dialog__title,
+.batch-move-dialog-shell .el-dialog__title {
+  color: #f8fafc;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.el-dialog.batch-move-dialog-shell .el-dialog__headerbtn .el-dialog__close,
+.batch-move-dialog-shell .el-dialog__headerbtn .el-dialog__close {
+  color: rgba(226, 232, 240, 0.78);
+}
+
+.el-dialog.batch-move-dialog-shell .el-dialog__body,
+.batch-move-dialog-shell .el-dialog__body {
+  padding: 10px 18px 14px;
+}
+
+.el-dialog.batch-move-dialog-shell .el-dialog__footer,
+.batch-move-dialog-shell .el-dialog__footer {
+  padding: 0 18px 18px;
+}
+
+.el-dialog.batch-move-dialog-shell .el-select__wrapper,
+.batch-move-dialog-shell .el-select__wrapper {
+  border: 1px solid rgba(125, 211, 252, 0.12);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.el-dialog.batch-move-dialog-shell .el-select__wrapper.is-focused,
+.batch-move-dialog-shell .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.28);
+  border-color: rgba(103, 232, 249, 0.28);
+}
+
+.el-dialog.batch-move-dialog-shell .el-select__placeholder,
+.el-dialog.batch-move-dialog-shell .el-select__selected-item,
+.batch-move-dialog-shell .el-select__placeholder,
+.batch-move-dialog-shell .el-select__selected-item {
+  color: #e2e8f0;
+}
+
+.el-dialog.batch-move-dialog-shell .el-select__caret,
+.batch-move-dialog-shell .el-select__caret {
+  color: rgba(148, 163, 184, 0.78);
+}
+
+.batch-move-select-popper.el-popper,
+.batch-move-select-popper.el-select__popper {
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.98)) !important;
+  box-shadow: 0 18px 45px rgba(2, 6, 23, 0.42);
+}
+
+.batch-move-select-popper.el-popper .el-popper__arrow::before,
+.batch-move-select-popper.el-select__popper .el-popper__arrow::before {
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  background: rgba(17, 24, 39, 0.98) !important;
+}
+
+.batch-move-select-popper .el-select-dropdown,
+.batch-move-select-popper .el-scrollbar,
+.batch-move-select-popper .el-scrollbar__view,
+.batch-move-select-popper .el-select-dropdown__wrap,
+.batch-move-select-popper .el-select-dropdown__list {
+  background: transparent !important;
+}
+
+.batch-move-select-popper .el-select-dropdown__list {
+  padding: 8px;
+}
+
+.batch-move-select-popper .el-select-dropdown__item {
+  border-radius: 10px;
+  color: #dbeafe !important;
+}
+
+.batch-move-select-popper .el-select-dropdown__item.hover,
+.batch-move-select-popper .el-select-dropdown__item:hover,
+.batch-move-select-popper .el-select-dropdown__item.is-hovering {
+  background: rgba(34, 211, 238, 0.12) !important;
+}
+
+.batch-move-select-popper .el-select-dropdown__item.selected {
+  color: #a5f3fc !important;
+  font-weight: 600;
+}
+</style>
