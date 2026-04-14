@@ -211,6 +211,7 @@ def transcribe_audio(audio_file_path: str,
                   f"Progress: {progress_percent:5.1f}% | "
                   f"{word_count:2d} words | "
                   f"'{segment.text.strip()[:45]}{'...' if len(segment.text.strip()) > 45 else ''}'")
+            progress_cb(progress_percent)
             
             # 每10个segment输出一次汇总
             if segment_count % 10 == 0:

@@ -103,8 +103,14 @@ def split_by_llm(
     _use_proxy = (
         _cfg.get("DEFAULT", {}).get("split_use_proxy", "false").lower() == "true"
     )
-    if _use_proxy:
-        client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    from video.proxy import get_effective_proxy
+
+    _proxy = get_effective_proxy(_use_proxy)
+    if _proxy:
+        http_client = httpx.Client(proxy=_proxy, timeout=60)
+        client = openai.OpenAI(
+            api_key=api_key, base_url=base_url, http_client=http_client
+        )
     else:
         http_client = httpx.Client(proxy=None, timeout=60, trust_env=False)
         client = openai.OpenAI(

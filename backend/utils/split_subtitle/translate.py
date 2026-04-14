@@ -176,6 +176,7 @@ import sys
 import logging
 from typing import Optional
 import openai
+import threading
 
 # 将项目根目录添加到路径以从video.views.set_setting导入
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -305,8 +306,14 @@ def call_llm(
     _use_proxy = (
         _cfg.get("DEFAULT", {}).get("translate_use_proxy", "false").lower() == "true"
     )
-    if _use_proxy:
-        client = openai.OpenAI(api_key=effective_key, base_url=base_url)
+    from video.proxy import get_effective_proxy
+
+    _proxy = get_effective_proxy(_use_proxy)
+    if _proxy:
+        http_client = httpx.Client(proxy=_proxy, timeout=60)
+        client = openai.OpenAI(
+            api_key=effective_key, base_url=base_url, http_client=http_client
+        )
     else:
         http_client = httpx.Client(proxy=None, timeout=60, trust_env=False)
         client = openai.OpenAI(
@@ -509,11 +516,12 @@ def step1_direct_translate(
     api_key=None,
     base_url=None,
     model=None,
+    progress_cb=None,
 ) -> ASRData:
     """
     第一步：直译 - 使用FAITHFUL_PROMPT，支持批处理和多线程
     """
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     # 将segments按批次分组
     batches = []
@@ -542,8 +550,22 @@ def step1_direct_translate(
             model,
         )
 
+    batch_results = [None] * len(batches)
+    completed_batches = 0
+    progress_lock = threading.Lock()
+
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        batch_results = list(executor.map(process_batch, batches))
+        future_to_index = {
+            executor.submit(process_batch, batch): idx
+            for idx, batch in enumerate(batches)
+        }
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
+            batch_results[idx] = future.result()
+            if progress_cb:
+                with progress_lock:
+                    completed_batches += 1
+                    progress_cb(completed_batches / max(len(batches), 1))
 
     # 合并结果，保持原始顺序
     all_segments = []
@@ -704,11 +726,12 @@ def step2_free_translate(
     api_key=None,
     base_url=None,
     model=None,
+    progress_cb=None,
 ) -> ASRData:
     """
     第二步：意译和反思 - 使用FREE_PROMPT，支持批处理和多线程
     """
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     # 将segments按批次分组
     batches = []
@@ -737,8 +760,22 @@ def step2_free_translate(
             model,
         )
 
+    batch_results = [None] * len(batches)
+    completed_batches = 0
+    progress_lock = threading.Lock()
+
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        batch_results = list(executor.map(process_batch, batches))
+        future_to_index = {
+            executor.submit(process_batch, batch): idx
+            for idx, batch in enumerate(batches)
+        }
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
+            batch_results[idx] = future.result()
+            if progress_cb:
+                with progress_lock:
+                    completed_batches += 1
+                    progress_cb(completed_batches / max(len(batches), 1))
 
     # 合并结果，保持原始顺序
     all_segments = []
@@ -756,6 +793,7 @@ def two_step_translate(
     source_lang: str = "en",
     target_lang: str = "zh",
     terms_to_note: str = "",
+    progress_cb=None,
 ) -> ASRData:
     """
     两步翻译流程：先直译，再意译和反思，支持批处理和多线程
@@ -789,6 +827,11 @@ def two_step_translate(
         api_key,
         base_url,
         model,
+        progress_cb=(
+            (lambda ratio: progress_cb(min(10 + ratio * 45, 55)))
+            if progress_cb
+            else None
+        ),
     )
     logger.info(f"直译完成，处理了 {len(asr_data.segments)} 个句子")
 
@@ -804,6 +847,11 @@ def two_step_translate(
         api_key,
         base_url,
         model,
+        progress_cb=(
+            (lambda ratio: progress_cb(min(55 + ratio * 40, 95)))
+            if progress_cb
+            else None
+        ),
     )
     logger.info(f"意译和反思完成，处理了 {len(asr_data.segments)} 个句子")
 

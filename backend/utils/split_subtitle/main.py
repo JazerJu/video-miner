@@ -402,10 +402,7 @@ def optimise_srt(
     use_proxy = (
         settings.get("DEFAULT", {}).get("split_use_proxy", "false").lower() == "true"
     )
-    if not use_proxy:
-        # 禁用HTTP(S)代理请求
-        os.environ.pop("http_proxy", None)
-        os.environ.pop("https_proxy", None)
+    # 不再通过修改全局环境变量控制代理，由各 LLM 调用点自行处理
     from utils.llm_engines import ENGINES
 
     # 获取 API 配置
@@ -552,6 +549,8 @@ def translate_srt(
 
     logger = logging.getLogger("subtitle_translate")
     logger.info("开始翻译字幕...")
+    if progress_cb:
+        progress_cb("Running")
 
     with open(raw_srt_path, encoding="utf-8") as f:
         raw_asr_data = from_srt(f.read())
@@ -570,6 +569,11 @@ def translate_srt(
             num_threads=num_threads,
             source_lang=raw_lang,
             target_lang=target_lang,
+            progress_cb=(
+                (lambda ratio: progress_cb(min(10 + ratio * 85, 95)))
+                if progress_cb
+                else None
+            ),
         )
     else:
         from utils.split_subtitle.translate import two_step_translate
@@ -582,6 +586,7 @@ def translate_srt(
             source_lang=raw_lang,
             target_lang=target_lang,
             terms_to_note=terms_to_note,
+            progress_cb=progress_cb,
         )
     logger.info("字幕翻译完成")
 
