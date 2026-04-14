@@ -39,7 +39,9 @@ COPY backend/requirements.txt .
 
 # Install dependencies to system directory
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    # 安装 yt-dlp 完整依赖（含 EJS 脚本、加密库等）
+    && pip install --no-cache-dir "yt-dlp[default]"
 
 # Stage 2: Runtime
 # FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
@@ -55,6 +57,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
     sqlite3 \
+    # Node.js 运行时：yt-dlp-ejs 需要 Node 执行 JS 挑战脚本（仅需 node 二进制，无需 npm）
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -8,6 +8,8 @@ services:
     user: "${UID:-1000}:${GID:-1000}"  # 使用宿主机用户运行，避免权限问题
     ports:
       - "8010:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 让容器能通过 host.docker.internal 访问宿主机
     environment:
       # VidGo Configuration
       # Set your deployment URL for automatic CORS, CSRF, and host configuration
@@ -17,6 +19,9 @@ services:
       # VIDGO_ALLOWED_HOSTS: "your-domain.com,localhost"
       # VIDGO_CORS_ALLOWED_ORIGINS: "https://your-domain.com,https://frontend.example.com"
       # VIDGO_CSRF_TRUSTED_ORIGINS: "https://your-domain.com,https://frontend.example.com"
+
+      # 中国大陆用户：取消注释并填入你的代理地址，用于访问 YouTube 等
+      # HTTPS_PROXY: "http://host.docker.internal:36990"
     volumes:
       # 数据库文件
       - ./data/videos.db:/app/database/videos.db
