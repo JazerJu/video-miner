@@ -125,6 +125,10 @@ const duration = ref(0)
 const currentTime = ref(0)
 const videoProgress = computed(() => (duration.value ? currentTime.value / duration.value : 0))
 const pendingResumeTime = ref<number | null>(null)
+const PROGRESS_SAVE_INTERVAL_MS = 8000
+const PROGRESS_SAVE_MIN_DELTA_SECONDS = 2
+const RESUME_END_THRESHOLD_SECONDS = 3
+let lastPersistedTime = -1
 
 function handleTimeUpdate(t: number) {
   currentTime.value = t
@@ -142,8 +146,18 @@ const videoData = ref<VideoInfoData>(defaultVideoInfo)
 // Progress saving
 let progressInterval: ReturnType<typeof setInterval> | null = null
 
-const saveProgress = async () => {
-  if (videoData.value.id <= 0 || currentTime.value <= 0) return
+const saveProgress = async (options: { force?: boolean } = {}) => {
+  if (videoData.value.id <= 0) return
+
+  const current = Number.isFinite(currentTime.value) ? Math.max(0, currentTime.value) : 0
+  const nearEnd =
+    duration.value > RESUME_END_THRESHOLD_SECONDS &&
+    current >= duration.value - RESUME_END_THRESHOLD_SECONDS
+  const timeToPersist = nearEnd ? 0 : current
+
+  if (!options.force && Math.abs(timeToPersist - lastPersistedTime) < PROGRESS_SAVE_MIN_DELTA_SECONDS) {
+    return
+  }
 
   try {
     const csrf = await getCSRFToken()
@@ -154,12 +168,13 @@ const saveProgress = async () => {
         'X-CSRFToken': csrf,
       },
       credentials: 'include',
-      body: JSON.stringify({ time: currentTime.value }),
+      body: JSON.stringify({ time: timeToPersist }),
     })
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${await response.text()}`)
     }
-    console.log('Progress saved:', currentTime.value)
+    lastPersistedTime = timeToPersist
+    console.log('Progress saved:', timeToPersist)
   } catch (err) {
     console.error('Failed to save progress:', err)
   }
@@ -194,12 +209,22 @@ async function loadVideoData(filename: string, expectedNavId?: number) {
 
     duration.value = hhmmssToSeconds(videoData.value.videoLength)
     pendingResumeTime.value = null
+    lastPersistedTime = Number(data.last_played_time ?? -1)
 
     // Resume from last played time if available
     if (data.last_played_time && data.last_played_time > 0) {
-       console.log('Resuming from last played time:', data.last_played_time)
-       currentTime.value = data.last_played_time
-       pendingResumeTime.value = data.last_played_time
+      const resumeTime = Number(data.last_played_time)
+      const isNearEnd =
+        duration.value > RESUME_END_THRESHOLD_SECONDS &&
+        resumeTime >= duration.value - RESUME_END_THRESHOLD_SECONDS
+
+      if (!isNearEnd) {
+        console.log('Resuming from last played time:', resumeTime)
+        currentTime.value = resumeTime
+        pendingResumeTime.value = resumeTime
+      } else {
+        currentTime.value = 0
+      }
     }
 
     // Update browser tab title - check if name is not the default
@@ -252,6 +277,7 @@ watch(
       currentTime.value = 0
       duration.value = 0
       pendingResumeTime.value = null
+      lastPersistedTime = -1
       videoData.value = { ...defaultVideoInfo }
       await loadVideoData(newFileName, currentNavigationId)
 
@@ -272,22 +298,15 @@ watch(
   { immediate: false },
 )
 
-watch(currentTime, (newVal) => {
-  const playerTime = playerRef.value?.currentTime?.() ?? 0
-  if (Math.abs(playerTime - newVal) > 0.3) {
-    playerRef.value?.seek(newVal)
-  }
-})
-
 function handlePlayerReady() {
-  const targetTime = pendingResumeTime.value ?? currentTime.value
+  const targetTime = pendingResumeTime.value
   if (!targetTime || targetTime <= 0) return
+
+  pendingResumeTime.value = null
 
   setTimeout(() => {
     playerRef.value?.seek(targetTime)
   }, 50)
-
-  pendingResumeTime.value = null
 }
 
 function handlePlayPauseToggle() {
@@ -430,8 +449,10 @@ onMounted(async () => {
   // Listen for hash changes for shareable timestamps
   window.addEventListener('hashchange', handleTimeFragment)
 
-  // Start progress saving timer (every 30 seconds)
-  progressInterval = setInterval(saveProgress, 30000)
+  // Start progress saving timer
+  progressInterval = setInterval(() => {
+    void saveProgress()
+  }, PROGRESS_SAVE_INTERVAL_MS)
 })
 
 // Cleanup event listeners when component unmounts
@@ -443,7 +464,7 @@ onUnmounted(() => {
     progressInterval = null
   }
   // Save progress one last time
-  saveProgress()
+  void saveProgress({ force: true })
 })
 
 // ✅ FIX: Enhanced HLS.js mounting with detailed debugging
