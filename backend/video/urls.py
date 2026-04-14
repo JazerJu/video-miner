@@ -48,20 +48,15 @@ from .views.external_transcription import (
     ExternalTranscriptionDeleteView,
 )
 from .views.realtime_subtitles import RealtimeSubtitleView, RealtimeSubtitleStreamView
-from .views.tts import (
-    TTSGenerateView,
-    AllTTSStatusView,
-    TTSStatusView,
-    DeleteTTSTaskView,
-    RetryTTSTaskView,
-    VideoLanguageTracksView,
-)
-from .views.tts_audio_upload import TTSAudioUploadView
+from .views.language_tracks import VideoLanguageTracksView
 from .views.extract_insights import extract_insights
 from django.views.decorators.csrf import csrf_exempt, get_token, ensure_csrf_cookie
 from .tasks import SubtitleTaskStatusView
 from .views import stream_media
 from .views import subtitles
+from .views import cookies
+from .views import yt_dlp
+from .views import stream_transcription
 import django
 from urllib.parse import urlparse
 from django.views.decorators.http import require_GET
@@ -257,6 +252,53 @@ urlpatterns = [
         "api/stream_media/download/<str:task_id>/retry",
         stream_media.RetryDownloadTaskView.as_view(),
     ),
+    # yt-dlp 包管理
+    path("api/yt_dlp/status", yt_dlp.YtDlpStatusView.as_view(), name="yt_dlp_status"),
+    path(
+        "api/yt_dlp/install_deps",
+        yt_dlp.YtDlpInstallDepsView.as_view(),
+        name="yt_dlp_install_deps",
+    ),
+    path(
+        "api/yt_dlp/upgrade", yt_dlp.YtDlpUpgradeView.as_view(), name="yt_dlp_upgrade"
+    ),
+    # YouTube cookies 管理
+    path(
+        "api/cookies/youtube/upload",
+        cookies.YoutubeCookiesUploadView.as_view(),
+        name="youtube_cookies_upload",
+    ),
+    path(
+        "api/cookies/youtube/status",
+        cookies.YoutubeCookiesStatusView.as_view(),
+        name="youtube_cookies_status",
+    ),
+    # 流式转录
+    path(
+        "api/stream_transcription/resolve",
+        stream_transcription.ResolveView.as_view(),
+        name="stream_transcription_resolve",
+    ),
+    path(
+        "api/stream_transcription/proxy",
+        stream_transcription.StreamProxyView.as_view(),
+        name="stream_transcription_proxy",
+    ),
+    path(
+        "api/stream_transcription/cancel",
+        stream_transcription.CancelTranscriptionView.as_view(),
+        name="stream_transcription_cancel",
+    ),
+    path(
+        "api/stream_transcription/start",
+        stream_transcription.StartView.as_view(),
+        name="stream_transcription_start",
+    ),
+    path(
+        "api/stream_transcription/<str:task_id>/events",
+        stream_transcription.TranscriptionSSEView.as_view(),
+        name="stream_transcription_events",
+    ),
     # 分类与合集
     path(
         "api/category/<str:action>/<int:video_id>",
@@ -334,19 +376,6 @@ urlpatterns = [
         subtitles.SubtitleGenerationTaskView.as_view(),
         name="subtitle-task-action",
     ),
-    # TTS配音生成
-    path(
-        "api/tts/generate/<int:video_id>",
-        TTSGenerateView.as_view(),
-        name="tts_generate",
-    ),
-    path("api/tts/status", AllTTSStatusView.as_view(), name="tts_status_all"),
-    path("api/tts/<str:task_id>/status", TTSStatusView.as_view(), name="tts_status"),
-    path(
-        "api/tts/<str:task_id>/delete", DeleteTTSTaskView.as_view(), name="tts_delete"
-    ),
-    path("api/tts/<str:task_id>/retry", RetryTTSTaskView.as_view(), name="tts_retry"),
-    path("api/tts/audio_upload", TTSAudioUploadView.as_view(), name="tts_audio_upload"),
     # 视频语言轨道
     path(
         "api/video/<int:video_id>/languages",
