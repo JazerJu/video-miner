@@ -7,6 +7,14 @@ export interface NotificationOptions {
   duration?: number
 }
 
+type MessageInput =
+  | string
+  | {
+      message: string
+      duration?: number
+      type?: 'success' | 'error' | 'warning' | 'info'
+    }
+
 interface NotificationItem extends NotificationOptions {
   id: string
 }
@@ -64,6 +72,26 @@ const addNotification = (options: NotificationOptions) => {
   ;(notification as any)._wrapper = wrapper
 }
 
+const normalizeMessageInput = (
+  input: MessageInput,
+  fallbackType: 'success' | 'error' | 'warning' | 'info',
+  fallbackDuration?: number,
+): NotificationOptions => {
+  if (typeof input === 'string') {
+    return {
+      message: input,
+      type: fallbackType,
+      duration: fallbackDuration,
+    }
+  }
+
+  return {
+    message: input.message,
+    type: input.type || fallbackType,
+    duration: input.duration ?? fallbackDuration,
+  }
+}
+
 const removeNotification = (id: string) => {
   const index = notifications.value.findIndex(n => n.id === id)
   if (index > -1) {
@@ -103,6 +131,21 @@ export const notification = {
   warning,
   info,
   add: addNotification,
+}
+
+export const ElMessage = {
+  success(input: MessageInput) {
+    addNotification(normalizeMessageInput(input, 'success'))
+  },
+  error(input: MessageInput) {
+    addNotification(normalizeMessageInput(input, 'error', 5000))
+  },
+  warning(input: MessageInput) {
+    addNotification(normalizeMessageInput(input, 'warning'))
+  },
+  info(input: MessageInput) {
+    addNotification(normalizeMessageInput(input, 'info'))
+  },
 }
 
 export const useNotification = () => {

@@ -13,10 +13,15 @@ export interface Video {
   thumbnail_url?: string  // 后端返回的完整缩略图字段
   url: string
   length: string
+  video_length?: string
   video_length_seconds?: number
   file_size?: number
   file_created_time?: string
   last_modified: string
+  last_accessed_at?: string
+  added_at?: string
+  content_updated_at?: string
+  last_played_time?: number
   description: string
   tags?: string[]
   type: 'video' // Type discriminator for union types
@@ -25,6 +30,9 @@ export interface Video {
   rawLang?: string
   videoSource?: string
   sourceUrl?: string
+  raw_lang?: string
+  video_source?: string
+  source_url?: string
 }
 
 export interface VideoInfoData {
