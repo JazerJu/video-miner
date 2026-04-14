@@ -10,6 +10,12 @@ const router = createRouter({
       component: () => import('@/views/HomeView.vue'),
     },
 
+    {
+      path: '/stream-transcription',
+      name: 'stream-transcription',
+      component: () => import('@/views/StreamTranscriptionView.vue'),
+    },
+
     // 流媒体视频播放路由：/watch/stream/foo.mp4 用于HLS播放
     {
       path: '/watch/stream/:basename([^/]+?)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac)',
