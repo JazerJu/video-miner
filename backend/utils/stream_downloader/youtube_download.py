@@ -1,6 +1,6 @@
 import yt_dlp
 import os
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Callable
 
 
 class YouTubeDownloader:
@@ -9,31 +9,19 @@ class YouTubeDownloader:
             "writesubtitles": False,
             "writeautomaticsub": False,
             "ignoreerrors": True,
-            "noplaylist": True,  # Only download single video, not playlist
+            "noplaylist": True,
             "quiet": True,
+            # yt-dlp 2026+ 默认只用 deno 解密 YouTube n 参数，需显式启用 node
+            "js_runtimes": {"node": {}},
         }
+        # 自动加载 cookies.txt（如果存在）
+        from django.conf import settings as django_settings
 
-        # Check proxy settings - read from [Media Credentials] section
-        try:
-            import configparser
-            from django.conf import settings
-
-            config_path = os.path.join(settings.BASE_DIR, "config/config.ini")
-            if os.path.exists(config_path):
-                config = configparser.ConfigParser()
-                config.read(config_path)
-                stream_download_proxy = config.get(
-                    "Media Credentials", "stream_download_proxy", fallback=""
-                )
-
-                if stream_download_proxy:
-                    self.base_ydl_opts["proxy"] = stream_download_proxy
-                    print(f"Using proxy: {stream_download_proxy}")
-                else:
-                    self.base_ydl_opts["proxy"] = ""
-                    print("Proxy disabled in settings")
-        except Exception as e:
-            print(f"Error reading proxy settings: {e}")
+        _cookies_path = os.path.join(
+            django_settings.MEDIA_ROOT, "cookies", "youtube-cookies.txt"
+        )
+        if os.path.exists(_cookies_path):
+            self.base_ydl_opts["cookiefile"] = _cookies_path
 
     def get_video_info(self, url: str) -> Optional[Dict[str, Any]]:
         """
@@ -46,6 +34,19 @@ class YouTubeDownloader:
             Dictionary containing video metadata or None if failed
         """
         ydl_opts = self.base_ydl_opts.copy()
+        from video.proxy import get_effective_proxy
+        from video.views.set_setting import load_all_settings
+
+        settings = load_all_settings()
+        use_proxy = (
+            settings.get("Media Credentials", {})
+            .get("download_use_proxy", "false")
+            .lower()
+            == "true"
+        )
+        proxy = get_effective_proxy(use_proxy)
+        if proxy:
+            ydl_opts["proxy"] = proxy
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -82,6 +83,7 @@ class YouTubeDownloader:
         output_path: str,
         filename_template: Optional[str] = None,
         merge_audio_video: bool = True,
+        progress_callback: Optional[Callable[[float], None]] = None,
     ) -> Optional[str]:
         """
         Download video from YouTube URL
@@ -108,6 +110,32 @@ class YouTubeDownloader:
                 "outtmpl": os.path.join(output_path, filename_template),
             }
         )
+        if progress_callback:
+            def progress_hook(d):
+                status = d.get("status")
+                if status == "downloading":
+                    total = d.get("total_bytes") or d.get("total_bytes_estimate")
+                    downloaded = d.get("downloaded_bytes") or 0
+                    if total:
+                        progress_callback(min(downloaded / total * 100, 99.0))
+                elif status == "finished":
+                    progress_callback(100.0)
+
+            ydl_opts["progress_hooks"] = [progress_hook]
+
+        from video.proxy import get_effective_proxy
+        from video.views.set_setting import load_all_settings
+
+        settings = load_all_settings()
+        use_proxy = (
+            settings.get("Media Credentials", {})
+            .get("download_use_proxy", "false")
+            .lower()
+            == "true"
+        )
+        proxy = get_effective_proxy(use_proxy)
+        if proxy:
+            ydl_opts["proxy"] = proxy
 
         # Set format based on preferences
         if merge_audio_video:
@@ -168,6 +196,20 @@ class YouTubeDownloader:
                 ],
             }
         )
+
+        from video.proxy import get_effective_proxy
+        from video.views.set_setting import load_all_settings
+
+        settings = load_all_settings()
+        use_proxy = (
+            settings.get("Media Credentials", {})
+            .get("download_use_proxy", "false")
+            .lower()
+            == "true"
+        )
+        proxy = get_effective_proxy(use_proxy)
+        if proxy:
+            ydl_opts["proxy"] = proxy
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
