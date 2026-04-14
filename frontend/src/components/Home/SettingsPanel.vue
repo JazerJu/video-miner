@@ -582,100 +582,6 @@
         </div>
       </div>
 
-      <!-- TTS Settings -->
-      <div v-if="activeTab === 'tts'" class="space-y-6 max-w-3xl">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">TTS 引擎选择</label>
-          <select
-            v-model="settings.ttsEngineChosen"
-            class="w-full p-2 border border-gray-300 rounded-md"
-          >
-            <option value="glm_asr_local">GLM-ASR (LOCAL)</option>
-            <option value="cosy_voice_cloud">COSY_VOICE (CLOUD)</option>
-          </select>
-        </div>
-
-        <!-- Only show DashScope and OSS fields for cosy_voice_cloud -->
-        <div v-if="settings.ttsEngineChosen === 'cosy_voice_cloud'" class="border-t border-gray-200 pt-6">
-          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <h4 class="text-sm font-medium text-blue-800 mb-2">TTS 配音设置</h4>
-            <p class="text-sm text-blue-700">
-              配置 Alibaba Cloud DashScope 凭证以启用 TTS 配音生成功能。
-            </p>
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">DashScope API Key</label>
-            <input
-              v-model="settings.dashscopeApiKey"
-              type="password"
-              class="w-full p-2 border border-gray-300 rounded-md"
-              placeholder="输入您的 DashScope API Key"
-            />
-          </div>
-
-          <!-- OSS Fields (moved from OSS tab) -->
-          <div class="border-t border-gray-200 pt-6 mt-6">
-            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <h4 class="text-sm font-medium text-blue-800 mb-2">Aliyun OSS 配置说明</h4>
-              <p class="text-sm text-blue-700">
-                配置 Aliyun OSS 凭证以启用音频克隆功能。上传的参考音频将存储在您的 OSS Bucket 中。
-              </p>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Access Key ID</label>
-              <input
-                v-model="settings.ossAccessKeyId"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="输入您的 Aliyun Access Key ID"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Access Key Secret</label>
-              <input
-                v-model="settings.ossAccessKeySecret"
-                type="password"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="输入您的 Aliyun Access Key Secret"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Endpoint</label>
-              <input
-                v-model="settings.ossEndpoint"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="oss-cn-beijing.aliyuncs.com"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Bucket 名称</label>
-              <input
-                v-model="settings.ossBucket"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="vidgo-test"
-              />
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Region</label>
-              <input
-                v-model="settings.ossRegion"
-                type="text"
-                class="w-full p-2 border border-gray-300 rounded-md"
-                placeholder="cn-beijing"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Transcription Engine Settings -->
       <div v-if="activeTab === 'transcription'" class="space-y-6 max-w-3xl">
         <!-- Primary Engine Selection -->
@@ -799,17 +705,184 @@
           </p>
         </div>
 
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">流媒体下载代理</label>
-          <input
-            v-model="settings.streamDownloadProxy"
-            type="text"
-            class="w-full p-2 border border-gray-300 rounded-md"
-            placeholder="http://127.0.0.1:7890 (留空则不使用代理)"
-          />
+        <!-- YouTube cookies.txt 管理 -->
+        <div class="border-t border-gray-200 pt-6 mt-6">
+          <label class="block text-sm font-medium text-gray-700 mb-2">YouTube cookies.txt</label>
+          <div class="flex items-center space-x-3">
+            <label
+              class="flex-1 flex items-center justify-center px-4 py-2.5 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+              :class="{ 'border-blue-500 bg-blue-50': cookiesUploading }"
+            >
+              <input
+                type="file"
+                accept=".txt"
+                class="hidden"
+                @change="handleCookiesUpload"
+                :disabled="cookiesUploading"
+              />
+              <div v-if="cookiesUploading" class="flex items-center text-blue-600">
+                <div class="inline-block w-4 h-4 mr-2 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <span class="text-sm">上传中...</span>
+              </div>
+              <div v-else class="flex items-center text-sm text-gray-600">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <span>{{ cookiesStatus?.exists ? '点击覆盖上传新的 cookies.txt' : '点击上传 cookies.txt' }}</span>
+              </div>
+            </label>
+
+            <!-- 修改时间信息按钮 -->
+            <div class="relative">
+              <button
+                @mouseenter="cookiesHover = true"
+                @mouseleave="cookiesHover = false"
+                class="p-2 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-100 transition-colors"
+                title="查看 cookies 信息"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+              <!-- Hover 弹出信息 -->
+              <div
+                v-if="cookiesHover && cookiesStatus?.exists"
+                class="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-50 min-w-[220px]"
+              >
+                <p class="text-xs text-gray-500 mb-1">文件修改时间</p>
+                <p class="text-sm font-medium text-gray-800">{{ formatCookiesTime(cookiesStatus.last_modified!) }}</p>
+                <p class="text-xs text-gray-400 mt-1">{{ cookiesStatus.file_size }} bytes</p>
+              </div>
+            </div>
+          </div>
           <p class="mt-2 text-sm text-gray-500">
-            用于YouTube/B站/Podcast下载时的代理设置，留空则不使用代理。
+            从浏览器导出 YouTube 的 cookies.txt，用于访问需要登录的视频。使用浏览器扩展如
+            <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" class="text-blue-500 hover:underline">Get cookies.txt LOCALLY</a>
+            导出。
           </p>
+          <!-- 当前状态提示 -->
+          <div v-if="cookiesStatus?.exists" class="mt-2 flex items-center text-xs text-green-600">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            cookies.txt 已上传（{{ formatCookiesTime(cookiesStatus.last_modified!) }}）
+          </div>
+        </div>
+
+        <!-- 网络代理设置 -->
+        <div class="border-t border-gray-200 pt-6 mt-6">
+          <h4 class="text-sm font-medium text-gray-700 mb-4">网络代理设置</h4>
+          <div>
+            <label class="block text-sm font-medium text-gray-600 mb-2">代理服务器地址</label>
+            <input
+              v-model="settings.proxyUrl"
+              type="text"
+              class="w-full p-2 border border-gray-300 rounded-md"
+              placeholder="http://host.docker.internal:7890 (留空则不使用代理)"
+            />
+            <p class="mt-2 text-sm text-gray-500">
+              统一代理地址，用于 yt-dlp 下载和 LLM 调用。Docker 部署时也可通过
+              <code class="bg-gray-100 px-1 rounded">HTTPS_PROXY</code>
+              环境变量配置。
+            </p>
+          </div>
+          <div class="mt-4 space-y-3">
+            <label class="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="settings.downloadUseProxy"
+                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span class="text-sm text-gray-700">流媒体下载走代理 (YouTube / Podcast)</span>
+            </label>
+            <label class="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="settings.splitUseProxy"
+                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span class="text-sm text-gray-700">字幕分割 (LLM) 走代理</span>
+            </label>
+            <label class="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="settings.translateUseProxy"
+                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span class="text-sm text-gray-700">字幕翻译 (LLM) 走代理</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- yt-dlp 包管理 -->
+        <div class="border-t border-gray-200 pt-6 mt-6">
+          <h4 class="text-sm font-medium text-gray-700 mb-4">yt-dlp 下载工具管理</h4>
+
+          <!-- 当前状态 -->
+          <div v-if="ytDlpLoading" class="flex items-center py-4">
+            <div class="inline-block w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+            <span class="text-sm text-gray-500">加载中...</span>
+          </div>
+          <div v-else-if="ytDlpStatus" class="space-y-3 mb-6">
+            <div class="grid grid-cols-2 gap-4">
+              <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p class="text-xs text-gray-500 mb-1">yt-dlp 版本</p>
+                <p class="text-sm font-medium text-gray-800">{{ ytDlpStatus.yt_dlp_version }}</p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p class="text-xs text-gray-500 mb-1">EJS 脚本</p>
+                <p class="text-sm font-medium" :class="ytDlpStatus.ejs_version !== '未安装' ? 'text-green-600' : 'text-red-500'">
+                  {{ ytDlpStatus.ejs_version }}
+                </p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p class="text-xs text-gray-500 mb-1">Node.js 运行时</p>
+                <p class="text-sm font-medium" :class="ytDlpStatus.node_available ? 'text-green-600' : 'text-red-500'">
+                  {{ ytDlpStatus.node_version }}
+                </p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p class="text-xs text-gray-500 mb-1">Node 要求</p>
+                <p class="text-sm font-medium text-gray-800">{{ ytDlpStatus.node_required_version }}</p>
+              </div>
+            </div>
+
+            <!-- 环境异常提示 -->
+            <div v-if="!ytDlpStatus.node_available" class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <p class="text-sm text-amber-700">⚠️ Node.js 未安装或版本过低，EJS 脚本将无法执行。请在 Docker 镜像中安装 Node.js >= 20.0.0</p>
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="space-y-3">
+            <button
+              @click="handleInstallDeps"
+              :disabled="ytDlpInstalling"
+              class="w-full px-4 py-2.5 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+              <div v-if="ytDlpInstalling" class="inline-block w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              {{ ytDlpInstalling ? '安装中...' : '安装 yt-dlp 依赖（含 EJS）' }}
+            </button>
+            <p class="text-xs text-gray-500">安装 yt-dlp[default]，包含 yt-dlp-ejs、pycryptodomex、brotli 等依赖</p>
+
+            <button
+              @click="handleUpgrade"
+              :disabled="ytDlpUpgrading"
+              class="w-full px-4 py-2.5 text-sm font-medium text-white bg-teal-500 rounded-lg hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+              <div v-if="ytDlpUpgrading" class="inline-block w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              {{ ytDlpUpgrading ? '检测升级中...' : '检测升级 yt-dlp' }}
+            </button>
+            <p class="text-xs text-gray-500">检查最新版本并升级 yt-dlp 及其依赖</p>
+
+            <button
+              @click="loadYtDlpStatus"
+              :disabled="ytDlpLoading"
+              class="w-full px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+            >
+              刷新状态
+            </button>
+          </div>
         </div>
       </div>
 
@@ -840,6 +913,25 @@
               class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {{ creatingTag ? '创建中...' : '创建' }}
+            </button>
+          </div>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <span class="text-xs font-medium text-gray-500">推荐颜色</span>
+            <button
+              v-for="color in tagColorPresets"
+              :key="`new-${color}`"
+              type="button"
+              class="h-7 w-7 rounded-full border-2 transition hover:scale-105"
+              :class="newTagColor === color ? 'border-slate-900 ring-2 ring-slate-300' : 'border-white shadow-sm'"
+              :style="{ backgroundColor: color }"
+              @click="newTagColor = color"
+            />
+            <button
+              type="button"
+              class="rounded-full border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:border-gray-400 hover:text-gray-900"
+              @click="newTagColor = getRandomTagColor()"
+            >
+              随机
             </button>
           </div>
         </div>
@@ -910,6 +1002,17 @@
                     type="color"
                     class="w-8 h-8 rounded cursor-pointer"
                   />
+                  <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+                    <button
+                      v-for="color in tagColorPresets"
+                      :key="`edit-${tag.id}-${color}`"
+                      type="button"
+                      class="h-5 w-5 rounded-full border transition hover:scale-105"
+                      :class="editingTagColor === color ? 'border-slate-900 ring-1 ring-slate-300' : 'border-white/80'"
+                      :style="{ backgroundColor: color }"
+                      @click="editingTagColor = color"
+                    />
+                  </div>
                   <button
                     @click="saveTagEdit(tag)"
                     class="p-1 text-green-600 hover:text-green-700"
@@ -984,7 +1087,8 @@ import {
   type FrontendSettings,
   BACKEND,
 } from '@/composables/ConfigAPI'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
 import {
   loadWhisperModels,
@@ -1000,6 +1104,18 @@ import {
   batchDeleteTags as batchDeleteTagsAPI,
   type Tag,
 } from '@/composables/TagsAPI'
+import { TAG_COLOR_PRESETS, getDistinctTagColor, getRandomTagColor } from '@/composables/TagColors'
+import {
+  getYtDlpStatus,
+  installYtDlpDeps,
+  upgradeYtDlp,
+  type YtDlpStatus,
+} from '@/composables/YtDlpAPI'
+import {
+  getYoutubeCookiesStatus,
+  uploadYoutubeCookies,
+  type CookiesStatus,
+} from '@/composables/CookiesAPI'
 import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
@@ -1282,7 +1398,6 @@ const currentTabLabel = computed(() => {
         subtitle: t('subtitleSettings'),
         transcription: t('transcriptionSettings'),
         media: t('mediaCredentials'),
-        tts: 'TTS 配音',
         tags: '标签管理',
     }
     return map[props.activeTab] || props.activeTab
@@ -1440,7 +1555,8 @@ const settings = reactive<FrontendSettings>({
   foreignBottomDistance: 120,
   // Media credentials
   bilibiliSessData: '',
-  streamDownloadProxy: '',
+  proxyUrl: '',
+  downloadUseProxy: false,
   // Transcription Engine settings
   transcriptionPrimaryEngine: 'faster_whisper',
   fwsrModel: 'large-v3',
@@ -1456,21 +1572,24 @@ const settings = reactive<FrontendSettings>({
   remoteVidGoHost: '',
   remoteVidGoPort: '8000',
   remoteVidGoUseSsl: false,
-  // OSS Service settings
-  ossAccessKeyId: '',
-  ossAccessKeySecret: '',
-  ossEndpoint: '',
-  ossBucket: '',
-  ossRegion: '',
-  // TTS settings
-  dashscopeApiKey: '',
-  ttsEngineChosen: 'glm_asr_local',
 })
 
 const loading = ref(false)
 const saving = ref(false)
 const availableModels = ref<WhisperModel[]>([])
 const isDownloading = ref(false)
+
+// yt-dlp 管理状态
+const ytDlpStatus = ref<YtDlpStatus | null>(null)
+const ytDlpLoading = ref(false)
+const ytDlpInstalling = ref(false)
+const ytDlpUpgrading = ref(false)
+
+// YouTube cookies 状态
+const cookiesStatus = ref<CookiesStatus | null>(null)
+const cookiesLoading = ref(false)
+const cookiesUploading = ref(false)
+const cookiesHover = ref(false)
 
 
 // Computed properties for showing API key fields based on selected engine
@@ -1505,6 +1624,105 @@ const loadAvailableModels = async () => {
   } catch (error) {
     console.error('Failed to load Whisper models:', error)
     ElMessage.error('加载模型列表失败')
+  }
+}
+
+// yt-dlp 管理函数
+const loadYtDlpStatus = async () => {
+  try {
+    ytDlpLoading.value = true
+    ytDlpStatus.value = await getYtDlpStatus()
+  } catch (error) {
+    console.error('Failed to load yt-dlp status:', error)
+    ElMessage.error('获取 yt-dlp 状态失败')
+  } finally {
+    ytDlpLoading.value = false
+  }
+}
+
+// YouTube cookies 管理函数
+const loadCookiesStatus = async () => {
+  try {
+    cookiesLoading.value = true
+    cookiesStatus.value = await getYoutubeCookiesStatus()
+  } catch (error) {
+    console.error('Failed to load cookies status:', error)
+  } finally {
+    cookiesLoading.value = false
+  }
+}
+
+const handleCookiesUpload = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length) return
+
+  const file = input.files[0]
+  try {
+    cookiesUploading.value = true
+    const result = await uploadYoutubeCookies(file)
+    if (result.success) {
+      ElMessage.success('cookies.txt 上传成功')
+      await loadCookiesStatus()
+    } else {
+      ElMessage.error(result.error || '上传失败')
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || '上传失败')
+  } finally {
+    cookiesUploading.value = false
+    input.value = ''
+  }
+}
+
+const formatCookiesTime = (isoTime: string): string => {
+  const date = new Date(isoTime)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+const handleInstallDeps = async () => {
+  try {
+    ytDlpInstalling.value = true
+    const result = await installYtDlpDeps()
+    if (result.success) {
+      ElMessage.success(`yt-dlp 依赖安装成功 (v${result.yt_dlp_version})`)
+      await loadYtDlpStatus()
+    } else {
+      ElMessage.error(`安装失败: ${result.detail}`)
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '安装失败'
+    ElMessage.error(message)
+  } finally {
+    ytDlpInstalling.value = false
+  }
+}
+
+const handleUpgrade = async () => {
+  try {
+    ytDlpUpgrading.value = true
+    const result = await upgradeYtDlp()
+    if (result.success) {
+      if (result.upgraded) {
+        ElMessage.success(`已升级: ${result.current_version} → ${result.new_version}`)
+      } else {
+        ElMessage.info(`已是最新版本: ${result.new_version}`)
+      }
+      await loadYtDlpStatus()
+    } else {
+      ElMessage.error(`升级失败: ${result.detail}`)
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '升级失败'
+    ElMessage.error(message)
+  } finally {
+    ytDlpUpgrading.value = false
   }
 }
 
@@ -1543,17 +1761,24 @@ const tags = ref<Tag[]>([])
 const loadingTags = ref(false)
 const creatingTag = ref(false)
 const newTagName = ref('')
-const newTagColor = ref('#3B82F6')
+const newTagColor = ref(getRandomTagColor())
 const selectedTagIds = ref<number[]>([])
 const editingTagId = ref<number | null>(null)
 const editingTagName = ref('')
-const editingTagColor = ref('#3B82F6')
+const editingTagColor = ref(getRandomTagColor())
+const tagColorPresets = TAG_COLOR_PRESETS
+
+const getCurrentTagColors = () => tags.value.map(tag => tag.color)
+const pickSuggestedTagColor = () => getDistinctTagColor(getCurrentTagColors())
 
 // Load tags
 const loadTagsList = async () => {
   try {
     loadingTags.value = true
     tags.value = await loadTags()
+    if (!newTagName.value.trim()) {
+      newTagColor.value = pickSuggestedTagColor()
+    }
   } catch (error) {
     console.error('Failed to load tags:', error)
     ElMessage.error('加载标签列表失败')
@@ -1573,7 +1798,7 @@ const createNewTag = async () => {
     await createTag(newTagName.value.trim(), newTagColor.value)
     ElMessage.success('标签创建成功')
     newTagName.value = ''
-    newTagColor.value = '#3B82F6'
+    newTagColor.value = pickSuggestedTagColor()
     await loadTagsList()
   } catch (error: any) {
     ElMessage.error(error.message || '创建标签失败')
@@ -1603,7 +1828,7 @@ const startTagEdit = (tag: Tag) => {
 const cancelTagEdit = () => {
   editingTagId.value = null
   editingTagName.value = ''
-  editingTagColor.value = '#3B82F6'
+  editingTagColor.value = pickSuggestedTagColor()
 }
 
 // Save tag edit
@@ -1783,6 +2008,8 @@ onMounted(() => {
     loadSettings()
     loadAvailableModels()
     loadTagsList()
+    loadYtDlpStatus()
+    loadCookiesStatus()
 })
 
 </script>
