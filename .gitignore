@@ -5,6 +5,7 @@ __pycache__/
 # parent folder
 refer_code/
 test_vid/
+bilibili-API-collect/
 __pycache__/ 
 # 不带前导斜杠的目录模式会在任意层级匹配名为 __pycache__ 的目录，整目录及其内容都会被忽略；
 .env
