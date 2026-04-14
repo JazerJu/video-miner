@@ -8,6 +8,7 @@ import VideoCard from '@/components/Home/VideoCard.vue'
 import BatchToolbar from '@/components/Home/BatchToolbar.vue'
 import { BACKEND } from '@/composables/ConfigAPI'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
+import { loadTags } from '@/composables/TagsAPI'
 
 const { t } = useI18n()
 
@@ -98,15 +99,15 @@ const availableFolders = computed(() => {
   return Array.from(folders).sort()
 })
 
-const availableTags = computed(() => {
-  const tags = new Set<string>()
-  props.videos.forEach(v => {
-    if (v.tags && Array.isArray(v.tags)) {
-      v.tags.forEach(tag => tags.add(tag))
-    }
-  })
-  return Array.from(tags).sort()
-})
+const allTagNames = ref<string[]>([])
+
+async function fetchAllTags() {
+  const tags = await loadTags()
+  allTagNames.value = tags.map(t => t.name).sort()
+}
+fetchAllTags()
+
+const availableTags = computed(() => allTagNames.value)
 
 const fileTypes = [
   { value: 'video', label: '视频', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov'] },
@@ -410,6 +411,7 @@ async function confirmAssign() {
     }
 
     emit('videos-updated')
+    fetchAllTags()
   } catch (e: any) {
     ElMessage.error(e.message || '操作失败')
   } finally {
