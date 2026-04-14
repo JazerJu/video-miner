@@ -8,7 +8,6 @@ const router = useRouter()
 
 import {
   LibraryBig,
-  Search as LucideSearch,
   History,
   Home,
   Video,
@@ -23,9 +22,9 @@ import {
   Mic,
   Tag,
   KeyRound,
-  Volume2,
 } from 'lucide-vue-next'
-import { ElMessage, ElTooltip, ElMessageBox } from 'element-plus'
+import { ElTooltip, ElMessageBox } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import ProfileDialog from '@/components/dialogs/ProfileDialog.vue'
 import { BACKEND } from '@/composables/ConfigAPI'
 
@@ -33,22 +32,16 @@ import { BACKEND } from '@/composables/ConfigAPI'
 const menuList = [
   { key: 'home', icon: Home, action: () => emit('updateMenuIndex', 0) },
   { key: 'library', icon: Video, action: () => emit('updateMenuIndex', 1) },
-  { key: 'search', icon: LucideSearch, action: openSearch, tooltip: 'Ctrl+K' },
 ]
-
-function openSearch() {
-  emit('open-search')
-}
 
 // Settings Tabs - 固定显示，不随菜单切换
 const settingsTabs = [
   { id: 'model', label: 'LLM 设置', icon: Bot },
   { id: 'interface', label: '界面设置', icon: Monitor },
-  { id: 'subtitle', label: '字幕设置', icon: Captions },
+  { id: 'subtitle', label: '字幕样式', icon: Captions },
   { id: 'transcription', label: '转录设置', icon: Mic },
   { id: 'tags', label: '标签管理', icon: Tag },
   { id: 'media', label: '媒体认证', icon: KeyRound },
-  { id: 'tts', label: 'TTS 配音', icon: Volume2 },
 ]
 
 // 折叠侧边栏
@@ -133,7 +126,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'updateMenuIndex', idx: number): void
-  (e: 'open-search'): void
   (e: 'refresh'): void
   (e: 'update-settings-tab', tab: string): void
 }>()
@@ -162,14 +154,6 @@ const emit = defineEmits<{
           <Home :size="20" />
         </button>
       </el-tooltip>
-      <el-tooltip content="Search (Ctrl+K)" placement="right">
-        <button
-          @click="openSearch"
-          class="text-white/70 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-all"
-        >
-          <LucideSearch :size="20" />
-        </button>
-      </el-tooltip>
     </div>
 
     <!-- 展开版 侧边栏 -->
@@ -179,10 +163,10 @@ const emit = defineEmits<{
       <nav class="flex-none px-2">
         <!-- Menu items -->
         <div class="space-y-2 mb-6">
-          <div
-            v-for="(item, i) in menuList"
-            :key="i"
-            class="flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200"
+        <div
+          v-for="(item, i) in menuList"
+          :key="i"
+          class="flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200"
             :class="
               props.currentMenuIdx === i
                 ? 'bg-teal-600/90 text-white shadow-md'
@@ -190,20 +174,10 @@ const emit = defineEmits<{
             "
             @click="item.action()"
           >
-            <template v-if="item.tooltip">
-              <el-tooltip :content="item.tooltip" placement="right">
-                <div class="flex items-center">
-                  <component :is="item.icon" :size="18" />
-                  <span class="ml-3 font-medium">{{ t(item.key) }}</span>
-                </div>
-              </el-tooltip>
-            </template>
-            <template v-else>
-              <div class="flex items-center">
-                <component :is="item.icon" :size="18" />
-                <span class="ml-3 font-medium">{{ t(item.key) }}</span>
-              </div>
-            </template>
+            <div class="flex items-center">
+              <component :is="item.icon" :size="18" />
+              <span class="ml-3 font-medium">{{ t(item.key) }}</span>
+            </div>
           </div>
         </div>
       </nav>

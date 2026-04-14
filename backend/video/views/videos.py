@@ -22,6 +22,12 @@ from functools import wraps
 User = get_user_model()
 
 
+def serialize_datetime(dt):
+    if not dt:
+        return ""
+    return timezone.localtime(dt).isoformat()
+
+
 def requires_delete_permission(func):
     """Decorator to check if user has permission to delete videos"""
 
@@ -80,6 +86,7 @@ from django.utils.decorators import method_decorator
 import cv2
 import subprocess
 from PIL import Image
+from ..tag_colors import get_random_tag_color
 
 from ..services.audio_processing import (
     is_audio_file,
@@ -305,11 +312,14 @@ class VideoDataView(JsonView):
 
     def video_json(self, v):
         """Standard video JSON structure"""
+        added_at = v.created_at or v.file_created_time
         return {
             "id": v.id,
             "name": v.name,
             "url": v.url,
             "thumbnail_url": v.thumbnail_url,
+            "description": v.description or "",
+            "length": v.video_length or "",
             "video_length": v.video_length,
             "video_length_seconds": v.video_length_seconds,
             "file_size": v.file_size,
@@ -317,6 +327,9 @@ class VideoDataView(JsonView):
             if v.file_created_time
             else "",
             "last_modified": calc_diff_time(v.last_modified),
+            "last_accessed_at": serialize_datetime(v.last_modified),
+            "added_at": serialize_datetime(added_at),
+            "content_updated_at": serialize_datetime(v.content_updated_at),
             "tags": list(v.tags.values_list("name", flat=True)),
             "last_played_time": v.last_played_time,
             "category_id": v.category_id if v.category_id else None,
@@ -401,11 +414,14 @@ class LastVideoDataView(JsonView):
 
     def video_json(self, v):
         """Standard video JSON structure"""
+        added_at = v.created_at or v.file_created_time
         return {
             "id": v.id,
             "name": v.name,
             "url": v.url,
             "thumbnail_url": v.thumbnail_url,
+            "description": v.description or "",
+            "length": v.video_length or "",
             "video_length": v.video_length,
             "video_length_seconds": v.video_length_seconds,
             "file_size": v.file_size,
@@ -413,9 +429,9 @@ class LastVideoDataView(JsonView):
             if v.file_created_time
             else "",
             "last_modified": calc_diff_time(v.last_modified),
-            "created_time": v.created_time.strftime("%Y-%m-%d")
-            if v.created_time
-            else "",
+            "last_accessed_at": serialize_datetime(v.last_modified),
+            "added_at": serialize_datetime(added_at),
+            "content_updated_at": serialize_datetime(v.content_updated_at),
             "tags": list(v.tags.values_list("name", flat=True)),
             "last_played_time": v.last_played_time,
             "category_id": v.category_id if v.category_id else None,
@@ -486,7 +502,7 @@ class VideoSearchView(JsonView):
 
     http_method_names = ["get", "post"]
 
-    def get_search_results(self, query, limit=2000):
+    def get_search_results(self, query, mode="title_content", limit=2000):
         """
         Search videos by title, subtitles, and notes
         Returns list of results with matched content
@@ -509,8 +525,13 @@ class VideoSearchView(JsonView):
                 "total_matched_nums": 0,
             }
 
+            query_lower = query.lower()
+            search_title = mode in ["title", "title_content"]
+            search_subtitle = mode in ["subtitle", "title_content"]
+            search_notes = mode == "title_content"
+
             # Search in title
-            if query.lower() in video.name.lower():
+            if search_title and query_lower in video.name.lower():
                 video_result["total_matched_nums"] += 1
 
             # Search in subtitle files - check {videoId}_{lang}.srt pattern
@@ -518,7 +539,7 @@ class VideoSearchView(JsonView):
             languages = ["zh", "en", "jp", "kr"]
 
             # Also check the main srt_path if it exists
-            if video.srt_path:
+            if search_subtitle and video.srt_path:
                 full_subtitle_path = os.path.join(srt_dir, video.srt_path)
                 if os.path.exists(full_subtitle_path):
                     try:
@@ -529,37 +550,38 @@ class VideoSearchView(JsonView):
                                 line = line.strip()
                                 # Skip SRT metadata lines (numbers, timestamps, empty lines)
                                 if line and not line.isdigit() and "-->" not in line:
-                                    if query.lower() in line.lower():
+                                    if query_lower in line.lower():
                                         video_result["subtitle_matched"].append(line)
                                         video_result["total_matched_nums"] += 1
                     except (IOError, UnicodeDecodeError):
                         pass
 
             # Check language-specific subtitle files
-            for lang in languages:
-                subtitle_filename = f"{video.id}_{lang}.srt"
-                full_subtitle_path = os.path.join(srt_dir, subtitle_filename)
-                if os.path.exists(full_subtitle_path):
-                    try:
-                        with open(full_subtitle_path, "r", encoding="utf-8") as f:
-                            content = f.read()
-                            lines = content.split("\n")
-                            for line in lines:
-                                line = line.strip()
-                                # Skip SRT metadata lines (numbers, timestamps, empty lines)
-                                if line and not line.isdigit() and "-->" not in line:
-                                    if query.lower() in line.lower():
-                                        video_result["subtitle_matched"].append(line)
-                                        video_result["total_matched_nums"] += 1
-                    except (IOError, UnicodeDecodeError):
-                        continue
+            if search_subtitle:
+                for lang in languages:
+                    subtitle_filename = f"{video.id}_{lang}.srt"
+                    full_subtitle_path = os.path.join(srt_dir, subtitle_filename)
+                    if os.path.exists(full_subtitle_path):
+                        try:
+                            with open(full_subtitle_path, "r", encoding="utf-8") as f:
+                                content = f.read()
+                                lines = content.split("\n")
+                                for line in lines:
+                                    line = line.strip()
+                                    # Skip SRT metadata lines (numbers, timestamps, empty lines)
+                                    if line and not line.isdigit() and "-->" not in line:
+                                        if query_lower in line.lower():
+                                            video_result["subtitle_matched"].append(line)
+                                            video_result["total_matched_nums"] += 1
+                        except (IOError, UnicodeDecodeError):
+                            continue
 
             # Search in notes
-            if video.notes:
+            if search_notes and video.notes:
                 note_lines = video.notes.split("\n")
                 for line in note_lines:
                     line = line.strip()
-                    if line and query.lower() in line.lower():
+                    if line and query_lower in line.lower():
                         video_result["notes_matched"].append(line)
                         video_result["total_matched_nums"] += 1
 
@@ -577,10 +599,11 @@ class VideoSearchView(JsonView):
     def get(self, request):
         """Handle GET requests for search"""
         query = request.GET.get("q", "").strip()
+        mode = request.GET.get("mode", "title_content").strip()
         if not query:
             return JsonResponse({"results": [], "total_matches": 0, "truncated": False})
 
-        results, total_matches = self.get_search_results(query)
+        results, total_matches = self.get_search_results(query, mode=mode)
 
         return JsonResponse(
             {
@@ -595,13 +618,15 @@ class VideoSearchView(JsonView):
         try:
             data = json.loads(request.body)
             query = data.get("query", "").strip()
+            mode = data.get("mode", "title_content").strip()
         except (json.JSONDecodeError, AttributeError):
             query = request.POST.get("query", "").strip()
+            mode = request.POST.get("mode", "title_content").strip()
 
         if not query:
             return JsonResponse({"results": [], "total_matches": 0, "truncated": False})
 
-        results, total_matches = self.get_search_results(query)
+        results, total_matches = self.get_search_results(query, mode=mode)
 
         return JsonResponse(
             {
@@ -873,7 +898,8 @@ class VideoActionView(View):
                     data = json.loads(request.body)
                     notes = data.get("notes", "")
                     video.notes = notes
-                    video.save(update_fields=["notes"])
+                    video.content_updated_at = timezone.now()
+                    video.save(update_fields=["notes", "content_updated_at"])
                     return JsonResponse({"success": True, "message": "Notes saved"})
                 except Exception as e:
                     return JsonResponse({"success": False, "error": str(e)}, status=500)
@@ -942,7 +968,12 @@ class VideoActionView(View):
 
                     for name in tag_names:
                         tag, _ = Tag.objects.get_or_create(
-                            name=name, defaults={"color": "#3B82F6"}
+                            name=name,
+                            defaults={
+                                "color": get_random_tag_color(
+                                    Tag.objects.values_list("color", flat=True)
+                                )
+                            },
                         )
                         video.tags.add(tag)
 
@@ -953,6 +984,77 @@ class VideoActionView(View):
                             "tags": list(video.tags.values_list("name", flat=True)),
                         }
                     )
+                except Exception as e:
+                    return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+            elif action == "extract_audio":
+                """Extract audio from video file for waveform generation"""
+                try:
+                    # Check if audio already exists
+                    video_name_without_ext = os.path.splitext(video.url)[0]
+                    audio_dir = os.path.join(settings.MEDIA_ROOT, "saved_audio")
+
+                    # Check for existing audio files
+                    for audio_ext in [".m4a", ".mp3", ".aac", ".wav"]:
+                        existing_audio = os.path.join(
+                            audio_dir, f"{video_name_without_ext}{audio_ext}"
+                        )
+                        if os.path.exists(existing_audio):
+                            return JsonResponse(
+                                {
+                                    "success": True,
+                                    "message": "Audio already exists",
+                                    "audio_path": existing_audio,
+                                    "was_extracted": False,
+                                }
+                            )
+
+                    # Get video file path
+                    video_dir = os.path.join(settings.MEDIA_ROOT, "saved_video")
+                    video_path = os.path.join(video_dir, video.url)
+
+                    if not os.path.exists(video_path):
+                        return JsonResponse(
+                            {"success": False, "error": "Video file not found"},
+                            status=404,
+                        )
+
+                    # Create audio directory
+                    os.makedirs(audio_dir, exist_ok=True)
+
+                    # Detect audio format and extract
+                    from ..services.audio_processing import (
+                        detect_video_audio_format,
+                        extract_audio_from_video_file,
+                    )
+
+                    audio_format = detect_video_audio_format(video_path)
+                    audio_filename = f"{video_name_without_ext}.{audio_format}"
+                    audio_path = os.path.join(audio_dir, audio_filename)
+
+                    success, error_msg, audio_size = extract_audio_from_video_file(
+                        video_path, audio_path, preserve_format=True
+                    )
+
+                    if success:
+                        return JsonResponse(
+                            {
+                                "success": True,
+                                "message": "Audio extracted successfully",
+                                "audio_path": audio_path,
+                                "audio_size": audio_size,
+                                "was_extracted": True,
+                            }
+                        )
+                    else:
+                        return JsonResponse(
+                            {
+                                "success": False,
+                                "error": f"Audio extraction failed: {error_msg}",
+                            },
+                            status=500,
+                        )
+
                 except Exception as e:
                     return JsonResponse({"success": False, "error": str(e)}, status=500)
 
@@ -1153,7 +1255,12 @@ class BatchVideoActionView(View):
                 tags = []
                 for name in tag_names:
                     tag, _ = Tag.objects.get_or_create(
-                        name=name, defaults={"color": "#3B82F6"}
+                        name=name,
+                        defaults={
+                            "color": get_random_tag_color(
+                                Tag.objects.values_list("color", flat=True)
+                            )
+                        },
                     )
                     tags.append(tag)
 
@@ -1165,6 +1272,34 @@ class BatchVideoActionView(View):
                     {
                         "success": True,
                         "message": f"Added {len(tag_names)} tag(s) to {len(video_ids)} video(s)",
+                    }
+                )
+
+            if action == "remove_tags":
+                tag_names = data.get("tagNames", [])
+                if not tag_names:
+                    return JsonResponse(
+                        {"success": False, "error": "No tag names provided"},
+                        status=400,
+                    )
+
+                from ..models import Tag
+
+                tags = list(Tag.objects.filter(name__in=tag_names))
+                if not tags:
+                    return JsonResponse(
+                        {"success": False, "error": "No matching tags found"},
+                        status=404,
+                    )
+
+                videos = Video.objects.filter(pk__in=video_ids)
+                for video in videos:
+                    video.tags.remove(*tags)
+
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "message": f"Removed {len(tags)} tag(s) from {len(video_ids)} video(s)",
                     }
                 )
 
@@ -1246,6 +1381,7 @@ class VideoInfoView(JsonView):
                     else "",
                     "lastModified": calc_diff_time(video.last_modified),
                     "rawLang": video.raw_lang,
+                    "last_played_time": video.last_played_time,
                 }
             )
         except Video.DoesNotExist:

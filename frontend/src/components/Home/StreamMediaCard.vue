@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { defineExpose, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { ElMessage } from '@/composables/useNotification'
 import { Upload, Link, Document, Microphone, Finished, ArrowDown } from '@element-plus/icons-vue'
 import { getCSRFToken, getCookie } from '@/composables/GetCSRFToken'
 import type { RequestVideo } from '@/types/media'
@@ -18,7 +19,10 @@ const { t } = useI18n()
 // 首页函数
 // 获取视频预览信息
 const proxyThumbnailUrl = computed(() => {
-  return `${BACKEND}/media/thumbnail/?url=${encodeURIComponent(requestVideo.value.thumbnail)}`
+  const thumbnail = requestVideo.value.thumbnail?.trim()
+  return thumbnail
+    ? `${BACKEND}/media/thumbnail/?url=${encodeURIComponent(thumbnail)}`
+    : ''
 })
 const inputUrl = ref('')
 async function submitUrl() {

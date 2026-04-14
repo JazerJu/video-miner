@@ -3,12 +3,11 @@
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { defineExpose, computed } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Microphone, Upload } from '@element-plus/icons-vue'
-import { FolderOpen } from 'lucide-vue-next'
+import { Upload } from '@element-plus/icons-vue'
+import { FolderOpen, Radio } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useNotification } from '@/composables/useNotification'
 import Sidebar from '@/components/Home/Sidebar.vue'
-import SearchModal from '@/components/Home/SearchModal.vue'
 import VideoDisplayToggler from '@/components/VideoDisplayToggler.vue'
 import VideoCard from '@/components/Home/VideoCard.vue'
 import BatchMoveDialog from '@/components/dialogs/BatchMoveDialog.vue'
@@ -27,6 +26,7 @@ import { useThumbnail } from '@/composables/thumbnail'
 import { useHiddenCategories } from '@/composables/useHiddenCategories'
 
 import { useRouter } from 'vue-router'
+import { consumeDirtyVideos, hasDirtyVideos } from '@/composables/useVideoDirtyState'
 
 const router = useRouter()
 
@@ -91,6 +91,10 @@ function updateMenuIndex(idx: number) {
     // Settings
     currentCategory.value = null
   }
+
+  if ((idx === 0 || idx === 1) && hasDirtyVideos()) {
+    fetchVideoData()
+  }
 }
 
 function updateSettingsTab(tab: string) {
@@ -98,9 +102,12 @@ function updateSettingsTab(tab: string) {
 }
 
 // 1.1 打开搜索框
-const showSearchModal = ref(false)
+const libraryViewRef = ref<InstanceType<typeof LibraryView> | null>(null)
 function handleOpenSearch() {
-  showSearchModal.value = true
+  updateMenuIndex(1)
+  nextTick(() => {
+    libraryViewRef.value?.focusSearch()
+  })
 }
 
 // 1.2 打开设置 - Now switches to menu index 3
@@ -232,12 +239,11 @@ async function batchDelete() {
   }
 }
 function batchSubtitle() {
-  successNotify(`生成字幕：${selectedIds.value.join(', ')}`)
-  // 打开弹窗
   if (!selectedIds.value.length) {
     warningNotify(t('selectVideoFirst'))
     return
   }
+
   showSubtitleDialog.value = true
 }
 
@@ -316,9 +322,6 @@ async function batchConcat() {
 const showBatchMoveDialog = ref(false)
 const showRealtimeTranscriptionDialog = ref(false)
 
-function handleOpenRealtimeTranscription() {
-  showRealtimeTranscriptionDialog.value = true
-}
 async function onBatchMoved() {
   const ids = [...selectedIds.value] // 1️⃣ 复制一份待删列表
   selectedIds.value = [] // 清空勾选，让批量栏立即消失
@@ -512,6 +515,12 @@ async function fetchVideoData() {
             name: categoryName,
             items: (cat.loose_videos ?? []).map((v: any) => ({
                 ...v,
+                thumbnail: v.thumbnail_url || v.thumbnail || '',
+                length: v.video_length || v.length || '',
+                description: v.description || '',
+                rawLang: v.raw_lang || v.rawLang || '',
+                videoSource: v.video_source || v.videoSource || '',
+                sourceUrl: v.source_url || v.sourceUrl || '',
                 type: 'video',
                 categoryName: categoryName,  // 添加分类名称到每个视频
                 categoryId: cat.id ?? 0      // 添加分类ID到每个视频
@@ -524,6 +533,8 @@ async function fetchVideoData() {
     categories.value.forEach((cat) => {
       videoData.value[cat.name] = cat.items as Video[]
     })
+
+    consumeDirtyVideos()
   } catch (err) {
     console.error(err)
   }
@@ -601,7 +612,19 @@ onMounted(() => {
   // Reset browser tab title to default
   document.title = 'VidGo'
   checkAuthAndFetch()
+  window.addEventListener('keydown', handleGlobalKeydown)
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalKeydown)
+})
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if (event.ctrlKey && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    handleOpenSearch()
+  }
+}
 </script>
 
 <template>
@@ -613,15 +636,11 @@ onMounted(() => {
       :activeSettingsTab="activeSettingsTab"
       :isAuthenticated="isAuthenticated"
       @update-menuIndex="updateMenuIndex"
-      @open-search="handleOpenSearch"
       @open-settings="handleOpenSettings"
       @refresh="checkAuthAndFetch"
       @show-login="handleUserAreaClick"
       @update-settings-tab="updateSettingsTab"
     />
-
-    <!-- 搜索Modal -->
-    <SearchModal v-model:visible="showSearchModal" @close="showSearchModal = false" />
     <!-- 右侧可Y轴滚动内容区 -->
     <main
       class="flex-1 h-full p-6 overflow-y-auto bg-gradient-to-br from-gray-900 via-slate-800 to-blue-900"
@@ -630,19 +649,17 @@ onMounted(() => {
         <div class="p-6">
           <h1 class="text-2xl font-bold mb-3 text-white">{{ t('videoManagementSystem') }}</h1>
           <StreamMediaCard @upload-complete="fetchVideoData" />
-          <!-- 功能卡片组 - 只保留录音转写并居中 -->
+          <!-- 功能卡片组 - 只保留流式转录并居中 -->
           <div class="flex justify-center mt-8 space-x-8">
-            <!-- 录音转写卡片 -->
+            <!-- 流式转录卡片 -->
             <div
               class="feature-card-hover bg-gradient-to-br from-gray-800/80 via-slate-700/80 to-blue-800/80 backdrop-blur-md rounded-2xl p-8 cursor-pointer border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 max-w-xs text-center"
-              @click="handleOpenRealtimeTranscription"
+              @click="router.push('/stream-transcription')"
             >
               <div
                 class="w-16 h-16 mx-auto rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 bg-opacity-20 flex items-center justify-center mb-4"
               >
-                <el-icon size="32" class="text-blue-400">
-                  <Microphone />
-                </el-icon>
+                <Radio :size="32" class="text-blue-400" />
               </div>
               <h3 class="text-xl font-semibold text-white mb-1">
                 {{ t('liveRecordTranscription') }}
@@ -673,6 +690,7 @@ onMounted(() => {
       <template v-if="currentMenuIdx === 1">
         <!-- 新的媒体库视图，带完整筛选和排序功能 -->
         <LibraryView
+          ref="libraryViewRef"
           :videos="allVideos"
           :batch-mode="isBatchMode"
           v-model:selected-ids="selectedIds"

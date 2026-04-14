@@ -1,5 +1,6 @@
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import { BACKEND } from './ConfigAPI'
+import { getRandomTagColor } from './TagColors'
 
 export interface Tag {
   id: number
@@ -26,7 +27,7 @@ export async function loadTags(): Promise<Tag[]> {
   }
 }
 
-export async function createTag(name: string, color: string = '#3B82F6'): Promise<Tag | null> {
+export async function createTag(name: string, color: string = getRandomTagColor()): Promise<Tag | null> {
   try {
     const csrf = await getCSRFToken()
     const response = await fetch(`${BACKEND}/api/tags/create`, {

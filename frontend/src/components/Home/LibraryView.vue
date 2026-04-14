@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FolderOpen, Tag, FileText, Filter, SortAsc, ChevronDown, X, Check } from 'lucide-vue-next'
-import { ElMessage } from 'element-plus'
+import { FolderOpen, Tag, FileText, Filter, SortAsc, ChevronDown, X, Check, Search } from 'lucide-vue-next'
+import { ElMessage } from '@/composables/useNotification'
 import type { Video } from '@/types/media'
 import VideoCard from '@/components/Home/VideoCard.vue'
 import BatchToolbar from '@/components/Home/BatchToolbar.vue'
@@ -80,6 +80,15 @@ const selectedVideosTags = computed(() => {
   return Array.from(tags).sort()
 })
 
+const commonSelectedTags = computed(() => {
+  if (selectedVideos.value.length === 0) return []
+  const [firstVideo, ...restVideos] = selectedVideos.value
+  const baseTags = new Set(firstVideo.tags || [])
+  return Array.from(baseTags)
+    .filter(tag => restVideos.every(video => (video.tags || []).includes(tag)))
+    .sort()
+})
+
 /* ─── 可用选项 ─── */
 const availableFolders = computed(() => {
   const folders = new Set<string>()
@@ -112,9 +121,30 @@ const sortOptions = [
   { value: 'natural', label: '自然排序' },
 ]
 
+const searchModeOptions = [
+  { value: 'title', label: '标题' },
+  { value: 'title_content', label: '标题&内容' },
+  { value: 'subtitle', label: '纯字幕' },
+]
+
+const searchMode = ref<'title' | 'title_content' | 'subtitle'>('title_content')
+const searchQuery = ref('')
+const activeSearchQuery = ref('')
+const activeSearchMode = ref<'title' | 'title_content' | 'subtitle'>('title_content')
+const searchMatchedIds = ref<number[] | null>(null)
+const searchTotalMatches = ref(0)
+const searchIsTruncated = ref(false)
+const isSearching = ref(false)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+
 /* ─── 过滤 / 排序 / 分页 ─── */
 const filteredVideos = computed(() => {
   let result = [...props.videos]
+
+  if (activeSearchQuery.value && searchMatchedIds.value) {
+    const matchedIdSet = new Set(searchMatchedIds.value)
+    result = result.filter(v => matchedIdSet.has(v.id))
+  }
 
   if (selectedFolders.value.length > 0) {
     result = result.filter(v => {
@@ -155,10 +185,14 @@ const sortedVideos = computed(() => {
 
     switch (sortBy.value) {
       case 'lastModified':
-        comparison = new Date(b.last_modified || 0).getTime() - new Date(a.last_modified || 0).getTime()
+        comparison =
+          new Date(b.last_accessed_at || b.last_modified || 0).getTime() -
+          new Date(a.last_accessed_at || a.last_modified || 0).getTime()
         break
       case 'createdTime':
-        comparison = new Date(b.file_created_time || 0).getTime() - new Date(a.file_created_time || 0).getTime()
+        comparison =
+          new Date(b.added_at || b.file_created_time || 0).getTime() -
+          new Date(a.added_at || a.file_created_time || 0).getTime()
         break
       case 'duration': {
         const durationA = a.video_length_seconds || parseDuration(a.length)
@@ -229,6 +263,68 @@ function clearFilters() {
   selectedTypes.value = []
 }
 
+async function performSearch() {
+  const query = searchQuery.value.trim()
+
+  if (!query) {
+    activeSearchQuery.value = ''
+    searchMatchedIds.value = null
+    searchTotalMatches.value = 0
+    searchIsTruncated.value = false
+    return
+  }
+
+  isSearching.value = true
+
+  try {
+    const csrf = await getCSRFToken()
+    const res = await fetch(`${BACKEND}/api/videos/search/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
+      },
+      body: JSON.stringify({
+        query,
+        mode: searchMode.value,
+      }),
+    })
+
+    if (!res.ok) throw new Error('搜索失败')
+
+    const data = await res.json()
+    activeSearchQuery.value = query
+    activeSearchMode.value = searchMode.value
+    searchMatchedIds.value = Array.isArray(data.results) ? data.results.map((item: { id: number }) => item.id) : []
+    searchTotalMatches.value = data.total_matches || 0
+    searchIsTruncated.value = Boolean(data.truncated)
+    currentPage.value = 1
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('搜索失败，请稍后重试')
+  } finally {
+    isSearching.value = false
+  }
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  activeSearchQuery.value = ''
+  activeSearchMode.value = searchMode.value
+  searchMatchedIds.value = null
+  searchTotalMatches.value = 0
+  searchIsTruncated.value = false
+}
+
+function handleSearchKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter') {
+    performSearch()
+  } else if (event.key === 'Escape' && searchQuery.value) {
+    clearSearch()
+  }
+}
+
 function getFolderCount(folder: string): number {
   return props.videos.filter(v => (v.categoryName || '未分类') === folder).length
 }
@@ -290,21 +386,26 @@ async function confirmAssign() {
         ElMessage.error(data.error || '分配失败')
       }
     } else {
+      const shouldRemoveTag = commonSelectedTags.value.includes(targetName)
       const res = await fetch(`${BACKEND}/api/videos/batch_action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
         credentials: 'include',
         body: JSON.stringify({
-          action: 'add_tags',
+          action: shouldRemoveTag ? 'remove_tags' : 'add_tags',
           videoIds: ids,
           tagNames: [targetName],
         }),
       })
       const data = await res.json()
       if (data.success) {
-        ElMessage.success(`已把标签"${targetName}"添加到 ${ids.length} 个选定的文档。`)
+        ElMessage.success(
+          shouldRemoveTag
+            ? `已从 ${ids.length} 个选定项目移除标签"${targetName}"。`
+            : `已把标签"${targetName}"添加到 ${ids.length} 个选定项目。`,
+        )
       } else {
-        ElMessage.error(data.error || '添加标签失败')
+        ElMessage.error(data.error || (shouldRemoveTag ? '移除标签失败' : '添加标签失败'))
       }
     }
 
@@ -323,6 +424,14 @@ watch([selectedFolders, selectedTags, selectedTypes], () => {
 
 watch([sortBy, sortOrder], () => {
   currentPage.value = 1
+})
+
+defineExpose({
+  focusSearch: async () => {
+    await nextTick()
+    searchInputRef.value?.focus()
+    searchInputRef.value?.select()
+  },
 })
 
 const folderSearchQuery = ref('')
@@ -389,6 +498,38 @@ watch(showFilterPanel, (val) => {
       <div class="flex items-center flex-wrap gap-2">
         <!-- ════════ 筛选模式 (无选中) ════════ -->
         <template v-if="!batchMode">
+          <div class="flex min-w-[460px] max-w-[720px] flex-1 items-center overflow-hidden rounded-xl bg-slate-900/55 shadow-[0_10px_24px_rgba(2,6,23,0.18)]">
+            <div class="relative shrink-0 border-r border-white/8 bg-slate-800/75">
+              <select
+                v-model="searchMode"
+                class="appearance-none bg-slate-800/95 px-3 py-2.5 pr-8 text-sm font-medium text-slate-100 focus:outline-none"
+              >
+                <option v-for="opt in searchModeOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-white/45" />
+            </div>
+
+            <div class="relative min-w-0 flex-1">
+              <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+              <input
+                ref="searchInputRef"
+                v-model="searchQuery"
+                placeholder="按 Enter 搜索标题、内容或字幕"
+                class="w-full border-0 bg-transparent py-2.5 pl-9 pr-10 text-sm text-white placeholder-white/35 focus:outline-none"
+                @keydown="handleSearchKeydown"
+              />
+              <button
+                v-if="searchQuery || activeSearchQuery"
+                class="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-white/45 transition hover:bg-white/8 hover:text-white/80"
+                @click="clearSearch"
+              >
+                <X class="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
           <!-- 包含/排除切换 -->
           <div class="flex bg-gray-800/50 rounded-lg p-0.5 border border-white/10">
             <button
@@ -638,9 +779,14 @@ watch(showFilterPanel, (val) => {
                   <span
                     v-for="tg in selectedVideosTags"
                     :key="tg"
-                    class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-emerald-600/30 text-emerald-200 border border-emerald-500/30"
+                    :class="[
+                      'inline-flex items-center px-2 py-0.5 rounded text-xs border',
+                      commonSelectedTags.includes(tg)
+                        ? 'bg-emerald-600/30 text-emerald-200 border-emerald-500/30'
+                        : 'bg-amber-500/15 text-amber-200 border-amber-400/25',
+                    ]"
                   >
-                    <Check class="w-3 h-3 mr-1" />
+                    <Check v-if="commonSelectedTags.includes(tg)" class="w-3 h-3 mr-1" />
                     {{ tg }}
                   </span>
                 </div>
@@ -660,10 +806,28 @@ watch(showFilterPanel, (val) => {
                   @click="onAssignTagClick(tag)"
                   :class="[
                     'flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors',
-                    selectedVideosTags.includes(tag) ? 'bg-emerald-600/20 text-emerald-200' : 'hover:bg-white/5 text-white/80'
+                    commonSelectedTags.includes(tag)
+                      ? 'bg-rose-600/20 text-rose-200'
+                      : selectedVideosTags.includes(tag)
+                        ? 'bg-amber-500/15 text-amber-200'
+                        : 'hover:bg-white/5 text-white/80'
                   ]"
                 >
-                  <span class="text-sm">{{ tag }}</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm">{{ tag }}</span>
+                    <span
+                      v-if="commonSelectedTags.includes(tag)"
+                      class="rounded-full border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-200"
+                    >
+                      点击移除
+                    </span>
+                    <span
+                      v-else-if="selectedVideosTags.includes(tag)"
+                      class="rounded-full border border-amber-400/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
+                    >
+                      部分已拥有
+                    </span>
+                  </div>
                   <span class="text-xs text-white/50 bg-white/10 px-2 py-0.5 rounded-full">{{ getTagCount(tag) }}</span>
                 </div>
                 <div v-if="availableTags.length === 0" class="text-center py-4 text-white/40 text-sm">
@@ -685,8 +849,17 @@ watch(showFilterPanel, (val) => {
       </div>
 
       <!-- 结果统计 -->
-      <div class="text-sm text-white/50">
-        共 {{ filteredVideos.length }} 个视频，显示 {{ paginatedVideos.length }} 个
+      <div class="flex flex-wrap items-center gap-3 text-sm text-white/50">
+        <span>共 {{ filteredVideos.length }} 个视频，显示 {{ paginatedVideos.length }} 个</span>
+        <span v-if="isSearching" class="text-cyan-200/80">搜索中...</span>
+        <span v-else-if="activeSearchQuery" class="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-cyan-100">
+          {{ searchModeOptions.find(item => item.value === activeSearchMode)?.label || '搜索' }}:
+          “{{ activeSearchQuery }}”
+          <span class="ml-1 text-cyan-200/70">{{ searchTotalMatches }} 处匹配</span>
+        </span>
+        <span v-if="searchIsTruncated" class="text-amber-300/80">
+          结果超过 2000 处匹配，已截断
+        </span>
       </div>
     </div>
 
@@ -715,10 +888,21 @@ watch(showFilterPanel, (val) => {
       <div class="text-center">
         <Filter class="w-16 h-16 mx-auto mb-4 text-white/30" />
         <p class="text-white/60 text-lg mb-2">没有找到匹配的视频</p>
-        <p class="text-white/40 text-sm mb-4">尝试调整筛选条件</p>
-        <button @click="clearFilters" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
-          清除筛选
-        </button>
+        <p class="text-white/40 text-sm mb-4">
+          {{ activeSearchQuery ? '尝试更换关键词，或清空搜索与筛选条件' : '尝试调整筛选条件' }}
+        </p>
+        <div class="flex items-center justify-center gap-3">
+          <button @click="clearFilters" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
+            清除筛选
+          </button>
+          <button
+            v-if="activeSearchQuery"
+            @click="clearSearch"
+            class="px-4 py-2 rounded-lg border border-white/15 bg-white/5 text-white/80 transition-colors hover:bg-white/10"
+          >
+            清空搜索
+          </button>
+        </div>
       </div>
     </div>
 
