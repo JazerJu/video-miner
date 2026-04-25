@@ -140,7 +140,7 @@ const ext = routeParams.ext as string
 const basename = basenameRaw?.replace(/\.$/, '') || ''
 const fileName = ref(`${basename}.${ext?.toLowerCase() || ''}`)
 
-const isAudio = /^(m4a|mp3|wav)$/.test(ext?.toLowerCase() || '')
+const isAudio = /^(m4a|mp3|wav|aac|flac|alac|ogg|opus)$/.test(ext?.toLowerCase() || '')
 
 // ───────────────── 状态 ─────────────────
 const showTranslation = ref(false)

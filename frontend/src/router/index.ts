@@ -18,7 +18,7 @@ const router = createRouter({
 
     // 流媒体视频播放路由：/watch/stream/foo.mp4 用于HLS播放
     {
-      path: '/watch/stream/:basename([^/]+?)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac)',
+      path: '/watch/stream/:basename([^/]+?)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac|flac|ogg|opus|alac)',
       name: 'watch-stream-video',
       component: () => import('@/views/WatchVideo.vue'),
       props: (route) => ({
@@ -30,7 +30,7 @@ const router = createRouter({
 
     // 普通视频播放路由：/watch/foo.mp4 用于常规播放
     {
-      path: '/watch/:basename([^/]+)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac)',
+      path: '/watch/:basename([^/]+)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac|flac|ogg|opus|alac)',
       name: 'watch-video',
       component: () => import('@/views/WatchVideo.vue'),
       props: (route) => ({
@@ -42,7 +42,7 @@ const router = createRouter({
 
     // 字幕编辑器路由：/editor/foo.mp4
     {
-      path: '/editor/:basename([^/]+)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac)',
+      path: '/editor/:basename([^/]+)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac|flac|ogg|opus|alac)',
       name: 'subtitle-editor',
       component: () => import('@/views/SubtitleEditorView.vue'),
       props: (route) => {

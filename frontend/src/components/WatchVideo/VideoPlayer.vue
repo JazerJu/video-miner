@@ -314,6 +314,11 @@ function getMediaMimeType(url: string): string {
       return 'audio/flac'
     case 'aac':
       return 'audio/aac'
+    case 'opus':
+    case 'ogg':
+      return 'audio/ogg'
+    case 'alac':
+      return 'audio/mp4'
     default:
       // For AV1 codec, we need to check the container format
       // AV1 can be in MP4, WebM, or other containers
@@ -360,14 +365,22 @@ function getVideoSources(url: string): Array<{ src: string; type: string }> {
   const av1Supported = supportsAV1()
   const hevcSupported = supportsHEVC()
   const isRemoteHttpSource = /^https?:\/\//i.test(url)
+  const isAudio = baseMimeType.startsWith('audio/')
 
   console.log(`[VideoPlayer] Codec Support - AV1: ${av1Supported}, HEVC: ${hevcSupported}`)
   console.log(`[VideoPlayer] File MIME type: ${baseMimeType}`)
 
   if (isRemoteHttpSource) {
-    const remoteSources = [{ src: url, type: baseMimeType }, { src: url, type: 'video/mp4' }]
+    const remoteSources = [{ src: url, type: baseMimeType }, { src: url, type: isAudio ? baseMimeType : 'video/mp4' }]
     console.log('[VideoPlayer] Using direct remote sources:', remoteSources)
     return remoteSources
+  }
+
+  // Audio files: keep it simple, no video codec fallbacks needed
+  if (isAudio) {
+    sources.push({ src: url, type: baseMimeType })
+    console.log('[VideoPlayer] Generated audio sources:', sources)
+    return sources
   }
 
   // Always try the file as-is first (let the browser decide the best codec)
@@ -1086,6 +1099,9 @@ onMounted(async () => {
   // Setup hotkeys
   hotkeyCleanup = setupHotkeys()
 
+  // For audio files, use native HTML5 playback (overrideNative breaks audio-only sources)
+  const isAudioFile = getMediaMimeType(props.src).startsWith('audio/')
+
   player = videojs(videoEl.value!, {
     controls: true,
     preload: 'metadata',
@@ -1094,9 +1110,9 @@ onMounted(async () => {
     fill: true,
     experimentalSvgIcons: true,
     html5: {
-      nativeAudioTracks: false,
-      nativeVideoTracks: false,
-      overrideNative: true,
+      nativeAudioTracks: isAudioFile,
+      nativeVideoTracks: isAudioFile,
+      overrideNative: !isAudioFile,
     },
     crossorigin: 'anonymous',
     debug: true,
@@ -1173,11 +1189,18 @@ onMounted(async () => {
         let fallbackSources: Array<{ src: string; type: string }> = []
         
         if (errorRetryCount === 1) {
-          fallbackSources = [
-            { src: props.src, type: basicMimeType },
-            { src: props.src, type: 'video/mp4' },
-            { src: props.src, type: 'video/webm' }
-          ]
+          if (basicMimeType.startsWith('audio/')) {
+            fallbackSources = [
+              { src: props.src, type: basicMimeType },
+              { src: props.src, type: '' }
+            ]
+          } else {
+            fallbackSources = [
+              { src: props.src, type: basicMimeType },
+              { src: props.src, type: 'video/mp4' },
+              { src: props.src, type: 'video/webm' }
+            ]
+          }
         } else if (errorRetryCount === 2 && basicMimeType === 'video/x-matroska') {
           fallbackSources = [
             { src: props.src, type: 'video/mp4; codecs="hvc1.1.6.L93.B0"' },

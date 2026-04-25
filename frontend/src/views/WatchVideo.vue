@@ -65,7 +65,7 @@ const fileName = ref(`${basename}.${ext?.toLowerCase() || ''}`)
 // Make isAudio reactive to fileName changes (fixes stale media type on route change)
 const isAudio = computed(() => {
   const fileExt = fileName.value.split('.').pop()?.toLowerCase() || ''
-  return /^(m4a|mp3|wav|aac|flac|alac)$/.test(fileExt)
+  return /^(m4a|mp3|wav|aac|flac|alac|ogg|opus)$/.test(fileExt)
 })
 
 // i18n functionality
