@@ -225,7 +225,12 @@ class MediaActionView(View):
         file_path = os.path.join(settings.MEDIA_ROOT, "saved_audio", filename)
 
         if not os.path.exists(file_path):
-            raise Http404("File not found")
+            # Fallback: some audio files were saved into saved_video/ by mistake
+            fallback = os.path.join(settings.MEDIA_ROOT, "saved_video", filename)
+            if os.path.exists(fallback):
+                file_path = fallback
+            else:
+                raise Http404("File not found")
 
         file_size = os.path.getsize(file_path)
         content_type, _ = mimetypes.guess_type(file_path)
@@ -279,6 +284,9 @@ class MediaActionView(View):
                 response["Content-Range"] = f"bytes {first_byte}-{last_byte}/{file_size}"
                 response["Accept-Ranges"] = "bytes"
                 response["Content-Length"] = str(length)
+                response["Access-Control-Allow-Origin"] = "*"
+                response["Access-Control-Allow-Headers"] = "Range"
+                response["Access-Control-Expose-Headers"] = "Content-Range, Content-Length, Accept-Ranges"
                 return response
 
         # No Range header: send entire file with chunked streaming
@@ -293,6 +301,9 @@ class MediaActionView(View):
         response = StreamingHttpResponse(audio_iterator(), content_type=content_type)
         response["Content-Length"] = str(file_size)
         response["Accept-Ranges"] = "bytes"
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Access-Control-Allow-Headers"] = "Range"
+        response["Access-Control-Expose-Headers"] = "Content-Range, Content-Length, Accept-Ranges"
         return response    
 
     from django.views.decorators.http import require_http_methods
