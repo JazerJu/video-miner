@@ -292,13 +292,10 @@ def clean_json_response(response: str) -> str:
 def call_llm(
     prompt: str, use_cache: bool = True, api_key=None, base_url=None, model=None
 ) -> str:
-    """
-    调用LLM API
-    """
     if base_url is None or model is None:
         raise ValueError("base_url and model parameters are required")
 
-    import httpx
+    from utils.llm_client import ClientPool
     from video.views.set_setting import load_all_settings as _load_settings
 
     effective_key = api_key if api_key else "dummy-key"
@@ -306,25 +303,15 @@ def call_llm(
     _use_proxy = (
         _cfg.get("DEFAULT", {}).get("translate_use_proxy", "false").lower() == "true"
     )
-    from video.proxy import get_effective_proxy
+    _proxy_url = _cfg.get("DEFAULT", {}).get("proxy_url", "")
 
-    _proxy = get_effective_proxy(_use_proxy)
-    if _proxy:
-        http_client = httpx.Client(proxy=_proxy, timeout=60)
-        client = openai.OpenAI(
-            api_key=effective_key, base_url=base_url, http_client=http_client
-        )
-    else:
-        http_client = httpx.Client(proxy=None, timeout=60, trust_env=False)
-        client = openai.OpenAI(
-            api_key=effective_key, base_url=base_url, http_client=http_client
-        )
-    # 暂时禁用缓存以避免格式问题
-    # if use_cache:
-    #     cached_result = get_cache(prompt, MODEL)
-    #     if cached_result:
-    #         logger.debug("从缓存中获取翻译结果")
-    #         return cached_result
+    client = ClientPool.get_client(
+        provider='local',
+        api_key=effective_key,
+        base_url=base_url,
+        use_proxy=_use_proxy,
+        proxy_url=_proxy_url,
+    )
 
     try:
         logger.debug(f"发送LLM请求，模型: {model}, 提示词长度: {len(prompt)} 字符")
@@ -338,21 +325,15 @@ def call_llm(
         )
         result = response.choices[0].message.content
 
-        # 详细记录LLM响应
         logger.debug(f"LLM响应长度: {len(result)} 字符")
         logger.debug(f"LLM响应前500字符: {result[:500]}...")
 
-        # 检查响应是否包含明显的错误标识
         if result and (
             result.strip().startswith('"')
             or "error" in result.lower()
             or "invalid" in result.lower()
         ):
             logger.warning(f"LLM响应可能包含错误: {result[:200]}...")
-
-        # 暂时禁用缓存
-        # if use_cache:
-        #     set_cache(prompt, MODEL, result)
 
         return result
     except Exception as e:

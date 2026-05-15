@@ -345,6 +345,7 @@ onUnmounted(() => {
   height: 100%;
   transition: width 0.1s linear;
   z-index: 10;
+  pointer-events: none;
 }
 
 .notification-overlay::after {

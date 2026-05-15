@@ -139,19 +139,16 @@ def plain_translate(
         == "true"
     )
     effective_key = api_key if api_key else "dummy-key"
-    from video.proxy import get_effective_proxy
+    _proxy_url = settings.get("DEFAULT", {}).get("proxy_url", "")
 
-    _proxy = get_effective_proxy(use_proxy)
-    if _proxy:
-        http_client = httpx.Client(proxy=_proxy, timeout=60)
-        client = openai.OpenAI(
-            api_key=effective_key, base_url=base_url, http_client=http_client
-        )
-    else:
-        http_client = httpx.Client(proxy=None, timeout=60, trust_env=False)
-        client = openai.OpenAI(
-            api_key=effective_key, base_url=base_url, http_client=http_client
-        )
+    from utils.llm_client import ClientPool
+    client = ClientPool.get_client(
+        provider='local',
+        api_key=effective_key,
+        base_url=base_url,
+        use_proxy=use_proxy,
+        proxy_url=_proxy_url,
+    )
 
     target_name = LANG_NAMES.get(target_lang, target_lang)
     system_prompt = (

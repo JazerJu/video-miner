@@ -19,33 +19,42 @@ def _ensure_ini():
         cfg["DEFAULT"] = {
             "selected_model_provider": "deepseek",
             "deepseek_api_key": "",
-            "deepseek_base_url": "https://api.deepseek.com",
+            "deepseek_base_url": "https://api.deepseek.com/v1",
             "deepseek_model": "deepseek-chat",
+            "openai_api_key": "",
+            "openai_base_url": "https://api.openai.com/v1",
+            "openai_model": "gpt-4o",
             "glm_api_key": "",
             "glm_base_url": "https://open.bigmodel.cn/api/paas/v4",
             "glm_model": "glm-4",
-            "openai_api_key": "",
-            "openai_base_url": "https://api.chatanywhere.tech/v1",
-            "openai_model": "gpt-4o",
             "qwen_api_key": "",
             "qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "qwen_model": "qwen-plus",
+            "ollama_api_key": "",
+            "ollama_base_url": "http://127.0.0.1:11434",
+            "ollama_model": "llama3",
+            "lmstudio_api_key": "",
+            "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+            "lmstudio_model": "",
+            "moonshot_api_key": "",
+            "moonshot_base_url": "https://api.moonshot.cn/v1",
+            "moonshot_model": "moonshot-v1-8k",
+            "zhipu_api_key": "",
+            "zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "zhipu_model": "glm-4-plus",
+            "cerebras_api_key": "",
+            "cerebras_base_url": "https://api.cerebras.ai/v1",
+            "cerebras_model": "llama3.1-8b",
             "local_api_key": "",
             "local_base_url": "http://localhost:1234/v1",
             "local_model": "",
-            "openai_api_key": "",
-            "openai_base_url": "https://api.chatanywhere.tech/v1",
-            "qwen_api_key": "",
-            "qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "local_api_key": "",
-            "local_base_url": "http://localhost:1234/v1",
             "split_use_proxy": "false",
             "translate_selected_model_provider": "deepseek",
             "translate_deepseek_api_key": "",
-            "translate_deepseek_base_url": "https://api.deepseek.com",
+            "translate_deepseek_base_url": "https://api.deepseek.com/v1",
             "translate_deepseek_model": "deepseek-chat",
             "translate_openai_api_key": "",
-            "translate_openai_base_url": "https://api.chatanywhere.tech/v1",
+            "translate_openai_base_url": "https://api.openai.com/v1",
             "translate_openai_model": "gpt-4o",
             "translate_glm_api_key": "",
             "translate_glm_base_url": "https://open.bigmodel.cn/api/paas/v4",
@@ -53,6 +62,21 @@ def _ensure_ini():
             "translate_qwen_api_key": "",
             "translate_qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "translate_qwen_model": "qwen-plus",
+            "translate_ollama_api_key": "",
+            "translate_ollama_base_url": "http://127.0.0.1:11434",
+            "translate_ollama_model": "llama3",
+            "translate_lmstudio_api_key": "",
+            "translate_lmstudio_base_url": "http://127.0.0.1:1234/v1",
+            "translate_lmstudio_model": "",
+            "translate_moonshot_api_key": "",
+            "translate_moonshot_base_url": "https://api.moonshot.cn/v1",
+            "translate_moonshot_model": "moonshot-v1-8k",
+            "translate_zhipu_api_key": "",
+            "translate_zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "translate_zhipu_model": "glm-4-plus",
+            "translate_cerebras_api_key": "",
+            "translate_cerebras_base_url": "https://api.cerebras.ai/v1",
+            "translate_cerebras_model": "llama3.1-8b",
             "translate_local_api_key": "",
             "translate_local_base_url": "http://localhost:1234/v1",
             "translate_local_model": "",
@@ -265,44 +289,22 @@ class ConfigAPIView(View):
 
             save_all_settings(settings_dict)
 
-            # Update OpenAI client if API settings changed
             if "DEFAULT" in settings_dict:
                 cfg = settings_dict["DEFAULT"]
                 selected_provider = cfg.get("selected_model_provider", "deepseek")
+                api_key = cfg.get(f"{selected_provider}_api_key", "")
+                base_url = cfg.get(f"{selected_provider}_base_url", "")
 
-                # Get provider-specific API key and base URL
-                if selected_provider == "deepseek":
-                    api_key = cfg.get("deepseek_api_key", "")
-                    base_url = cfg.get("deepseek_base_url", "https://api.deepseek.com")
-                elif selected_provider == "openai":
-                    api_key = cfg.get("openai_api_key", "")
-                    base_url = cfg.get("openai_base_url", "https://api.openai.com/v1")
-                elif selected_provider == "glm":
-                    api_key = cfg.get("glm_api_key", "")
-                    base_url = cfg.get(
-                        "glm_base_url", "https://open.bigmodel.cn/api/paas/v4"
-                    )
-                elif selected_provider == "qwen":
-                    api_key = cfg.get("qwen_api_key", "")
-                    base_url = cfg.get(
-                        "qwen_base_url",
-                        "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    )
-                elif selected_provider == "local":
-                    api_key = cfg.get("local_api_key", "")
-                    base_url = cfg.get("local_base_url", "http://localhost:1234/v1")
-                else:
-                    api_key = cfg.get("deepseek_api_key", "")
-                    base_url = cfg.get("deepseek_base_url", "https://api.deepseek.com")
+                from utils.llm_client import ClientPool
+                use_proxy = cfg.get("split_use_proxy", "false").lower() == "true"
+                proxy_url = cfg.get("proxy_url", "")
 
-                use_proxy_setting = (
-                    cfg.get("split_use_proxy", "false").lower() == "true"
-                )
+                ClientPool.clear()
                 _init_client(
                     api_key,
                     base_url,
-                    allow_empty_key=(selected_provider == "local"),
-                    use_proxy=use_proxy_setting,
+                    allow_empty_key=(selected_provider in ["local", "ollama", "lmstudio"]),
+                    use_proxy=use_proxy,
                 )
 
             return JsonResponse(
@@ -372,38 +374,16 @@ class LLMTestAPIView(View):
             selected_provider = cfg.get("selected_model_provider", "deepseek")
 
         p = prefix + "_" if prefix else ""
+        api_key = cfg.get(f"{p}{selected_provider}_api_key", "")
+        base_url = cfg.get(f"{p}{selected_provider}_base_url", "")
+        model = cfg.get(f"{p}{selected_provider}_model", "")
 
-        if selected_provider == "deepseek":
-            api_key = cfg.get(f"{p}deepseek_api_key", "")
-            base_url = cfg.get(f"{p}deepseek_base_url", "https://api.deepseek.com")
-            model = cfg.get(f"{p}deepseek_model", "deepseek-chat") or "deepseek-chat"
-        elif selected_provider == "openai":
-            api_key = cfg.get(f"{p}openai_api_key", "")
-            base_url = cfg.get(f"{p}openai_base_url", "https://api.openai.com/v1")
-            model = cfg.get(f"{p}openai_model", "gpt-4o") or "gpt-4o"
-        elif selected_provider == "glm":
-            api_key = cfg.get(f"{p}glm_api_key", "")
-            base_url = cfg.get(
-                f"{p}glm_base_url", "https://open.bigmodel.cn/api/paas/v4"
-            )
-            model = cfg.get(f"{p}glm_model", "glm-4-plus") or "glm-4-plus"
-        elif selected_provider == "qwen":
-            api_key = cfg.get(f"{p}qwen_api_key", "")
-            base_url = cfg.get(
-                f"{p}qwen_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"
-            )
-            model = cfg.get(f"{p}qwen_model", "qwen-plus") or "qwen-plus"
-        elif selected_provider == "local":
-            api_key = cfg.get(f"{p}local_api_key", "")
-            base_url = cfg.get(f"{p}local_base_url", "http://localhost:1234/v1")
-            model = cfg.get(f"{p}custom_model_name", "") or cfg.get(
-                f"{p}local_model", ""
-            )
-        else:
-            api_key = cfg.get(f"{p}deepseek_api_key", "")
-            base_url = cfg.get(f"{p}deepseek_base_url", "https://api.deepseek.com")
-            model = "deepseek-chat"
-            selected_provider = "deepseek"
+        from utils.llm_client import PROVIDER_DEFAULTS
+        defaults = PROVIDER_DEFAULTS.get(selected_provider, PROVIDER_DEFAULTS['local'])
+        if not base_url:
+            base_url = defaults['url']
+        if not model:
+            model = defaults['default_model']
 
         return selected_provider, api_key, base_url, model
 
@@ -434,7 +414,6 @@ class LLMTestAPIView(View):
                 cfg, prefix
             )
 
-            # local 模式允许空 api_key
             if not base_url:
                 result = {
                     "success": False,
@@ -443,7 +422,7 @@ class LLMTestAPIView(View):
                 for key, value in original_proxy.items():
                     os.environ[key] = value
                 return JsonResponse(result, status=400)
-            if not api_key and selected_provider != "local":
+            if not api_key and selected_provider not in ["local", "ollama", "lmstudio"]:
                 result = {
                     "success": False,
                     "error": f"API key not configured for provider: {selected_provider}",
@@ -455,7 +434,7 @@ class LLMTestAPIView(View):
             _init_client(
                 api_key,
                 base_url,
-                allow_empty_key=(selected_provider == "local"),
+                allow_empty_key=(selected_provider in ["local", "ollama", "lmstudio"]),
                 use_proxy=use_proxy,
             )
 

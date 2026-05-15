@@ -87,35 +87,23 @@ def split_by_llm(
     base_url="https://api.deepseek.com",
     model="deepseek-chat",
 ) -> List[str]:
-    """
-    使用LLM进行文本断句
-    """
-    # if use_cache:
-    #     cached_result = get_cache(text, MODEL)
-    #     if cached_result:
-    #         print(f"[+] 从缓存中获取结果: {cached_result}")
-    #         return cached_result
-    word_limit = 30  # 最大词数限制
-    import httpx
+    word_limit = 30
+    from utils.llm_client import ClientPool
     from video.views.set_setting import load_all_settings as _load_settings
 
     _cfg = _load_settings()
     _use_proxy = (
         _cfg.get("DEFAULT", {}).get("split_use_proxy", "false").lower() == "true"
     )
-    from video.proxy import get_effective_proxy
+    _proxy_url = _cfg.get("DEFAULT", {}).get("proxy_url", "")
 
-    _proxy = get_effective_proxy(_use_proxy)
-    if _proxy:
-        http_client = httpx.Client(proxy=_proxy, timeout=60)
-        client = openai.OpenAI(
-            api_key=api_key, base_url=base_url, http_client=http_client
-        )
-    else:
-        http_client = httpx.Client(proxy=None, timeout=60, trust_env=False)
-        client = openai.OpenAI(
-            api_key=api_key, base_url=base_url, http_client=http_client
-        )
+    client = ClientPool.get_client(
+        provider='local',
+        api_key=api_key,
+        base_url=base_url,
+        use_proxy=_use_proxy,
+        proxy_url=_proxy_url,
+    )
     SYSTEM_PROMPT = f"使用<br>进行段落分割"
     total_word_count = count_words(text)
     logger.info(f"total_word_count: {total_word_count}")
