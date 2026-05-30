@@ -977,3 +977,113 @@ def user_hidden_categories(request):
         return JsonResponse({"error": "Invalid JSON"}, status=400)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_api_token(request):
+    """Create a new API token using username and password"""
+    try:
+        data = json.loads(request.body)
+        username = data.get("username")
+        password = data.get("password")
+
+        if not username or not password:
+            return JsonResponse(
+                {"error": "Username and password are required"}, status=400
+            )
+
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            return JsonResponse({"error": "Invalid credentials"}, status=401)
+
+        from rest_framework.authtoken.models import Token
+        
+        existing_token = Token.objects.filter(user=user).first()
+        if existing_token:
+            existing_token.delete()
+        
+        token = Token.objects.create(user=user)
+
+        return JsonResponse({
+            "success": True,
+            "token": token.key,
+            "username": user.username,
+            "created_at": token.created.isoformat(),
+        })
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def list_api_tokens(request):
+    """List all API tokens for the authenticated user"""
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+
+    try:
+        from rest_framework.authtoken.models import Token
+        tokens = Token.objects.filter(user=request.user).values(
+            'id', 'key', 'created'
+        )
+
+        token_list = []
+        for t in tokens:
+            token_list.append({
+                'id': t['id'],
+                'key': t['key'][:8] + '...',
+                'created_at': t['created'].isoformat() if t['created'] else None,
+            })
+
+        return JsonResponse({
+            "success": True,
+            "username": request.user.username,
+            "tokens": token_list,
+        })
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def revoke_api_token(request):
+    """Revoke an API token using username and password"""
+    try:
+        data = json.loads(request.body)
+        username = data.get("username")
+        password = data.get("password")
+        token_id = data.get("token_id")
+
+        if not username or not password:
+            return JsonResponse(
+                {"error": "Username and password are required"}, status=400
+            )
+
+        if not token_id:
+            return JsonResponse({"error": "token_id is required"}, status=400)
+
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            return JsonResponse({"error": "Invalid credentials"}, status=401)
+
+        from rest_framework.authtoken.models import Token
+        token = Token.objects.filter(id=token_id, user=user).first()
+
+        if not token:
+            return JsonResponse({"error": "Token not found"}, status=404)
+
+        token.delete()
+
+        return JsonResponse({
+            "success": True,
+            "message": "Token revoked successfully",
+        })
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

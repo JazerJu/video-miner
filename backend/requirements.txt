@@ -2,6 +2,7 @@ yt-dlp
 pyspellchecker
 django
 django-cors-headers
+djangorestframework
 ffmpeg-python
 opencv-python-headless
 Pillow

@@ -20,4 +20,7 @@ urlpatterns = [
         views.user_hidden_categories,
         name="user_hidden_categories",
     ),
+    path("tokens/create", views.create_api_token, name="create_api_token"),
+    path("tokens/list", views.list_api_tokens, name="list_api_tokens"),
+    path("tokens/revoke", views.revoke_api_token, name="revoke_api_token"),
 ]
