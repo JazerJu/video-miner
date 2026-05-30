@@ -308,8 +308,6 @@ function getMediaMimeType(url: string): string {
       return 'audio/mpeg'
     case 'wav':
       return 'audio/wav'
-    case 'ogg':
-      return 'audio/ogg'
     case 'flac':
       return 'audio/flac'
     case 'aac':
@@ -2211,7 +2209,11 @@ function createLoopCountControl() {
         if (player) {
           // Loop the video by seeking to the beginning
           player.currentTime(0)
-          player.play()
+          // Add a small delay before playing to ensure the seek completes
+          // This is especially important for audio files (m4a, mp3, etc.)
+          setTimeout(() => {
+            player.play()
+          }, 50)
           // Decrement loop count
           this.loopCount--
           this.updateDisplay()
