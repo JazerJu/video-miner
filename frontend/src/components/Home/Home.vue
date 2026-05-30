@@ -7,6 +7,7 @@ import { Upload } from '@element-plus/icons-vue'
 import { FolderOpen, Radio } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useNotification } from '@/composables/useNotification'
+import { useProgress } from '@/composables/useProgress'
 import Sidebar from '@/components/Home/Sidebar.vue'
 import VideoDisplayToggler from '@/components/VideoDisplayToggler.vue'
 import VideoCard from '@/components/Home/VideoCard.vue'
@@ -29,6 +30,7 @@ import { useRouter } from 'vue-router'
 import { consumeDirtyVideos, hasDirtyVideos } from '@/composables/useVideoDirtyState'
 
 const router = useRouter()
+const progress = useProgress()
 
 /*
   说明：Home.vue 顶层页面（Layout）
@@ -551,6 +553,7 @@ const { success: successNotify, error: errorNotify, warning: warningNotify } = u
 
 // Check if user is authenticated before fetching
 async function checkAuthAndFetch() {
+  progress.start()
   try {
     const response = await fetch(`${BACKEND}/api/auth/profile/`, {
       credentials: 'include',
@@ -562,7 +565,7 @@ async function checkAuthAndFetch() {
         // User is authenticated, fetch data
         isAuthenticated.value = true
         currentUser.value = data.user
-        fetchVideoData()
+        await fetchVideoData()
       } else {
         // Not authenticated - redirect to login
         isAuthenticated.value = false
@@ -581,6 +584,8 @@ async function checkAuthAndFetch() {
     isAuthenticated.value = false
     currentUser.value = null
     router.push('/login')
+  } finally {
+    progress.done()
   }
 }
 
@@ -702,6 +707,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
           @generate-subtitles="batchSubtitle"
           @delete-videos="batchDelete"
           @videos-updated="fetchVideoData"
+          @deselect-all="selectedIds = []"
         />
       </template>
 
@@ -719,6 +725,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
           @generate-subtitles="batchSubtitle"
           @delete-videos="batchDelete"
           @concat-videos="batchConcat"
+          @deselect-all="selectedIds = []"
         />
 
         <MediaItemCards
