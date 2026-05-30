@@ -166,59 +166,59 @@ async function confirmDownload() {
 }
 
 import { BACKEND } from '@/composables/ConfigAPI'
+import { useUploadTasks } from '@/composables/useUploadTasks'
 
-// Tracks multi-file upload progress
-interface UploadTask {
-  id: number
-  name: string
-  progress: number
-  status: 'uploading' | 'success' | 'error'
-}
-const uploadTasks = ref<UploadTask[]>([])
+const { addTask, updateProgress, markSuccess, markError, uploadTasks } = useUploadTasks()
 
-// Hidden file input ref for uploads
 const fileInput = ref<HTMLInputElement | null>(null)
 
-// Multi-file upload handler with progress
 async function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   const files = input.files
   if (!files || !files.length) return
 
-  uploadTasks.value = []
-  Array.from(files).forEach((file, idx) => {
-    uploadTasks.value.push({ id: idx, name: file.name, progress: 0, status: 'uploading' })
+  const batchIds: number[] = []
+
+  Array.from(files).forEach((file) => {
+    const taskId = addTask(file.name)
+    batchIds.push(taskId)
+
     const xhr = new XMLHttpRequest()
     const formData = new FormData()
     formData.append('video_file', file)
     xhr.open('POST', `${BACKEND}/api/videos/0/upload`, true)
     xhr.withCredentials = true
     xhr.setRequestHeader('X-CSRFToken', getCookie('csrftoken'))
+
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
-        uploadTasks.value[idx].progress = Math.round((e.loaded / e.total) * 100)
+        updateProgress(taskId, Math.round((e.loaded / e.total) * 100))
       }
     }
+
+    const checkBatchDone = () => {
+      if (batchIds.every((id) => uploadTasks.value.find((t) => t.id === id)?.status !== 'uploading')) {
+        emit('upload-complete')
+      }
+    }
+
     xhr.onload = () => {
-      const task = uploadTasks.value[idx]
       if (xhr.status === 200 || xhr.status === 201) {
-        task.status = 'success'
+        markSuccess(taskId)
         ElMessage.success(`「${file.name}」${t('uploadSuccess')}`)
       } else {
-        task.status = 'error'
+        markError(taskId)
         ElMessage.error(`「${file.name}」${t('uploadFailed')}：${xhr.statusText}`)
       }
-      if (uploadTasks.value.every((t) => t.status !== 'uploading')) {
-        emit('upload-complete')
-      }
+      checkBatchDone()
     }
+
     xhr.onerror = () => {
-      uploadTasks.value[idx].status = 'error'
+      markError(taskId)
       ElMessage.error(`「${file.name}」${t('uploadError')}`)
-      if (uploadTasks.value.every((t) => t.status !== 'uploading')) {
-        emit('upload-complete')
-      }
+      checkBatchDone()
     }
+
     xhr.send(formData)
   })
   input.value = ''
@@ -399,23 +399,5 @@ onMounted(() => {
     </div>
   </div>
 
-  <!-- Upload progress floating panel -->
-  <div v-if="uploadTasks.length" class="fixed bottom-4 right-4 w-80 space-y-2 z-50">
-    <div
-      v-for="task in uploadTasks"
-      :key="task.id"
-      class="bg-slate-800 bg-opacity-90 p-2 rounded-lg shadow-md"
-    >
-      <div class="text-xs text-white mb-1 truncate">{{ task.name }}</div>
-      <el-progress
-        :percentage="task.progress"
-        :status="
-          task.status === 'error' ? 'exception' : task.status === 'success' ? 'success' : undefined
-        "
-        :stroke-width="6"
-        text-inside
-        show-text
-      />
-    </div>
-  </div>
+
 </template>

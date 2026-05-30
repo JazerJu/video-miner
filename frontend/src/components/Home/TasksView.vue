@@ -71,6 +71,10 @@ interface ExportTaskInfo {
 }
 
 import { BACKEND } from '@/composables/ConfigAPI'
+import { useUploadTasks } from '@/composables/useUploadTasks'
+
+const { uploadTasks, clearFinished } = useUploadTasks()
+
 const TASKS_URL = '/api/tasks/subtitle_generate/status'
 const DOWNLOAD_STATUS_URL = '/api/stream_media/download_status'
 const EXPORT_STATUS_URL = '/api/export/status'
@@ -364,6 +368,75 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- 文件上传任务 -->
+  <div v-if="uploadTasks.length" class="mb-8">
+    <div
+      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
+    >
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white">文件上传</h2>
+        <el-button
+          type="primary"
+          size="small"
+          class="bg-blue-600 hover:bg-blue-700 border-blue-600"
+          @click="clearFinished"
+        >
+          清除已完成
+        </el-button>
+      </div>
+
+      <el-table
+        :data="uploadTasks"
+        class="dark-table"
+        :header-cell-style="{ background: '#1e293b', color: '#e2e8f0', borderColor: '#475569' }"
+        :cell-style="{ background: '#334155', color: '#e2e8f0', borderColor: '#475569' }"
+        :row-style="{ background: '#334155' }"
+        style="width: 100%; background: #334155"
+      >
+        <el-table-column prop="name" label="文件名" width="400" />
+
+        <el-table-column label="进度" width="200">
+          <template #default="{ row }">
+            <div class="flex items-center">
+              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
+                <div
+                  class="h-3 rounded-full transition-all duration-300"
+                  :class="{
+                    'bg-blue-500': row.status === 'uploading',
+                    'bg-green-500': row.status === 'success',
+                    'bg-red-500': row.status === 'error',
+                  }"
+                  :style="{ width: `${row.progress}%` }"
+                ></div>
+              </div>
+              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">
+                {{ row.status === 'success' ? '完成' : row.status === 'error' ? '失败' : `${row.progress}%` }}
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="状态" min-width="120">
+          <template #default="{ row }">
+            <span
+              class="status-dot"
+              :class="{
+                progressing: row.status === 'uploading',
+                success: row.status === 'success',
+                error: row.status === 'error',
+              }"
+            ></span>
+            <span class="ml-2 text-sm">
+              <span v-if="row.status === 'uploading'" class="text-blue-400">上传中</span>
+              <span v-else-if="row.status === 'success'" class="text-green-400">已完成</span>
+              <span v-else class="text-red-400">失败</span>
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+  </div>
+
   <!-- 字幕转译任务 -->
   <div class="mb-8">
     <div
