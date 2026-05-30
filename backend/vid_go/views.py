@@ -1,8 +1,15 @@
 from django.shortcuts import render
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
 from django.conf import settings
 from django.views.static import serve
 import os
+
+def favicon(request):
+    static_dir = settings.STATIC_ROOT if hasattr(settings, 'STATIC_ROOT') and settings.STATIC_ROOT and os.path.exists(settings.STATIC_ROOT) else settings.STATICFILES_DIRS[0]
+    favicon_path = os.path.join(static_dir, 'favicon.ico')
+    if os.path.exists(favicon_path):
+        return FileResponse(open(favicon_path, 'rb'), content_type='image/x-icon')
+    return HttpResponse(status=404)
 
 def index(request):
     """
