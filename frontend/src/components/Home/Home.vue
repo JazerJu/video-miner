@@ -1,13 +1,12 @@
 <!-- 主要布局组件，复杂业务逻辑 -->
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, Transition } from 'vue'
 import { defineExpose, computed } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import { FolderOpen, Radio } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useNotification } from '@/composables/useNotification'
-import { useProgress } from '@/composables/useProgress'
 import Sidebar from '@/components/Home/Sidebar.vue'
 import VideoDisplayToggler from '@/components/VideoDisplayToggler.vue'
 import VideoCard from '@/components/Home/VideoCard.vue'
@@ -30,7 +29,6 @@ import { useRouter } from 'vue-router'
 import { consumeDirtyVideos, hasDirtyVideos } from '@/composables/useVideoDirtyState'
 
 const router = useRouter()
-const progress = useProgress()
 
 /*
   说明：Home.vue 顶层页面（Layout）
@@ -547,13 +545,36 @@ import { BACKEND } from '@/composables/ConfigAPI'
 const isAuthenticated = ref(false)
 const currentUser = ref(null)
 
+// Loading screen state
+const isLoadingScreenVisible = ref(true)
+const loadingProgress = ref(0)
+const loadingStep = ref('')
+let loadingTimer: ReturnType<typeof setInterval> | null = null
+
+function setLoadStep(step: string, targetPercent: number) {
+  loadingStep.value = step
+  if (loadingTimer) clearInterval(loadingTimer)
+  loadingTimer = setInterval(() => {
+    if (loadingProgress.value < targetPercent) {
+      loadingProgress.value += Math.random() * 3
+      if (loadingProgress.value > targetPercent) loadingProgress.value = targetPercent
+    }
+  }, 80)
+}
+
+function finishLoading() {
+  if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null }
+  loadingProgress.value = 100
+  setTimeout(() => { isLoadingScreenVisible.value = false }, 400)
+}
+
 // i18n functionality
 const { t } = useI18n()
 const { success: successNotify, error: errorNotify, warning: warningNotify } = useNotification()
 
 // Check if user is authenticated before fetching
 async function checkAuthAndFetch() {
-  progress.start()
+  setLoadStep('正在验证身份...', 30)
   try {
     const response = await fetch(`${BACKEND}/api/auth/profile/`, {
       credentials: 'include',
@@ -565,7 +586,10 @@ async function checkAuthAndFetch() {
         // User is authenticated, fetch data
         isAuthenticated.value = true
         currentUser.value = data.user
+        setLoadStep('正在加载视频数据...', 70)
         await fetchVideoData()
+        setLoadStep('加载完成', 95)
+        finishLoading()
       } else {
         // Not authenticated - redirect to login
         isAuthenticated.value = false
@@ -584,8 +608,6 @@ async function checkAuthAndFetch() {
     isAuthenticated.value = false
     currentUser.value = null
     router.push('/login')
-  } finally {
-    progress.done()
   }
 }
 
@@ -633,6 +655,41 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
+  <!-- Full-screen loading overlay -->
+  <Transition name="loading-fade">
+    <div v-if="isLoadingScreenVisible" class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#f8fafc]">
+      <!-- Subtle grid background -->
+      <div class="absolute inset-0 opacity-[0.35]" style="background-image: linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px); background-size: 40px 40px;"></div>
+
+      <div class="relative z-10 flex flex-col items-center">
+        <!-- Logo icon -->
+        <div class="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-emerald-500 shadow-lg shadow-sky-500/20">
+          <svg class="h-9 w-9 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </svg>
+        </div>
+
+        <!-- Title -->
+        <h1 class="mb-1 text-3xl font-bold tracking-tight text-slate-900">VidGo</h1>
+        <p class="mb-10 text-sm text-slate-400">视频管理系统</p>
+
+        <!-- Progress bar -->
+        <div class="relative h-[5px] w-64 overflow-hidden rounded-full bg-slate-200/80">
+          <div
+            class="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-sky-500 via-cyan-400 to-emerald-400 transition-all duration-300 ease-out"
+            :style="{ width: `${loadingProgress}%` }"
+          />
+        </div>
+
+        <!-- Step text -->
+        <p class="mt-4 text-[13px] font-medium text-slate-400 tracking-wide">
+          {{ loadingStep || '正在初始化...' }}
+        </p>
+      </div>
+    </div>
+  </Transition>
+
   <div class="flex h-screen overflow-hidden">
     <!-- Sidebar on the left -->
     <Sidebar
@@ -858,5 +915,13 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 /* 完成状态 */
 .status-dot.done {
   background-color: var(--el-color-success); /* 完成：绿色 */
+}
+
+/* Loading screen transition */
+.loading-fade-leave-active {
+  transition: opacity 0.4s ease;
+}
+.loading-fade-leave-to {
+  opacity: 0;
 }
 </style>
