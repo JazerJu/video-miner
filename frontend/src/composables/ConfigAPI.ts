@@ -126,9 +126,21 @@ export interface ConfigData {
     qwen_api_key: string
     qwen_base_url: string
     qwen_model: string
+    ollama_api_key: string
+    ollama_base_url: string
+    ollama_model: string
     local_api_key: string
     local_base_url: string
     local_model: string
+    moonshot_api_key: string
+    moonshot_base_url: string
+    moonshot_model: string
+    zhipu_api_key: string
+    zhipu_base_url: string
+    zhipu_model: string
+    cerebras_api_key: string
+    cerebras_base_url: string
+    cerebras_model: string
     translate_selected_model_provider: string
     translate_deepseek_api_key: string
     translate_deepseek_base_url: string
@@ -142,9 +154,21 @@ export interface ConfigData {
     translate_qwen_api_key: string
     translate_qwen_base_url: string
     translate_qwen_model: string
+    translate_ollama_api_key: string
+    translate_ollama_base_url: string
+    translate_ollama_model: string
     translate_local_api_key: string
     translate_local_base_url: string
     translate_local_model: string
+    translate_moonshot_api_key: string
+    translate_moonshot_base_url: string
+    translate_moonshot_model: string
+    translate_zhipu_api_key: string
+    translate_zhipu_base_url: string
+    translate_zhipu_model: string
+    translate_cerebras_api_key: string
+    translate_cerebras_base_url: string
+    translate_cerebras_model: string
     translate_use_proxy: string
     plain_translate: string
   }
@@ -222,9 +246,21 @@ export interface FrontendSettings {
   qwenApiKey: string
   qwenBaseUrl: string
   qwenModel: string
+  ollamaApiKey: string
+  ollamaBaseUrl: string
+  ollamaModel: string
   localApiKey: string
   localBaseUrl: string
   localModel: string
+  moonshotApiKey: string
+  moonshotBaseUrl: string
+  moonshotModel: string
+  zhipuApiKey: string
+  zhipuBaseUrl: string
+  zhipuModel: string
+  cerebrasApiKey: string
+  cerebrasBaseUrl: string
+  cerebrasModel: string
   // Translate LLM settings
   translateSelectedModelProvider: string
   translateUseProxy: boolean
@@ -241,9 +277,21 @@ export interface FrontendSettings {
   translateQwenApiKey: string
   translateQwenBaseUrl: string
   translateQwenModel: string
+  translateOllamaApiKey: string
+  translateOllamaBaseUrl: string
+  translateOllamaModel: string
   translateLocalApiKey: string
   translateLocalBaseUrl: string
   translateLocalModel: string
+  translateMoonshotApiKey: string
+  translateMoonshotBaseUrl: string
+  translateMoonshotModel: string
+  translateZhipuApiKey: string
+  translateZhipuBaseUrl: string
+  translateZhipuModel: string
+  translateCerebrasApiKey: string
+  translateCerebrasBaseUrl: string
+  translateCerebrasModel: string
   // Interface settings
   rawLanguage: string
   defaultTranslateLang: string
@@ -334,9 +382,21 @@ export async function loadConfig(): Promise<FrontendSettings> {
       qwenBaseUrl:
         data.DEFAULT?.qwen_base_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       qwenModel: data.DEFAULT?.qwen_model || 'qwen-plus',
+      ollamaApiKey: data.DEFAULT?.ollama_api_key || '',
+      ollamaBaseUrl: data.DEFAULT?.ollama_base_url || 'http://127.0.0.1:11434',
+      ollamaModel: data.DEFAULT?.ollama_model || 'llama3',
       localApiKey: data.DEFAULT?.local_api_key || '',
       localBaseUrl: data.DEFAULT?.local_base_url || 'http://localhost:1234/v1',
       localModel: data.DEFAULT?.local_model || '',
+      moonshotApiKey: data.DEFAULT?.moonshot_api_key || '',
+      moonshotBaseUrl: data.DEFAULT?.moonshot_base_url || 'https://api.moonshot.cn/v1',
+      moonshotModel: data.DEFAULT?.moonshot_model || 'moonshot-v1-8k',
+      zhipuApiKey: data.DEFAULT?.zhipu_api_key || '',
+      zhipuBaseUrl: data.DEFAULT?.zhipu_base_url || 'https://open.bigmodel.cn/api/paas/v4',
+      zhipuModel: data.DEFAULT?.zhipu_model || 'glm-4-plus',
+      cerebrasApiKey: data.DEFAULT?.cerebras_api_key || '',
+      cerebrasBaseUrl: data.DEFAULT?.cerebras_base_url || 'https://api.cerebras.ai/v1',
+      cerebrasModel: data.DEFAULT?.cerebras_model || 'llama3.1-8b',
       splitUseProxy: data.DEFAULT?.split_use_proxy === 'true',
       translateSelectedModelProvider:
         data.DEFAULT?.translate_selected_model_provider || 'deepseek',
@@ -357,10 +417,22 @@ export async function loadConfig(): Promise<FrontendSettings> {
         data.DEFAULT?.translate_qwen_base_url ||
         'https://dashscope.aliyuncs.com/compatible-mode/v1',
       translateQwenModel: data.DEFAULT?.translate_qwen_model || 'qwen-plus',
+      translateOllamaApiKey: data.DEFAULT?.translate_ollama_api_key || '',
+      translateOllamaBaseUrl: data.DEFAULT?.translate_ollama_base_url || 'http://127.0.0.1:11434',
+      translateOllamaModel: data.DEFAULT?.translate_ollama_model || 'llama3',
       translateLocalApiKey: data.DEFAULT?.translate_local_api_key || '',
       translateLocalBaseUrl:
         data.DEFAULT?.translate_local_base_url || 'http://localhost:1234/v1',
       translateLocalModel: data.DEFAULT?.translate_local_model || '',
+      translateMoonshotApiKey: data.DEFAULT?.translate_moonshot_api_key || '',
+      translateMoonshotBaseUrl: data.DEFAULT?.translate_moonshot_base_url || 'https://api.moonshot.cn/v1',
+      translateMoonshotModel: data.DEFAULT?.translate_moonshot_model || 'moonshot-v1-8k',
+      translateZhipuApiKey: data.DEFAULT?.translate_zhipu_api_key || '',
+      translateZhipuBaseUrl: data.DEFAULT?.translate_zhipu_base_url || 'https://open.bigmodel.cn/api/paas/v4',
+      translateZhipuModel: data.DEFAULT?.translate_zhipu_model || 'glm-4-plus',
+      translateCerebrasApiKey: data.DEFAULT?.translate_cerebras_api_key || '',
+      translateCerebrasBaseUrl: data.DEFAULT?.translate_cerebras_base_url || 'https://api.cerebras.ai/v1',
+      translateCerebrasModel: data.DEFAULT?.translate_cerebras_model || 'llama3.1-8b',
       translateUseProxy: data.DEFAULT?.translate_use_proxy === 'true',
       plainTranslate: data.DEFAULT?.plain_translate === 'true',
       // Interface settings
@@ -458,9 +530,21 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         qwen_api_key: settings.qwenApiKey,
         qwen_base_url: settings.qwenBaseUrl,
         qwen_model: settings.qwenModel,
+        ollama_api_key: settings.ollamaApiKey,
+        ollama_base_url: settings.ollamaBaseUrl,
+        ollama_model: settings.ollamaModel,
         local_api_key: settings.localApiKey,
         local_base_url: settings.localBaseUrl,
         local_model: settings.localModel,
+        moonshot_api_key: settings.moonshotApiKey,
+        moonshot_base_url: settings.moonshotBaseUrl,
+        moonshot_model: settings.moonshotModel,
+        zhipu_api_key: settings.zhipuApiKey,
+        zhipu_base_url: settings.zhipuBaseUrl,
+        zhipu_model: settings.zhipuModel,
+        cerebras_api_key: settings.cerebrasApiKey,
+        cerebras_base_url: settings.cerebrasBaseUrl,
+        cerebras_model: settings.cerebrasModel,
         split_use_proxy: settings.splitUseProxy.toString(),
         translate_selected_model_provider: settings.translateSelectedModelProvider,
         translate_deepseek_api_key: settings.translateDeepseekApiKey,
@@ -475,9 +559,21 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         translate_qwen_api_key: settings.translateQwenApiKey,
         translate_qwen_base_url: settings.translateQwenBaseUrl,
         translate_qwen_model: settings.translateQwenModel,
+        translate_ollama_api_key: settings.translateOllamaApiKey,
+        translate_ollama_base_url: settings.translateOllamaBaseUrl,
+        translate_ollama_model: settings.translateOllamaModel,
         translate_local_api_key: settings.translateLocalApiKey,
         translate_local_base_url: settings.translateLocalBaseUrl,
         translate_local_model: settings.translateLocalModel,
+        translate_moonshot_api_key: settings.translateMoonshotApiKey,
+        translate_moonshot_base_url: settings.translateMoonshotBaseUrl,
+        translate_moonshot_model: settings.translateMoonshotModel,
+        translate_zhipu_api_key: settings.translateZhipuApiKey,
+        translate_zhipu_base_url: settings.translateZhipuBaseUrl,
+        translate_zhipu_model: settings.translateZhipuModel,
+        translate_cerebras_api_key: settings.translateCerebrasApiKey,
+        translate_cerebras_base_url: settings.translateCerebrasBaseUrl,
+        translate_cerebras_model: settings.translateCerebrasModel,
         translate_use_proxy: settings.translateUseProxy.toString(),
         plain_translate: settings.plainTranslate.toString(),
       },

@@ -1209,37 +1209,29 @@ const bottomDistanceProxy = computed({
 const splitApiKey = computed({
   get() {
     switch (settings.selectedModelProvider) {
-      case 'deepseek':
-        return settings.deepseekApiKey
-      case 'openai':
-        return settings.openaiApiKey
-      case 'glm':
-        return settings.glmApiKey
-      case 'qwen':
-        return settings.qwenApiKey
-      case 'local':
-        return settings.localApiKey || ''
-      default:
-        return settings.deepseekApiKey
+      case 'deepseek': return settings.deepseekApiKey
+      case 'openai':   return settings.openaiApiKey
+      case 'glm':      return settings.glmApiKey
+      case 'qwen':     return settings.qwenApiKey
+      case 'ollama':   return settings.ollamaApiKey || ''
+      case 'local':    return settings.localApiKey || ''
+      case 'moonshot': return settings.moonshotApiKey || ''
+      case 'zhipu':    return settings.zhipuApiKey || ''
+      case 'cerebras': return settings.cerebrasApiKey || ''
+      default:         return settings.deepseekApiKey
     }
   },
   set(value: string) {
     switch (settings.selectedModelProvider) {
-      case 'deepseek':
-        settings.deepseekApiKey = value
-        break
-      case 'openai':
-        settings.openaiApiKey = value
-        break
-      case 'glm':
-        settings.glmApiKey = value
-        break
-      case 'qwen':
-        settings.qwenApiKey = value
-        break
-      case 'local':
-        settings.localApiKey = value
-        break
+      case 'deepseek': settings.deepseekApiKey = value; break
+      case 'openai':   settings.openaiApiKey = value; break
+      case 'glm':      settings.glmApiKey = value; break
+      case 'qwen':     settings.qwenApiKey = value; break
+      case 'ollama':   settings.ollamaApiKey = value; break
+      case 'local':    settings.localApiKey = value; break
+      case 'moonshot': settings.moonshotApiKey = value; break
+      case 'zhipu':    settings.zhipuApiKey = value; break
+      case 'cerebras': settings.cerebrasApiKey = value; break
     }
   },
 })
@@ -1248,37 +1240,29 @@ const splitApiKey = computed({
 const splitBaseUrl = computed({
   get() {
     switch (settings.selectedModelProvider) {
-      case 'deepseek':
-        return settings.deepseekBaseUrl
-      case 'openai':
-        return settings.openaiBaseUrl
-      case 'glm':
-        return settings.glmBaseUrl
-      case 'qwen':
-        return settings.qwenBaseUrl
-      case 'local':
-        return settings.localBaseUrl || 'http://localhost:1234/v1'
-      default:
-        return settings.deepseekBaseUrl
+      case 'deepseek': return settings.deepseekBaseUrl
+      case 'openai':   return settings.openaiBaseUrl
+      case 'glm':      return settings.glmBaseUrl
+      case 'qwen':     return settings.qwenBaseUrl
+      case 'ollama':   return settings.ollamaBaseUrl || 'http://127.0.0.1:11434'
+      case 'local':    return settings.localBaseUrl || 'http://localhost:1234/v1'
+      case 'moonshot': return settings.moonshotBaseUrl || 'https://api.moonshot.cn/v1'
+      case 'zhipu':    return settings.zhipuBaseUrl || 'https://open.bigmodel.cn/api/paas/v4'
+      case 'cerebras': return settings.cerebrasBaseUrl || 'https://api.cerebras.ai/v1'
+      default:         return settings.deepseekBaseUrl
     }
   },
   set(value: string) {
     switch (settings.selectedModelProvider) {
-      case 'deepseek':
-        settings.deepseekBaseUrl = value
-        break
-      case 'openai':
-        settings.openaiBaseUrl = value
-        break
-      case 'glm':
-        settings.glmBaseUrl = value
-        break
-      case 'qwen':
-        settings.qwenBaseUrl = value
-        break
-      case 'local':
-        settings.localBaseUrl = value
-        break
+      case 'deepseek': settings.deepseekBaseUrl = value; break
+      case 'openai':   settings.openaiBaseUrl = value; break
+      case 'glm':      settings.glmBaseUrl = value; break
+      case 'qwen':     settings.qwenBaseUrl = value; break
+      case 'ollama':   settings.ollamaBaseUrl = value; break
+      case 'local':    settings.localBaseUrl = value; break
+      case 'moonshot': settings.moonshotBaseUrl = value; break
+      case 'zhipu':    settings.zhipuBaseUrl = value; break
+      case 'cerebras': settings.cerebrasBaseUrl = value; break
     }
   },
 })
@@ -1287,37 +1271,29 @@ const splitBaseUrl = computed({
 const translateApiKey = computed({
   get() {
     switch (settings.translateSelectedModelProvider) {
-      case 'deepseek':
-        return settings.translateDeepseekApiKey
-      case 'openai':
-        return settings.translateOpenaiApiKey
-      case 'glm':
-        return settings.translateGlmApiKey
-      case 'qwen':
-        return settings.translateQwenApiKey
-      case 'local':
-        return settings.translateLocalApiKey || ''
-      default:
-        return settings.translateDeepseekApiKey
+      case 'deepseek': return settings.translateDeepseekApiKey
+      case 'openai':   return settings.translateOpenaiApiKey
+      case 'glm':      return settings.translateGlmApiKey
+      case 'qwen':     return settings.translateQwenApiKey
+      case 'ollama':   return settings.translateOllamaApiKey || ''
+      case 'local':    return settings.translateLocalApiKey || ''
+      case 'moonshot': return settings.translateMoonshotApiKey || ''
+      case 'zhipu':    return settings.translateZhipuApiKey || ''
+      case 'cerebras': return settings.translateCerebrasApiKey || ''
+      default:         return settings.translateDeepseekApiKey
     }
   },
   set(value: string) {
     switch (settings.translateSelectedModelProvider) {
-      case 'deepseek':
-        settings.translateDeepseekApiKey = value
-        break
-      case 'openai':
-        settings.translateOpenaiApiKey = value
-        break
-      case 'glm':
-        settings.translateGlmApiKey = value
-        break
-      case 'qwen':
-        settings.translateQwenApiKey = value
-        break
-      case 'local':
-        settings.translateLocalApiKey = value
-        break
+      case 'deepseek': settings.translateDeepseekApiKey = value; break
+      case 'openai':   settings.translateOpenaiApiKey = value; break
+      case 'glm':      settings.translateGlmApiKey = value; break
+      case 'qwen':     settings.translateQwenApiKey = value; break
+      case 'ollama':   settings.translateOllamaApiKey = value; break
+      case 'local':    settings.translateLocalApiKey = value; break
+      case 'moonshot': settings.translateMoonshotApiKey = value; break
+      case 'zhipu':    settings.translateZhipuApiKey = value; break
+      case 'cerebras': settings.translateCerebrasApiKey = value; break
     }
   },
 })
@@ -1326,37 +1302,29 @@ const translateApiKey = computed({
 const translateBaseUrl = computed({
   get() {
     switch (settings.translateSelectedModelProvider) {
-      case 'deepseek':
-        return settings.translateDeepseekBaseUrl
-      case 'openai':
-        return settings.translateOpenaiBaseUrl
-      case 'glm':
-        return settings.translateGlmBaseUrl
-      case 'qwen':
-        return settings.translateQwenBaseUrl
-      case 'local':
-        return settings.translateLocalBaseUrl || 'http://localhost:1234/v1'
-      default:
-        return settings.translateDeepseekBaseUrl
+      case 'deepseek': return settings.translateDeepseekBaseUrl
+      case 'openai':   return settings.translateOpenaiBaseUrl
+      case 'glm':      return settings.translateGlmBaseUrl
+      case 'qwen':     return settings.translateQwenBaseUrl
+      case 'ollama':   return settings.translateOllamaBaseUrl || 'http://127.0.0.1:11434'
+      case 'local':    return settings.translateLocalBaseUrl || 'http://localhost:1234/v1'
+      case 'moonshot': return settings.translateMoonshotBaseUrl || 'https://api.moonshot.cn/v1'
+      case 'zhipu':    return settings.translateZhipuBaseUrl || 'https://open.bigmodel.cn/api/paas/v4'
+      case 'cerebras': return settings.translateCerebrasBaseUrl || 'https://api.cerebras.ai/v1'
+      default:         return settings.translateDeepseekBaseUrl
     }
   },
   set(value: string) {
     switch (settings.translateSelectedModelProvider) {
-      case 'deepseek':
-        settings.translateDeepseekBaseUrl = value
-        break
-      case 'openai':
-        settings.translateOpenaiBaseUrl = value
-        break
-      case 'glm':
-        settings.translateGlmBaseUrl = value
-        break
-      case 'qwen':
-        settings.translateQwenBaseUrl = value
-        break
-      case 'local':
-        settings.translateLocalBaseUrl = value
-        break
+      case 'deepseek': settings.translateDeepseekBaseUrl = value; break
+      case 'openai':   settings.translateOpenaiBaseUrl = value; break
+      case 'glm':      settings.translateGlmBaseUrl = value; break
+      case 'qwen':     settings.translateQwenBaseUrl = value; break
+      case 'ollama':   settings.translateOllamaBaseUrl = value; break
+      case 'local':    settings.translateLocalBaseUrl = value; break
+      case 'moonshot': settings.translateMoonshotBaseUrl = value; break
+      case 'zhipu':    settings.translateZhipuBaseUrl = value; break
+      case 'cerebras': settings.translateCerebrasBaseUrl = value; break
     }
   },
 })
@@ -1364,36 +1332,32 @@ const translateBaseUrl = computed({
 // Get current model for split LLM based on selected provider
 const splitModel = computed(() => {
   switch (settings.selectedModelProvider) {
-    case 'deepseek':
-      return settings.deepseekModel
-    case 'openai':
-      return settings.openaiModel
-    case 'glm':
-      return settings.glmModel
-    case 'qwen':
-      return settings.qwenModel
-    case 'local':
-      return settings.localModel
-    default:
-      return ''
+    case 'deepseek': return settings.deepseekModel
+    case 'openai':   return settings.openaiModel
+    case 'glm':      return settings.glmModel
+    case 'qwen':     return settings.qwenModel
+    case 'ollama':   return settings.ollamaModel || 'llama3'
+    case 'local':    return settings.localModel
+    case 'moonshot': return settings.moonshotModel || 'moonshot-v1-8k'
+    case 'zhipu':    return settings.zhipuModel || 'glm-4-plus'
+    case 'cerebras': return settings.cerebrasModel || 'llama3.1-8b'
+    default:         return ''
   }
 })
 
 // Get current model for translate LLM based on selected provider
 const translateModel = computed(() => {
   switch (settings.translateSelectedModelProvider) {
-    case 'deepseek':
-      return settings.translateDeepseekModel
-    case 'openai':
-      return settings.translateOpenaiModel
-    case 'glm':
-      return settings.translateGlmModel
-    case 'qwen':
-      return settings.translateQwenModel
-    case 'local':
-      return settings.translateLocalModel
-    default:
-      return ''
+    case 'deepseek': return settings.translateDeepseekModel
+    case 'openai':   return settings.translateOpenaiModel
+    case 'glm':      return settings.translateGlmModel
+    case 'qwen':     return settings.translateQwenModel
+    case 'ollama':   return settings.translateOllamaModel || 'llama3'
+    case 'local':    return settings.translateLocalModel
+    case 'moonshot': return settings.translateMoonshotModel || 'moonshot-v1-8k'
+    case 'zhipu':    return settings.translateZhipuModel || 'glm-4-plus'
+    case 'cerebras': return settings.translateCerebrasModel || 'llama3.1-8b'
+    default:         return ''
   }
 })
 
@@ -1510,7 +1474,11 @@ const providerOptions = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'GLM', value: 'glm' },
   { label: 'Qwen', value: 'qwen' },
-  { label: 'LMstudio', value: 'local' },
+  { label: 'Ollama', value: 'ollama' },
+  { label: 'LM Studio', value: 'local' },
+  { label: 'Moonshot', value: 'moonshot' },
+  { label: 'Zhipu', value: 'zhipu' },
+  { label: 'Cerebras', value: 'cerebras' },
 ]
 
 const allTranscriptionEngines = [
@@ -1538,9 +1506,21 @@ const settings = reactive<FrontendSettings>({
   qwenApiKey: 'sk-944471ea4aef486ca2a82b2adf26c0cc',
   qwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   qwenModel: 'qwen-plus',
+  ollamaApiKey: '',
+  ollamaBaseUrl: 'http://127.0.0.1:11434',
+  ollamaModel: 'llama3',
   localApiKey: '',
   localBaseUrl: 'http://localhost:1234/v1',
   localModel: '',
+  moonshotApiKey: '',
+  moonshotBaseUrl: 'https://api.moonshot.cn/v1',
+  moonshotModel: 'moonshot-v1-8k',
+  zhipuApiKey: '',
+  zhipuBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  zhipuModel: 'glm-4-plus',
+  cerebrasApiKey: '',
+  cerebrasBaseUrl: 'https://api.cerebras.ai/v1',
+  cerebrasModel: 'llama3.1-8b',
   // Translate LLM settings
   translateSelectedModelProvider: 'deepseek',
   translateUseProxy: false,
@@ -1557,9 +1537,21 @@ const settings = reactive<FrontendSettings>({
   translateQwenApiKey: '',
   translateQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   translateQwenModel: 'qwen-plus',
+  translateOllamaApiKey: '',
+  translateOllamaBaseUrl: 'http://127.0.0.1:11434',
+  translateOllamaModel: 'llama3',
   translateLocalApiKey: '',
   translateLocalBaseUrl: 'http://localhost:1234/v1',
   translateLocalModel: '',
+  translateMoonshotApiKey: '',
+  translateMoonshotBaseUrl: 'https://api.moonshot.cn/v1',
+  translateMoonshotModel: 'moonshot-v1-8k',
+  translateZhipuApiKey: '',
+  translateZhipuBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  translateZhipuModel: 'glm-4-plus',
+  translateCerebrasApiKey: '',
+  translateCerebrasBaseUrl: 'https://api.cerebras.ai/v1',
+  translateCerebrasModel: 'llama3.1-8b',
   // Interface settings
   rawLanguage: 'zh',
   defaultTranslateLang: 'zh',
