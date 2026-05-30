@@ -1,4 +1,5 @@
 import json
+import os
 import time
 import uuid
 from contextlib import contextmanager
@@ -94,6 +95,8 @@ def _detect_platform(url):
         host = host[4:]
     if host in {"youtube.com", "m.youtube.com", "youtu.be"}:
         return "youtube"
+    if host == "live.bilibili.com":
+        return "bilibili_live"
     if host.endswith("bilibili.com") or host == "b23.tv":
         return "bilibili"
     return None
@@ -349,6 +352,123 @@ def _resolve_bilibili(url):
     }
 
 
+def _write_temp_cookie_file(sessdata):
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix='.txt', prefix='bili_cookie_')
+    with os.fdopen(fd, 'w') as f:
+        f.write('# Netscape HTTP Cookie File\n')
+        f.write(f'.bilibili.com\tTRUE\t/\tFALSE\t0\tSESSDATA\t{sessdata}\n')
+    return path
+
+
+def _resolve_live(url):
+    """Resolve live stream audio URL using yt-dlp."""
+    import subprocess
+
+    host = (urlparse(url).hostname or '').lower()
+    platform = 'bilibili_live' if host == 'live.bilibili.com' else 'youtube_live'
+
+    cmd = ['yt-dlp', '-J', '--no-warnings', '--no-playlist', url]
+    proxy_url = _get_download_proxy()
+    if proxy_url:
+        cmd += ['--proxy', proxy_url]
+
+    cookie_file = None
+    if platform == 'bilibili_live':
+        settings_data = load_all_settings()
+        media_settings = settings_data.get('Media Credentials', {})
+        sessdata = media_settings.get('bilibili_sessdata', '').strip()
+        if sessdata:
+            cookie_file = _write_temp_cookie_file(sessdata)
+            cmd += ['--cookies', cookie_file]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise ValueError(f'yt-dlp failed: {result.stderr.strip()}')
+        info = json.loads(result.stdout)
+    except subprocess.TimeoutExpired:
+        raise ValueError('yt-dlp timed out resolving live stream')
+    except json.JSONDecodeError:
+        raise ValueError('yt-dlp returned invalid JSON')
+    finally:
+        if cookie_file:
+            try:
+                os.remove(cookie_file)
+            except OSError:
+                pass
+
+    title = info.get('title', '')
+    thumbnail = info.get('thumbnail', '')
+    formats = info.get('formats', [])
+
+    if not formats:
+        raise ValueError('No formats found for live stream')
+
+    # yt-dlp reports acodec='none' for FLV/fmp4 live containers even though
+    # audio is muxed inside — ffmpeg extracts it regardless, so ignore acodec.
+    # Prefer highest quality HLS (m3u8) for stable ffmpeg ingestion.
+    qn_map = {
+        'source': 6, '4K': 6, 'dolby': 6,
+        'blue_ray': 5, 'ultra_high_res': 4,
+        'high_res': 3, 'low': 1,
+    }
+    candidates = []
+
+    for fmt in formats or []:
+        fmt_url = fmt.get('url')
+        if not fmt_url:
+            continue
+        protocol = (fmt.get('protocol') or '').lower()
+        format_id = str(fmt.get('format_id') or '')
+        qn_score = 0
+        for key, score in qn_map.items():
+            if format_id.startswith(key):
+                qn_score = score
+                break
+        proto_score = 2 if protocol in ('m3u8', 'm3u8_native') else 0
+        candidates.append((proto_score, qn_score, format_id, fmt))
+
+    if not candidates:
+        raise ValueError('No suitable formats found for live stream')
+
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    audio_format = candidates[0][-1]
+    video_format = candidates[0][-1]
+
+    result = {
+        'success': True,
+        'platform': platform,
+        'title': title,
+        'duration': 0,
+        'thumbnail': thumbnail,
+        'is_live': True,
+        'audio': {
+            'url': audio_format.get('url', ''),
+            'format_id': str(audio_format.get('format_id', '')),
+            'ext': audio_format.get('ext', ''),
+            'protocol': audio_format.get('protocol', ''),
+            'requires_relay': False,
+            'headers': {},
+        },
+    }
+
+    if video_format:
+        result['video'] = {
+            'url': video_format.get('url', ''),
+            'format_id': str(video_format.get('format_id', '')),
+            'height': video_format.get('height'),
+            'ext': video_format.get('ext', ''),
+            'protocol': video_format.get('protocol', ''),
+            'has_audio': True,
+            'requires_relay': False,
+            'headers': {},
+        }
+
+    return result
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class ResolveView(View):
     def post(self, request):
@@ -366,11 +486,12 @@ class ResolveView(View):
                 {"success": False, "error": "Unsupported URL platform"}, status=400
             )
         try:
-            result = (
-                _resolve_youtube(url)
-                if platform == "youtube"
-                else _resolve_bilibili(url)
-            )
+            if platform == "youtube":
+                result = _resolve_youtube(url)
+            elif platform == "bilibili_live":
+                result = _resolve_live(url)
+            else:
+                result = _resolve_bilibili(url)
             return JsonResponse(result)
         except Exception as exc:
             return JsonResponse({"success": False, "error": str(exc)}, status=502)
