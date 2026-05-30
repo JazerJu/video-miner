@@ -28,6 +28,7 @@ const emit = defineEmits<{
   (e: 'generate-subtitles'): void
   (e: 'delete-videos'): void
   (e: 'videos-updated'): void
+  (e: 'deselect-all'): void
 }>()
 
 /* ─── 筛选状态 ─── */
@@ -470,6 +471,14 @@ watch(showFilterPanel, (val) => {
           <span v-if="batchMode" class="text-sm font-normal text-yellow-300 ml-2">
             — 已选 {{ selectedIds.length }} 项
           </span>
+          <button
+            v-if="batchMode"
+            class="ml-2 inline-flex items-center gap-1 rounded-md border border-white/12 bg-white/[0.04] px-2 py-0.5 text-xs text-slate-300 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+            @click="emit('deselect-all')"
+          >
+            <X class="h-3 w-3" />
+            取消选择
+          </button>
         </h2>
 
         <!-- 排序控制 -->
@@ -846,6 +855,7 @@ watch(showFilterPanel, (val) => {
             @show-move-dialog="emit('show-move-dialog')"
             @generate-subtitles="emit('generate-subtitles')"
             @delete-videos="emit('delete-videos')"
+            @deselect-all="emit('deselect-all')"
           />
         </template>
       </div>
