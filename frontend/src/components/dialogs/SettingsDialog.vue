@@ -745,69 +745,24 @@
               </select>
             </div>
 
-            <!-- Faster-Whisper Specific Settings -->
-            <div v-if="settings.transcriptionPrimaryEngine === 'faster_whisper'" class="space-y-4 border-t pt-4">
-              <h4 class="text-md font-medium text-gray-800">Faster-Whisper 设置</h4>
-
-              <div class="p-3 bg-green-50 border border-green-200 rounded-md">
-                <p class="text-sm text-green-700">
-                  ✅ <strong>Faster-Whisper:</strong> 优化Python实现，GPU加速，字级时间戳，支持中英文
-                </p>
-              </div>
-
-              <div class="flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200">
-                <div>
-                  <span class="text-sm font-medium text-gray-700">🚀 启用GPU加速</span>
-                  <p class="text-xs text-gray-500 mt-1">
-                    {{ settings.useGpu
-                       ? 'CUDA GPU加速 (需要NVIDIA GPU)'
-                       : 'CPU-only模式 (无需GPU，速度较慢)' }}
-                  </p>
-                </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" v-model="settings.useGpu" class="sr-only" />
-                  <div
-                    :class="[
-                      'w-11 h-6 rounded-full transition-colors',
-                      settings.useGpu ? 'bg-green-500' : 'bg-gray-300',
-                    ]"
-                  >
-                    <div
-                      :class="[
-                        'w-5 h-5 bg-white rounded-full shadow transform transition-transform',
-                        settings.useGpu ? 'translate-x-5' : 'translate-x-0',
-                      ]"
-                    ></div>
-                  </div>
-                </label>
-              </div>
-
-
-              <div class="flex justify-between items-center mb-2">
-                <label class="block text-sm font-medium text-gray-700">模型</label>
-                <button
-                  @click="loadAvailableModels"
-                  class="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-sm"
-                >
-                  刷新模型列表
-                </button>
-              </div>
-              <select
-                v-model="settings.fwsrModel"
-                class="w-full p-2 border border-gray-300 rounded-md"
-              >
-                <option v-for="model in availableModels" :key="model.name" :value="model.name">
-                  {{ model.name }} ({{ model.size }})
-                  {{ model.downloaded ? '✅' : model.downloading ? '⏳' : '⬇️' }}
-                </option>
-              </select>
-              <p class="mt-2 text-sm text-gray-500">
-                模型会自动下载到 models 目录
-              </p>
+             <!-- FunASR-GGUF Info -->
+             <div v-if="settings.transcriptionPrimaryEngine === 'funasr_gguf'" class="space-y-3 border-t pt-4">
+               <h4 class="text-md font-medium text-gray-800">FunASR-GGUF 设置</h4>
+               <div class="p-3 bg-green-50 border border-green-200 rounded-md">
+                 <p class="text-sm text-green-700">
+                   ✅ <strong>FunASR-GGUF:</strong> Fun-ASR-Nano 本地引擎（CTC 硬对齐 + Qwen3 解码器）
+                 </p>
+                 <p class="text-xs text-green-600 mt-1">
+                   中文优化 · 字级 CTC 时间戳 · ~1.5GB 显存 · 无需 API Key
+                 </p>
+                 <p class="text-xs text-green-600 mt-1">
+                   模型路径由后端 FUNASR_GGUF_DIR 环境变量或 config.ini 中的 funasr_gguf_dir 控制
+                 </p>
+               </div>
              </div>
 
              <!-- ElevenLabs Settings -->
-            <div v-if="needsElevenlabsConfig" class="space-y-4 border-t pt-4">
+            <div v-if="showElevenLabsSettings" class="space-y-4 border-t pt-4">
               <h4 class="text-md font-medium text-gray-800">ElevenLabs 设置</h4>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2"
@@ -865,129 +820,6 @@
               </div>
             </div>
 
-            <!-- Alibaba DashScope Settings -->
-            <div v-if="needsAlibabaConfig" class="space-y-4 border-t pt-4">
-              <h4 class="text-md font-medium text-gray-800">阿里巴巴 DashScope 设置</h4>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Alibaba API Key</label>
-                <div class="flex items-center space-x-2">
-                  <el-input
-                    v-model="settings.transcriptionAlibabaApiKey"
-                    type="password"
-                    show-password
-                    placeholder="输入阿里巴巴API密钥"
-                    class="flex-1"
-                  />
-                  <button
-                    @click="copyToClipboard(settings.transcriptionAlibabaApiKey)"
-                    class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm text-gray-700 whitespace-nowrap"
-                  >
-                    {{ t('copy') }}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">模型</label>
-                <select
-                  v-model="settings.transcriptionAlibabaModel"
-                  class="w-full p-2 border border-gray-300 rounded-md"
-                >
-                  <option value="paraformer-realtime-v2">Paraformer Realtime v2</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- OpenAI Whisper Settings -->
-            <div v-if="needsOpenaiConfig" class="space-y-4 border-t pt-4">
-              <h4 class="text-md font-medium text-gray-800">OpenAI Whisper 设置</h4>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">OpenAI API Key</label>
-                <div class="flex items-center space-x-2">
-                  <el-input
-                    v-model="settings.transcriptionOpenaiApiKey"
-                    type="password"
-                    show-password
-                    placeholder="输入OpenAI API密钥"
-                    class="flex-1"
-                  />
-                  <button
-                    @click="copyToClipboard(settings.transcriptionOpenaiApiKey)"
-                    class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm text-gray-700 whitespace-nowrap"
-                  >
-                    {{ t('copy') }}
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">{{
-                  t('baseUrl')
-                }}</label>
-                <input
-                  v-model="settings.transcriptionOpenaiBaseUrl"
-                  type="url"
-                  class="w-full p-2 border border-gray-300 rounded-md"
-                  placeholder="输入OpenAI Base URL"
-                />
-              </div>
-            </div>
-
-            <!-- Remote VidGo Service Settings -->
-            <div
-              v-if="needsRemoteVidGoConfig"
-              class="space-y-4 border border-gray-200 rounded-lg p-4"
-            >
-              <h4 class="text-sm font-medium text-gray-800">远程VidGo字幕服务配置</h4>
-              <p class="text-sm text-gray-600 mb-4">
-                用户可在高性能主机中部署VidGo实例，并通过IP/域名链接，调用后端的字幕识别服务。
-              </p>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2"
-                  >服务器地址 (IP/域名)</label
-                >
-                <input
-                  v-model="settings.remoteVidGoHost"
-                  type="text"
-                  class="w-full p-2 border border-gray-300 rounded-md"
-                  placeholder="例: 192.168.1.100 或 vidgo.example.com"
-                />
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">端口号</label>
-                <input
-                  v-model="settings.remoteVidGoPort"
-                  type="number"
-                  class="w-full p-2 border border-gray-300 rounded-md"
-                  placeholder="8000"
-                />
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">SSL设置</label>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" v-model="settings.remoteVidGoUseSsl" class="sr-only" />
-                  <div
-                    :class="[
-                      'w-11 h-6 rounded-full transition-colors',
-                      settings.remoteVidGoUseSsl ? 'bg-blue-500' : 'bg-gray-300',
-                    ]"
-                  >
-                    <div
-                      :class="[
-                        'w-5 h-5 bg-white rounded-full shadow transform transition-transform',
-                        settings.remoteVidGoUseSsl ? 'translate-x-5' : 'translate-x-0',
-                      ]"
-                    ></div>
-                  </div>
-                  <span class="ml-3 text-sm text-gray-700">启用SSL (HTTPS)</span>
-                </label>
-                <p class="mt-2 text-sm text-gray-500">
-                  如果启用SSL并使用域名，则无需填写端口号（默认443）
-                </p>
-              </div>
-            </div>
-
             <!-- Engine Info Section -->
             <div class="bg-blue-50 p-4 rounded-lg">
               <div class="flex items-start">
@@ -1011,19 +843,13 @@
                   <div class="mt-2 text-sm text-blue-700">
                     <ul class="space-y-1">
                       <li>
-                        <strong>Whisper.cpp:</strong> 本地处理，无需API密钥，支持CPU/GPU加速，隐私性好
+                        <strong>Fun-ASR-Nano:</strong> 本地处理，无需API密钥，支持GPU加速
+                      </li>
+                      <li>
+                        <strong>GLM-ASR Stack:</strong> 本地 GLM-ASR-Nano + ForceAligner 转录链路
                       </li>
                       <li>
                         <strong>ElevenLabs:</strong> 高质量转录，支持多语言，需要API密钥，0.04元/分钟
-                      </li>
-                      <li>
-                        <strong>阿里巴巴 DashScope:</strong> 中文效果佳，需要API密钥，0.012元/分钟
-                      </li>
-                      <li>
-                        <strong>OpenAI Whisper:</strong> OpenAI官方API，高质量，需要API密钥，0.04元/分钟
-                      </li>
-                      <li>
-                        <strong>远程VidGo字幕服务:</strong> 连接到远程VidGo实例，无需API密钥，需要配置服务器地址
                       </li>
                     </ul>
                   </div>
@@ -1136,7 +962,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import {
   loadConfig,
   saveConfig,
@@ -1147,12 +973,6 @@ import {
 } from '@/composables/ConfigAPI'
 import { ElMessage } from '@/composables/useNotification'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
-import {
-  loadWhisperModels,
-  downloadWhisperModel,
-  getModelSize,
-  type WhisperModel,
-} from '@/composables/ConfigAPI'
 import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
@@ -1172,7 +992,7 @@ const emit = defineEmits<{
 const { updateSubtitleSettings, updateForeignSubtitleSettings } = useSubtitleStyle()
 
 // i18n functionality
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 // 字幕类型选择
 const subtitleType = ref<'raw' | 'foreign'>('raw')
@@ -1211,12 +1031,12 @@ const splitApiKey = computed({
     switch (settings.selectedModelProvider) {
       case 'deepseek': return settings.deepseekApiKey
       case 'openai':   return settings.openaiApiKey
-      case 'glm':      return settings.glmApiKey
       case 'qwen':     return settings.qwenApiKey
       case 'ollama':   return settings.ollamaApiKey || ''
       case 'local':    return settings.localApiKey || ''
       case 'moonshot': return settings.moonshotApiKey || ''
-      case 'zhipu':    return settings.zhipuApiKey || ''
+      case 'volcano':  return settings.volcanoApiKey || ''
+      case 'openrouter': return settings.openrouterApiKey || ''
       case 'cerebras': return settings.cerebrasApiKey || ''
       default:         return settings.deepseekApiKey
     }
@@ -1225,12 +1045,12 @@ const splitApiKey = computed({
     switch (settings.selectedModelProvider) {
       case 'deepseek': settings.deepseekApiKey = value; break
       case 'openai':   settings.openaiApiKey = value; break
-      case 'glm':      settings.glmApiKey = value; break
       case 'qwen':     settings.qwenApiKey = value; break
       case 'ollama':   settings.ollamaApiKey = value; break
       case 'local':    settings.localApiKey = value; break
       case 'moonshot': settings.moonshotApiKey = value; break
-      case 'zhipu':    settings.zhipuApiKey = value; break
+      case 'volcano':  settings.volcanoApiKey = value; break
+      case 'openrouter': settings.openrouterApiKey = value; break
       case 'cerebras': settings.cerebrasApiKey = value; break
     }
   },
@@ -1242,12 +1062,12 @@ const splitBaseUrl = computed({
     switch (settings.selectedModelProvider) {
       case 'deepseek': return settings.deepseekBaseUrl
       case 'openai':   return settings.openaiBaseUrl
-      case 'glm':      return settings.glmBaseUrl
       case 'qwen':     return settings.qwenBaseUrl
       case 'ollama':   return settings.ollamaBaseUrl || 'http://127.0.0.1:11434'
       case 'local':    return settings.localBaseUrl || 'http://localhost:1234/v1'
       case 'moonshot': return settings.moonshotBaseUrl || 'https://api.moonshot.cn/v1'
-      case 'zhipu':    return settings.zhipuBaseUrl || 'https://open.bigmodel.cn/api/paas/v4'
+      case 'volcano':  return settings.volcanoBaseUrl || 'https://ark.cn-beijing.volces.com/api/v3'
+      case 'openrouter': return settings.openrouterBaseUrl || 'https://openrouter.ai/api/v1'
       case 'cerebras': return settings.cerebrasBaseUrl || 'https://api.cerebras.ai/v1'
       default:         return settings.deepseekBaseUrl
     }
@@ -1256,12 +1076,12 @@ const splitBaseUrl = computed({
     switch (settings.selectedModelProvider) {
       case 'deepseek': settings.deepseekBaseUrl = value; break
       case 'openai':   settings.openaiBaseUrl = value; break
-      case 'glm':      settings.glmBaseUrl = value; break
       case 'qwen':     settings.qwenBaseUrl = value; break
       case 'ollama':   settings.ollamaBaseUrl = value; break
       case 'local':    settings.localBaseUrl = value; break
       case 'moonshot': settings.moonshotBaseUrl = value; break
-      case 'zhipu':    settings.zhipuBaseUrl = value; break
+      case 'volcano':  settings.volcanoBaseUrl = value; break
+      case 'openrouter': settings.openrouterBaseUrl = value; break
       case 'cerebras': settings.cerebrasBaseUrl = value; break
     }
   },
@@ -1273,12 +1093,12 @@ const translateApiKey = computed({
     switch (settings.translateSelectedModelProvider) {
       case 'deepseek': return settings.translateDeepseekApiKey
       case 'openai':   return settings.translateOpenaiApiKey
-      case 'glm':      return settings.translateGlmApiKey
       case 'qwen':     return settings.translateQwenApiKey
       case 'ollama':   return settings.translateOllamaApiKey || ''
       case 'local':    return settings.translateLocalApiKey || ''
       case 'moonshot': return settings.translateMoonshotApiKey || ''
-      case 'zhipu':    return settings.translateZhipuApiKey || ''
+      case 'volcano':  return settings.translateVolcanoApiKey || ''
+      case 'openrouter': return settings.translateOpenrouterApiKey || ''
       case 'cerebras': return settings.translateCerebrasApiKey || ''
       default:         return settings.translateDeepseekApiKey
     }
@@ -1287,12 +1107,12 @@ const translateApiKey = computed({
     switch (settings.translateSelectedModelProvider) {
       case 'deepseek': settings.translateDeepseekApiKey = value; break
       case 'openai':   settings.translateOpenaiApiKey = value; break
-      case 'glm':      settings.translateGlmApiKey = value; break
       case 'qwen':     settings.translateQwenApiKey = value; break
       case 'ollama':   settings.translateOllamaApiKey = value; break
       case 'local':    settings.translateLocalApiKey = value; break
       case 'moonshot': settings.translateMoonshotApiKey = value; break
-      case 'zhipu':    settings.translateZhipuApiKey = value; break
+      case 'volcano':  settings.translateVolcanoApiKey = value; break
+      case 'openrouter': settings.translateOpenrouterApiKey = value; break
       case 'cerebras': settings.translateCerebrasApiKey = value; break
     }
   },
@@ -1304,12 +1124,12 @@ const translateBaseUrl = computed({
     switch (settings.translateSelectedModelProvider) {
       case 'deepseek': return settings.translateDeepseekBaseUrl
       case 'openai':   return settings.translateOpenaiBaseUrl
-      case 'glm':      return settings.translateGlmBaseUrl
       case 'qwen':     return settings.translateQwenBaseUrl
       case 'ollama':   return settings.translateOllamaBaseUrl || 'http://127.0.0.1:11434'
       case 'local':    return settings.translateLocalBaseUrl || 'http://localhost:1234/v1'
       case 'moonshot': return settings.translateMoonshotBaseUrl || 'https://api.moonshot.cn/v1'
-      case 'zhipu':    return settings.translateZhipuBaseUrl || 'https://open.bigmodel.cn/api/paas/v4'
+      case 'volcano':  return settings.translateVolcanoBaseUrl || 'https://ark.cn-beijing.volces.com/api/v3'
+      case 'openrouter': return settings.translateOpenrouterBaseUrl || 'https://openrouter.ai/api/v1'
       case 'cerebras': return settings.translateCerebrasBaseUrl || 'https://api.cerebras.ai/v1'
       default:         return settings.translateDeepseekBaseUrl
     }
@@ -1318,12 +1138,12 @@ const translateBaseUrl = computed({
     switch (settings.translateSelectedModelProvider) {
       case 'deepseek': settings.translateDeepseekBaseUrl = value; break
       case 'openai':   settings.translateOpenaiBaseUrl = value; break
-      case 'glm':      settings.translateGlmBaseUrl = value; break
       case 'qwen':     settings.translateQwenBaseUrl = value; break
       case 'ollama':   settings.translateOllamaBaseUrl = value; break
       case 'local':    settings.translateLocalBaseUrl = value; break
       case 'moonshot': settings.translateMoonshotBaseUrl = value; break
-      case 'zhipu':    settings.translateZhipuBaseUrl = value; break
+      case 'volcano':  settings.translateVolcanoBaseUrl = value; break
+      case 'openrouter': settings.translateOpenrouterBaseUrl = value; break
       case 'cerebras': settings.translateCerebrasBaseUrl = value; break
     }
   },
@@ -1334,12 +1154,12 @@ const splitModel = computed(() => {
   switch (settings.selectedModelProvider) {
     case 'deepseek': return settings.deepseekModel
     case 'openai':   return settings.openaiModel
-    case 'glm':      return settings.glmModel
     case 'qwen':     return settings.qwenModel
     case 'ollama':   return settings.ollamaModel || 'llama3'
     case 'local':    return settings.localModel
     case 'moonshot': return settings.moonshotModel || 'moonshot-v1-8k'
-    case 'zhipu':    return settings.zhipuModel || 'glm-4-plus'
+    case 'volcano':  return settings.volcanoModel || 'doubao-seed-2-0-lite-260428'
+    case 'openrouter': return settings.openrouterModel || 'google/gemini-3-flash'
     case 'cerebras': return settings.cerebrasModel || 'llama3.1-8b'
     default:         return ''
   }
@@ -1350,12 +1170,12 @@ const translateModel = computed(() => {
   switch (settings.translateSelectedModelProvider) {
     case 'deepseek': return settings.translateDeepseekModel
     case 'openai':   return settings.translateOpenaiModel
-    case 'glm':      return settings.translateGlmModel
     case 'qwen':     return settings.translateQwenModel
     case 'ollama':   return settings.translateOllamaModel || 'llama3'
     case 'local':    return settings.translateLocalModel
     case 'moonshot': return settings.translateMoonshotModel || 'moonshot-v1-8k'
-    case 'zhipu':    return settings.translateZhipuModel || 'glm-4-plus'
+    case 'volcano':  return settings.translateVolcanoModel || 'doubao-seed-2-0-lite-260428'
+    case 'openrouter': return settings.translateOpenrouterModel || 'google/gemini-3-flash'
     case 'cerebras': return settings.translateCerebrasModel || 'llama3.1-8b'
     default:         return ''
   }
@@ -1472,27 +1292,27 @@ const languageOptions = [
 const providerOptions = [
   { label: 'DeepSeek', value: 'deepseek' },
   { label: 'OpenAI', value: 'openai' },
-  { label: 'GLM', value: 'glm' },
   { label: 'Qwen', value: 'qwen' },
   { label: 'Ollama', value: 'ollama' },
   { label: 'LM Studio', value: 'local' },
   { label: 'Moonshot', value: 'moonshot' },
-  { label: 'Zhipu', value: 'zhipu' },
+  { label: '火山引擎', value: 'volcano' },
+  { label: 'OpenRouter', value: 'openrouter' },
   { label: 'Cerebras', value: 'cerebras' },
 ]
 
 const allTranscriptionEngines = [
-  { label: 'Faster-Whisper (优化Python实现, GPU加速)', value: 'faster_whisper' },
+  { label: 'Fun-ASR-Nano (ONNX + GGUF, 本地GPU加速)', value: 'funasr_gguf' },
+  { label: 'GLM-ASR Stack (GLM-ASR-Nano + ForceAligner)', value: 'glm_asr' },
   { label: 'ElevenLabs Speech-to-Text', value: 'elevenlabs' },
-  { label: '阿里巴巴 DashScope', value: 'alibaba' },
-  { label: 'OpenAI Whisper API', value: 'openai_whisper' },
-  { label: '远程VidGo字幕服务', value: 'remote_vidgo' },
 ]
 
 const settings = reactive<FrontendSettings>({
   // Model settings (断句 LLM)
   selectedModelProvider: 'deepseek',
   splitUseProxy: false,
+  splitNumThreads: 8,
+  enableSplit: true,
   // Provider-specific API keys and models (断句 LLM)
   deepseekApiKey: 'sk-17047f89de904759a241f4086bd5a9bf',
   deepseekBaseUrl: 'https://api.deepseek.com',
@@ -1500,9 +1320,6 @@ const settings = reactive<FrontendSettings>({
   openaiApiKey: 'sk-qTbd1AR4oMuP71ziRngmk3i0djrWVfLtuisvYKCH5B9jLz9g',
   openaiBaseUrl: 'https://api.chatanywhere.tech/v1',
   openaiModel: 'gpt-4o',
-  glmApiKey: 'sk-17047f89de904759a241f4086bd5a9bf',
-  glmBaseUrl: 'https://api.deepseek.com',
-  glmModel: 'glm-4',
   qwenApiKey: 'sk-944471ea4aef486ca2a82b2adf26c0cc',
   qwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   qwenModel: 'qwen-plus',
@@ -1515,15 +1332,20 @@ const settings = reactive<FrontendSettings>({
   moonshotApiKey: '',
   moonshotBaseUrl: 'https://api.moonshot.cn/v1',
   moonshotModel: 'moonshot-v1-8k',
-  zhipuApiKey: '',
-  zhipuBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-  zhipuModel: 'glm-4-plus',
+  volcanoApiKey: '',
+  volcanoBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  volcanoModel: 'doubao-seed-2-0-lite-260428',
+  openrouterApiKey: '',
+  openrouterBaseUrl: 'https://openrouter.ai/api/v1',
+  openrouterModel: 'google/gemini-3-flash',
   cerebrasApiKey: '',
   cerebrasBaseUrl: 'https://api.cerebras.ai/v1',
   cerebrasModel: 'llama3.1-8b',
   // Translate LLM settings
   translateSelectedModelProvider: 'deepseek',
   translateUseProxy: false,
+  translateNumThreads: 8,
+  enableTranslate: true,
   plainTranslate: false,
   translateDeepseekApiKey: '',
   translateDeepseekBaseUrl: 'https://api.deepseek.com',
@@ -1531,9 +1353,6 @@ const settings = reactive<FrontendSettings>({
   translateOpenaiApiKey: '',
   translateOpenaiBaseUrl: 'https://api.chatanywhere.tech/v1',
   translateOpenaiModel: 'gpt-4o',
-  translateGlmApiKey: '',
-  translateGlmBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-  translateGlmModel: 'glm-4',
   translateQwenApiKey: '',
   translateQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   translateQwenModel: 'qwen-plus',
@@ -1546,9 +1365,12 @@ const settings = reactive<FrontendSettings>({
   translateMoonshotApiKey: '',
   translateMoonshotBaseUrl: 'https://api.moonshot.cn/v1',
   translateMoonshotModel: 'moonshot-v1-8k',
-  translateZhipuApiKey: '',
-  translateZhipuBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-  translateZhipuModel: 'glm-4-plus',
+  translateVolcanoApiKey: '',
+  translateVolcanoBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  translateVolcanoModel: 'doubao-seed-2-0-lite-260428',
+  translateOpenrouterApiKey: '',
+  translateOpenrouterBaseUrl: 'https://openrouter.ai/api/v1',
+  translateOpenrouterModel: 'google/gemini-3-flash',
   translateCerebrasApiKey: '',
   translateCerebrasBaseUrl: 'https://api.cerebras.ai/v1',
   translateCerebrasModel: 'llama3.1-8b',
@@ -1589,130 +1411,48 @@ const settings = reactive<FrontendSettings>({
   proxyUrl: '',
   downloadUseProxy: false,
   // Transcription Engine settings
-  transcriptionPrimaryEngine: 'faster_whisper',
+  transcriptionPrimaryEngine: 'funasr_gguf',
   fwsrModel: 'large-v3',
   useGpu: true,  // GPU acceleration
   transcriptionElevenlabsApiKey: '',
   transcriptionElevenlabsModel: 'scribe_v1',
   transcriptionIncludePunctuation: true,
-  transcriptionAlibabaApiKey: '',
-  transcriptionAlibabaModel: 'paraformer-realtime-v2',
-  transcriptionOpenaiApiKey: '',
-  transcriptionOpenaiBaseUrl: 'https://api.openai.com/v1',
-  // Remote VidGo Service settings
-  remoteVidGoHost: '',
-  remoteVidGoPort: '8000',
-  remoteVidGoUseSsl: false,
+  hotwords: '',
+  // Video Understanding settings
+  vuThinkingBudget: 'low',
+  vuNGpuLayers: 36,
+  vuGlmOcrNGpuLayers: 17,
+  vuCornerProvider: 'gemini',
+  vuCornerGeminiApiKey: '',
+  vuCornerGeminiBaseUrl: 'https://openrouter.ai/api/v1',
+  vuCornerGeminiModel: 'google/gemini-2.5-flash',
+  vuCornerMimoApiKey: '',
+  vuCornerMimoBaseUrl: '',
+  vuCornerMimoModel: 'mimo-v2.5',
+  vuSummaryApiKey: '',
+  vuSummaryBaseUrl: 'https://api.deepseek.com',
+  vuSummaryModel: 'deepseek-chat',
+  vuKnowledgeProvider: 'doubao',
+  vuKnowledgeApiKey: '',
+  vuKnowledgeBaseUrl: '',
+  vuKnowledgeModel: '',
+  vuCornerUseProxy: false,
+  vuSummaryUseProxy: false,
+  vuKnowledgeUseProxy: false,
 })
 
 const loading = ref(false)
 const saving = ref(false)
-const availableModels = ref<WhisperModel[]>([])
-const downloadProgress = ref(0)
-const isDownloading = ref(false)
-const isCheckingSize = ref(false)
-const modelSizeInfo = ref('')
 const showPreview = ref(false)
 const previewAspectRatio = ref<'16:9' | '3:4'>('16:9')
 
 // Computed properties for showing API key fields based on selected engine
-const needsElevenlabsConfig = computed(() => {
+const showElevenLabsSettings = computed(() => {
   return settings.transcriptionPrimaryEngine === 'elevenlabs'
-})
-
-const needsAlibabaConfig = computed(() => {
-  return settings.transcriptionPrimaryEngine === 'alibaba'
-})
-
-const needsOpenaiConfig = computed(() => {
-  return settings.transcriptionPrimaryEngine === 'openai_whisper'
-})
-
-const needsRemoteVidGoConfig = computed(() => {
-  return settings.transcriptionPrimaryEngine === 'remote_vidgo'
-})
-
-// Model management computed properties
-const isCurrentModelDownloaded = computed(() => {
-  const currentModel = availableModels.value.find((model) => model.name === settings.fwsrModel)
-  return currentModel?.downloaded || false
 })
 
 const closeDialog = () => {
   showSetting.value = false
-}
-
-// Model management functions
-const loadAvailableModels = async () => {
-  try {
-    const modelData = await loadWhisperModels()
-    availableModels.value = modelData.models
-  } catch (error) {
-    console.error('Failed to load Whisper models:', error)
-    ElMessage.error('加载模型列表失败')
-  }
-}
-
-const checkModelSize = async (modelName: string) => {
-  try {
-    isCheckingSize.value = true
-    const sizeData = await getModelSize(modelName)
-
-    if (sizeData.exists) {
-      ElMessage.success(
-        `模型 ${modelName} 当前大小: ${sizeData.size_human} (${sizeData.file_count} 个文件)`,
-      )
-      modelSizeInfo.value = `${sizeData.size_human} (${sizeData.file_count} files)`
-    } else {
-      ElMessage.info(`模型 ${modelName} 文件夹不存在`)
-      modelSizeInfo.value = '不存在'
-    }
-  } catch (error) {
-    console.error('Failed to check model size:', error)
-    ElMessage.error(`检查模型大小失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
-  } finally {
-    isCheckingSize.value = false
-  }
-}
-
-const downloadModel = async (modelName: string) => {
-  try {
-    isDownloading.value = true
-    downloadProgress.value = 0
-
-    await downloadWhisperModel(modelName, settings.transcriptionPrimaryEngine)
-    ElMessage.success(`开始下载模型 ${modelName}`)
-
-    // Simple polling without progress estimation
-    const pollInterval = setInterval(async () => {
-      try {
-        const modelData = await loadWhisperModels()
-        const model = modelData.models.find((m) => m.name === modelName)
-
-        if (model?.downloaded) {
-          clearInterval(pollInterval)
-          isDownloading.value = false
-          await loadAvailableModels() // Refresh the list
-          ElMessage.success(`模型 ${modelName} 下载完成`)
-        }
-      } catch (error) {
-        console.error('Error polling download status:', error)
-      }
-    }, 3000) // Poll every 3 seconds
-
-    // Set a timeout to stop polling after 30 minutes
-    setTimeout(
-      () => {
-        clearInterval(pollInterval)
-        isDownloading.value = false
-      },
-      30 * 60 * 1000,
-    )
-  } catch (error) {
-    console.error('Failed to download model:', error)
-    ElMessage.error(`下载模型失败: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    isDownloading.value = false
-  }
 }
 
 const showPreviewModal = (aspectRatio: '16:9' | '3:4') => {
@@ -1752,6 +1492,10 @@ const loadSettings = async () => {
     ElMessage.error('加载设置失败，请重试')
   } finally {
     loading.value = false
+    // Mark settings as loaded so language watch only triggers on user changes
+    nextTick(() => {
+      settingsLoaded.value = true
+    })
   }
 }
 
@@ -1816,6 +1560,8 @@ const resetSettings = () => {
     // Model settings (断句 LLM)
     selectedModelProvider: 'deepseek',
     splitUseProxy: false,
+    splitNumThreads: 8,
+    enableSplit: true,
     // Provider-specific API keys and models (断句 LLM)
     deepseekApiKey: '',
     deepseekBaseUrl: 'https://api.deepseek.com',
@@ -1823,18 +1569,23 @@ const resetSettings = () => {
     openaiApiKey: '',
     openaiBaseUrl: 'https://api.chatanywhere.tech/v1',
     openaiModel: 'gpt-4o',
-    glmApiKey: '',
-    glmBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    glmModel: 'glm-4',
     qwenApiKey: '',
     qwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     qwenModel: 'qwen-plus',
     localApiKey: '',
     localBaseUrl: 'http://localhost:1234/v1',
     localModel: '',
+    volcanoApiKey: '',
+    volcanoBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    volcanoModel: 'doubao-seed-2-0-lite-260428',
+    openrouterApiKey: '',
+    openrouterBaseUrl: 'https://openrouter.ai/api/v1',
+    openrouterModel: 'google/gemini-3-flash',
     // Translate LLM settings
     translateSelectedModelProvider: 'deepseek',
     translateUseProxy: false,
+    translateNumThreads: 8,
+    enableTranslate: true,
     plainTranslate: false,
     translateDeepseekApiKey: '',
     translateDeepseekBaseUrl: 'https://api.deepseek.com',
@@ -1842,15 +1593,18 @@ const resetSettings = () => {
     translateOpenaiApiKey: '',
     translateOpenaiBaseUrl: 'https://api.chatanywhere.tech/v1',
     translateOpenaiModel: 'gpt-4o',
-    translateGlmApiKey: '',
-    translateGlmBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    translateGlmModel: 'glm-4',
     translateQwenApiKey: '',
     translateQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     translateQwenModel: 'qwen-plus',
     translateLocalApiKey: '',
     translateLocalBaseUrl: 'http://localhost:1234/v1',
     translateLocalModel: '',
+    translateVolcanoApiKey: '',
+    translateVolcanoBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    translateVolcanoModel: 'doubao-seed-2-0-lite-260428',
+    translateOpenrouterApiKey: '',
+    translateOpenrouterBaseUrl: 'https://openrouter.ai/api/v1',
+    translateOpenrouterModel: 'google/gemini-3-flash',
     // Interface settings
     rawLanguage: 'zh',
     defaultTranslateLang: 'zh',
@@ -1887,20 +1641,13 @@ const resetSettings = () => {
     proxyUrl: '',
     downloadUseProxy: false,
     // Transcription Engine settings
-    transcriptionPrimaryEngine: 'faster_whisper',
+    transcriptionPrimaryEngine: 'funasr_gguf',
     fwsrModel: 'large-v3',
     useGpu: true,  // GPU acceleration
     transcriptionElevenlabsApiKey: '',
     transcriptionElevenlabsModel: 'scribe_v1',
     transcriptionIncludePunctuation: true,
-    transcriptionAlibabaApiKey: '',
-    transcriptionAlibabaModel: 'paraformer-realtime-v2',
-    transcriptionOpenaiApiKey: '',
-    transcriptionOpenaiBaseUrl: 'https://api.openai.com/v1',
-    // Remote VidGo Service settings
-    remoteVidGoHost: '',
-    remoteVidGoPort: '8000',
-    remoteVidGoUseSsl: false,
+    hotwords: '',
   })
 }
 
@@ -2049,7 +1796,6 @@ watch(
 onMounted(() => {
   if (props.visible) {
     loadSettings()
-    loadAvailableModels()
   }
 })
 
@@ -2059,19 +1805,23 @@ watch(
   (newVisible) => {
     if (newVisible) {
       loadSettings()
-      loadAvailableModels()
     }
   },
 )
 
+// Track whether initial settings load is complete to avoid reload on load
+const settingsLoaded = ref(false)
+
 // Watch for changes in rawLanguage setting and sync with localStorage
 watch(
   () => settings.rawLanguage,
-  (newLang) => {
-    // Update localStorage and i18n locale when rawLanguage changes
-    localStorage.setItem('lang', newLang)
-    // Note: We could also update the i18n locale here if needed
-    // but the page reload in LangToggle.vue handles this currently
+  (newLang, oldLang) => {
+    // Only reload when user explicitly changes language after settings are loaded
+    if (settingsLoaded.value && newLang && newLang !== oldLang) {
+      localStorage.setItem('lang', newLang)
+      locale.value = newLang
+      location.reload()
+    }
   },
   { immediate: false },
 )

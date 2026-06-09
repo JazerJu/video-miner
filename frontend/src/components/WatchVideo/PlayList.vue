@@ -129,24 +129,24 @@ watch(showThumbnails, (nextValue) => {
 })
 </script>
 <template>
-  <div class="bg-slate-800/30 rounded-2xl p-6 backdrop-blur-lg border border-slate-600/30">
+  <div class="bg-white dark:bg-slate-800/30 rounded-2xl p-6 backdrop-blur-lg border border-slate-200 dark:border-slate-600/30">
     <div class="mb-6 flex items-center justify-between gap-4">
-      <h2 class="text-xl font-semibold text-white">
+      <h2 class="text-xl font-semibold text-slate-900 dark:text-white">
         {{ t('collectionPlaylist') }}
       </h2>
 
-      <label class="flex items-center gap-2 text-sm text-slate-300">
-        <span>展示缩略图</span>
+      <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <span>{{ t('showThumbnails') }}</span>
         <el-switch v-model="showThumbnails" inline-prompt class="playlist-thumbnail-toggle" />
       </label>
     </div>
 
     <div v-if="isLoading" class="text-center py-8">
-      <div class="text-slate-400">{{ t('loadingVideoInfo') }}</div>
+      <div class="text-slate-500 dark:text-slate-400">{{ t('loadingVideoInfo') }}</div>
     </div>
 
     <div v-else-if="similarVideos.length === 0" class="text-center py-8">
-      <div class="text-slate-400 mb-2">
+      <div class="text-slate-500 dark:text-slate-400 mb-2">
         <svg
           class="w-12 h-12 mx-auto mb-3 opacity-50"
           fill="none"
@@ -172,15 +172,15 @@ watch(showThumbnails, (nextValue) => {
         :class="[
           'flex items-center rounded-xl cursor-pointer transition-all duration-200',
           showThumbnails ? 'gap-3 p-3' : 'gap-2.5 px-3 py-2.5',
-          'hover:bg-slate-700/50',
+          'hover:bg-slate-100 dark:hover:bg-slate-700/50',
           isCurrentVideo(video)
-            ? 'bg-blue-600/30 ring-2 ring-blue-500/50'
-            : 'bg-slate-700/20',
+            ? 'bg-blue-50 dark:bg-blue-600/30 ring-2 ring-blue-500/50'
+            : 'bg-slate-50 dark:bg-slate-700/20',
         ]"
       >
         <div
           v-if="showThumbnails"
-          class="relative h-20 w-32 flex-shrink-0 overflow-hidden rounded-lg bg-slate-800"
+          class="relative h-20 w-32 flex-shrink-0 overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800"
         >
           <img
             v-if="getThumbnailUrl(video)"
@@ -188,7 +188,7 @@ watch(showThumbnails, (nextValue) => {
             :alt="video.name"
             class="w-full h-full object-cover"
           />
-          <div v-else class="w-full h-full flex items-center justify-center text-slate-600">
+          <div v-else class="w-full h-full flex items-center justify-center text-slate-400 dark:text-slate-600">
             <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
@@ -211,12 +211,12 @@ watch(showThumbnails, (nextValue) => {
             :class="[
               'truncate font-medium',
               showThumbnails ? 'text-sm' : 'text-[0.95rem]',
-              isCurrentVideo(video) ? 'text-blue-400' : 'text-white',
+              isCurrentVideo(video) ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-white',
             ]"
           >
             {{ video.name }}
           </div>
-          <div class="mt-1 text-slate-400" :class="showThumbnails ? 'text-xs' : 'text-[0.8rem]'">
+          <div class="mt-1 text-slate-500 dark:text-slate-400" :class="showThumbnails ? 'text-xs' : 'text-[0.8rem]'">
             {{ video.video_length || '时长未知' }}
           </div>
         </div>
@@ -251,16 +251,28 @@ watch(showThumbnails, (nextValue) => {
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(71, 85, 105, 0.3);
+  background: rgba(226, 232, 240, 0.8);
   border-radius: 3px;
 }
 
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(71, 85, 105, 0.3);
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.45);
   border-radius: 3px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.65);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.8);
 }
 </style>

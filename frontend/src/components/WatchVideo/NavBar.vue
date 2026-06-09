@@ -3,8 +3,11 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { ElTooltip } from 'element-plus'
 import { ElMessage } from '@/composables/useNotification'
 import { useRouter, useRoute } from 'vue-router'
-import { FilePen, Video, Settings } from 'lucide-vue-next'
+import { FilePen, Video, Settings, Sun, Moon } from 'lucide-vue-next'
 import { useUser } from '@/composables/useUser'
+import { useTheme } from '@/composables/useTheme'
+
+const { theme, toggleTheme } = useTheme()
 
 const router = useRouter()
 const route = useRoute()
@@ -110,9 +113,9 @@ onMounted(() => {
 })
 </script>
 <template>
-  <!-- 深色主题顶部导航栏 -->
+  <!-- 主题顶部导航栏 -->
   <div
-    class="nav-bar bg-gradient-to-r from-slate-800/95 to-slate-700/95 backdrop-blur-lg border-b border-slate-600/50 px-6 py-4 relative shadow-lg"
+    class="nav-bar bg-white/90 dark:bg-slate-800/95 backdrop-blur-lg border-b border-slate-200 dark:border-white/10 px-6 py-4 relative shadow-lg shadow-slate-200/70 dark:shadow-black/20 transition-colors duration-300"
     @mouseenter="mouseEnter"
   >
     <div class="flex justify-between items-center">
@@ -120,9 +123,9 @@ onMounted(() => {
       <div class="flex items-center space-x-6 basis-2/3 min-w-0">
         <button
           @click="goHome"
-          class="flex items-center justify-center w-10 h-10 rounded-full hover:bg-slate-700/70 transition-colors flex-shrink-0 border border-slate-600/30"
+          class="flex items-center justify-center w-10 h-10 rounded-full bg-white/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 transition-colors flex-shrink-0 border border-slate-200 dark:border-white/10"
         >
-          <svg class="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-5 h-5 text-slate-600 dark:text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
@@ -137,7 +140,7 @@ onMounted(() => {
           <el-tooltip :content="title" placement="bottom" :disabled="!isTextTruncated">
             <h1
               ref="titleRef"
-              class="text-xl font-semibold text-white truncate"
+              class="text-xl font-semibold text-slate-900 dark:text-white truncate"
               @mouseenter="checkTruncation"
             >
               {{ title }}
@@ -155,20 +158,31 @@ onMounted(() => {
           >
             <span class="text-white font-semibold text-sm">{{ userInitial }}</span>
           </div>
-          <span class="text-slate-300 font-medium">{{ username }}</span>
+          <span class="text-slate-700 dark:text-slate-300 font-medium">{{ username }}</span>
         </div>
 
         <!-- 视图切换按钮 -->
         <el-tooltip :content="isInEditor ? 'Video Watch' : 'Edit'" placement="bottom">
           <button
             @click="toggleView"
-            class="flex items-center justify-center px-4 py-2 rounded-lg bg-slate-700/50 hover:bg-slate-600/70 transition-colors border border-slate-600/30"
+            class="flex items-center justify-center px-4 py-2 rounded-lg bg-white/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 transition-colors border border-slate-200 dark:border-white/10"
           >
-            <Video v-if="isInEditor" class="w-4 h-4 text-slate-300 mr-2" />
-            <FilePen v-else class="w-4 h-4 text-slate-300 mr-2" />
-            <span class="text-slate-300 text-sm font-medium">
+            <Video v-if="isInEditor" class="w-4 h-4 text-slate-600 dark:text-slate-300 mr-2" />
+            <FilePen v-else class="w-4 h-4 text-slate-600 dark:text-slate-300 mr-2" />
+            <span class="text-slate-700 dark:text-slate-300 text-sm font-medium">
               {{ isInEditor ? 'Video Watch' : 'Edit' }}
             </span>
+          </button>
+        </el-tooltip>
+
+        <!-- 主题切换按钮 -->
+        <el-tooltip :content="theme === 'dark' ? '切换亮色模式' : '切换暗色模式'" placement="bottom">
+          <button
+            @click="toggleTheme"
+            class="flex items-center justify-center w-10 h-10 rounded-full bg-white/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 transition-colors border border-slate-200 dark:border-white/10"
+          >
+            <Sun v-if="theme === 'dark'" class="w-5 h-5 text-slate-300" />
+            <Moon v-else class="w-5 h-5 text-slate-600" />
           </button>
         </el-tooltip>
 
@@ -176,9 +190,9 @@ onMounted(() => {
         <el-tooltip content="设置" placement="bottom">
           <button
             @click="emit('open-settings')"
-            class="flex items-center justify-center w-10 h-10 rounded-full bg-slate-700/50 hover:bg-slate-600/70 transition-colors border border-slate-600/30"
+            class="flex items-center justify-center w-10 h-10 rounded-full bg-white/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 transition-colors border border-slate-200 dark:border-white/10"
           >
-            <Settings class="w-5 h-5 text-slate-300" />
+            <Settings class="w-5 h-5 text-slate-600 dark:text-slate-300" />
           </button>
         </el-tooltip>
       </div>
@@ -186,7 +200,7 @@ onMounted(() => {
 
     <!-- progress bar (shows only on hover) -->
     <transition name="fade">
-      <div v-show="showProgress" class="absolute bottom-0 left-0 w-full h-1 bg-slate-700/50">
+      <div v-show="showProgress" class="absolute bottom-0 left-0 w-full h-1 bg-slate-200/80 dark:bg-slate-700/50">
         <div class="h-full bg-blue-500 transition-[width] duration-300" :style="progressStyle" />
       </div>
     </transition>

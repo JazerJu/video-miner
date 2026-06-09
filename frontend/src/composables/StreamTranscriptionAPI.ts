@@ -31,6 +31,7 @@ export interface TranscriptionSegment {
   text: string
   start: number
   end: number
+  translation?: string
 }
 
 export async function resolveStream(url: string): Promise<ResolvedStream> {
@@ -63,15 +64,20 @@ export async function startTranscription(
   audioUrl: string,
   audioHeaders: Record<string, string> = {},
   requiresRelay = false,
+  sourceLang = 'en',
+  targetLang = '',
 ): Promise<string> {
+  const body: Record<string, unknown> = {
+    audio_url: audioUrl,
+    audio_headers: audioHeaders,
+    requires_relay: requiresRelay,
+    source_lang: sourceLang,
+  }
+  if (targetLang) body.target_lang = targetLang
   const resp = await fetch(`${BACKEND}/api/stream_transcription/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      audio_url: audioUrl,
-      audio_headers: audioHeaders,
-      requires_relay: requiresRelay,
-    }),
+    body: JSON.stringify(body),
     credentials: 'include',
   })
   const data = await resp.json()

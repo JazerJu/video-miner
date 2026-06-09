@@ -21,6 +21,7 @@ import {
   type ResolvedStream,
   type TranscriptionSegment,
 } from '@/composables/StreamTranscriptionAPI'
+import { loadSettings } from '@/composables/ConfigAPI'
 
 const { t } = useI18n()
 
@@ -43,6 +44,11 @@ const currentPlaybackTime = ref(0)
 const autoFollowActiveSegment = ref(true)
 const pausedActiveSegmentIndex = ref<number | null>(null)
 const showResumeFollowButton = ref(false)
+const targetLang = ref('zh')
+
+loadSettings().then((s) => {
+  targetLang.value = s.defaultTranslateLang || 'zh'
+})
 const segmentRefs: Record<number, HTMLElement | null> = {}
 let transcriptionSource: EventSource | null = null
 let isProgrammaticScroll = false
@@ -242,12 +248,14 @@ function normalizeSegment(
   const start = Number(segment.start ?? segment.start_time ?? segment.begin ?? 0)
   const end = Number(segment.end ?? segment.end_time ?? segment.stop ?? start)
   const index = Number(segment.index ?? segment.id ?? fallbackIndex)
+  const translation = typeof segment.translation === 'string' ? segment.translation : undefined
 
   return {
     index: Number.isFinite(index) ? index : fallbackIndex,
     text,
     start: Number.isFinite(start) ? start : 0,
     end: Number.isFinite(end) ? end : Number.isFinite(start) ? start : 0,
+    ...(translation ? { translation } : {}),
   }
 }
 
@@ -456,6 +464,8 @@ async function handleStartTranscription() {
       resolvedStream.value.audio.url,
       resolvedStream.value.audio.headers,
       resolvedStream.value.audio.requires_relay,
+      'en',
+      targetLang.value,
     )
     taskId.value = nextTaskId
     attachTranscriptionStream(nextTaskId)
@@ -696,6 +706,12 @@ onBeforeUnmount(async () => {
                     >
                       {{ segment.text }}
                     </p>
+                    <p
+                      v-if="segment.translation"
+                      class="mt-1 text-sm leading-6 text-cyan-200/70"
+                    >
+                      {{ segment.translation }}
+                    </p>
                   </button>
                 </div>
               </div>
@@ -755,6 +771,19 @@ onBeforeUnmount(async () => {
               :placeholder="t('enterVideoUrl')"
               class="w-full rounded-2xl border border-white/10 bg-slate-950/70 py-3.5 pl-11 pr-4 text-sm text-white outline-none transition focus:border-cyan-300/35 focus:ring-2 focus:ring-cyan-400/10"
             />
+          </div>
+
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-slate-400">实时翻译：</span>
+            <select
+              v-model="targetLang"
+              class="appearance-none rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/35"
+            >
+              <option value="zh">→ 中文</option>
+              <option value="en">→ English</option>
+              <option value="jp">→ 日本語</option>
+            </select>
+            <span class="text-xs text-slate-500">默认取自「界面设置 → 默认译文语言」</span>
           </div>
 
           <div class="flex flex-wrap items-center justify-between gap-3">

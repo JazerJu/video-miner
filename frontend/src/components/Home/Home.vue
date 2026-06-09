@@ -24,11 +24,19 @@ import ThumbnailDialog from '@/components/dialogs/ThumbnailDialog.vue'
 import RealtimeTranscriptionDialog from '@/components/dialogs/RealtimeTranscriptionDialog.vue'
 import { useThumbnail } from '@/composables/thumbnail'
 import { useHiddenCategories } from '@/composables/useHiddenCategories'
+import { useTheme } from '@/composables/useTheme'
 
 import { useRouter } from 'vue-router'
 import { consumeDirtyVideos, hasDirtyVideos } from '@/composables/useVideoDirtyState'
 
 const router = useRouter()
+const { theme } = useTheme()
+
+const mainThemeClass = computed(() =>
+  theme.value === 'dark'
+    ? 'bg-gradient-to-br from-gray-900 via-slate-800 to-blue-900'
+    : 'bg-gradient-to-br from-slate-50 via-white to-slate-100',
+)
 
 /*
   说明：Home.vue 顶层页面（Layout）
@@ -98,7 +106,7 @@ function updateMenuIndex(idx: number) {
 }
 
 function updateSettingsTab(tab: string) {
-    activeSettingsTab.value = tab
+  activeSettingsTab.value = tab
 }
 
 // 1.1 打开搜索框
@@ -396,37 +404,37 @@ const filteredMediaGroups = computed(() => {
     const noTagVideos: Video[] = []
 
     // Iterate all videos
-    Object.values(videoData.value).flat().forEach(video => {
+    Object.values(videoData.value)
+      .flat()
+      .forEach((video) => {
         // Backend tags might be JSON string or array, handled by Video interface as string[]
         // Ensure tags is array
         const tags = Array.isArray(video.tags) ? video.tags : []
-        
+
         if (tags.length === 0) {
-            noTagVideos.push(video)
+          noTagVideos.push(video)
         } else {
-            tags.forEach(tag => {
-                if (!map.has(tag)) map.set(tag, [])
-                map.get(tag)!.push(video)
-            })
+          tags.forEach((tag) => {
+            if (!map.has(tag)) map.set(tag, [])
+            map.get(tag)!.push(video)
+          })
         }
-    })
+      })
 
     const result: Category[] = []
     map.forEach((videos, tag) => {
-        result.push({ id: -1, name: tag, items: videos }) // ID -1 for transient tag groups
+      result.push({ id: -1, name: tag, items: videos }) // ID -1 for transient tag groups
     })
-    
+
     // Sort by tag name
     result.sort((a, b) => a.name.localeCompare(b.name))
 
     if (noTagVideos.length > 0) {
-        result.push({ id: -1, name: t('uncategorized') || 'Uncategorized', items: noTagVideos })
+      result.push({ id: -1, name: t('uncategorized') || 'Uncategorized', items: noTagVideos })
     }
     return result
   }
 })
-
-
 
 // 分页计算属性 - 仅用于分类视图和合集视图
 const paginatedCurrentCategory = computed(() => {
@@ -472,8 +480,6 @@ async function handleVideoRenamed(video: Video, newName: string) {
   await nextTick() // Ensure DOM updates
 }
 
-
-
 // 3.获取分类/视频信息
 // 获取分类信息
 const videoData = ref<Record<string, Video[]>>({}) // raw map: { category → list }
@@ -501,31 +507,31 @@ async function fetchVideoData() {
     const jsonResponse = await res.json()
     // console.log('Full API response:', jsonResponse)
     const { data: catArray = [] } = jsonResponse
-    
+
     // ➜ 关键：把 id 为 null 的那一条也映射成 Category
     // console.log('Category array:', catArray)
-    
+
     // Simplification: Direct mapping, assuming backend returns { loose_videos: [...] } structure correctly
     // Since we removed Collections, everything should be in loose_videos or similar
     // We map backend response to Frontend Category structure
     categories.value = catArray.map((cat: any) => {
-        const categoryName = cat.name || '未归档'
-        return {
-            id: cat.id ?? 0,
-            name: categoryName,
-            items: (cat.loose_videos ?? []).map((v: any) => ({
-                ...v,
-                thumbnail: v.thumbnail_url || v.thumbnail || '',
-                length: v.video_length || v.length || '',
-                description: v.description || '',
-                rawLang: v.raw_lang || v.rawLang || '',
-                videoSource: v.video_source || v.videoSource || '',
-                sourceUrl: v.source_url || v.sourceUrl || '',
-                type: 'video',
-                categoryName: categoryName,  // 添加分类名称到每个视频
-                categoryId: cat.id ?? 0      // 添加分类ID到每个视频
-            }))
-        }
+      const categoryName = cat.name || '未归档'
+      return {
+        id: cat.id ?? 0,
+        name: categoryName,
+        items: (cat.loose_videos ?? []).map((v: any) => ({
+          ...v,
+          thumbnail: v.thumbnail_url || v.thumbnail || '',
+          length: v.video_length || v.length || '',
+          description: v.description || '',
+          rawLang: v.raw_lang || v.rawLang || '',
+          videoSource: v.video_source || v.videoSource || '',
+          sourceUrl: v.source_url || v.sourceUrl || '',
+          type: 'video',
+          categoryName: categoryName, // 添加分类名称到每个视频
+          categoryId: cat.id ?? 0, // 添加分类ID到每个视频
+        })),
+      }
     })
 
     // Update videoData for easy access
@@ -563,9 +569,14 @@ function setLoadStep(step: string, targetPercent: number) {
 }
 
 function finishLoading() {
-  if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null }
+  if (loadingTimer) {
+    clearInterval(loadingTimer)
+    loadingTimer = null
+  }
   loadingProgress.value = 100
-  setTimeout(() => { isLoadingScreenVisible.value = false }, 400)
+  setTimeout(() => {
+    isLoadingScreenVisible.value = false
+  }, 400)
 }
 
 // i18n functionality
@@ -623,8 +634,6 @@ const checkRootExists = async () => {
   }
 }
 
-
-
 // Handle user area click from Sidebar
 const handleUserAreaClick = async () => {
   if (currentUser.value) {
@@ -655,16 +664,38 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
+  <div class="h-dvh overflow-hidden">
   <!-- Full-screen loading overlay -->
   <Transition name="loading-fade">
-    <div v-if="isLoadingScreenVisible" class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#f8fafc]">
+    <div
+      v-if="isLoadingScreenVisible"
+      class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-[#f8fafc]"
+    >
       <!-- Subtle grid background -->
-      <div class="absolute inset-0 opacity-[0.35]" style="background-image: linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px); background-size: 40px 40px;"></div>
+      <div
+        class="absolute inset-0 opacity-[0.35]"
+        style="
+          background-image:
+            linear-gradient(#e2e8f0 1px, transparent 1px),
+            linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+          background-size: 40px 40px;
+        "
+      ></div>
 
       <div class="relative z-10 flex flex-col items-center">
         <!-- Logo icon -->
-        <div class="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-emerald-500 shadow-lg shadow-sky-500/20">
-          <svg class="h-9 w-9 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <div
+          class="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-emerald-500 shadow-lg shadow-sky-500/20"
+        >
+          <svg
+            class="h-9 w-9 text-white"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <polygon points="23 7 16 12 23 17 23 7" />
             <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
           </svg>
@@ -672,7 +703,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
         <!-- Title -->
         <h1 class="mb-1 text-3xl font-bold tracking-tight text-slate-900">VidGo</h1>
-        <p class="mb-10 text-sm text-slate-400">视频管理系统</p>
+        <p class="mb-10 text-sm text-slate-500 dark:text-slate-400">视频管理系统</p>
 
         <!-- Progress bar -->
         <div class="relative h-[5px] w-64 overflow-hidden rounded-full bg-slate-200/80">
@@ -683,14 +714,14 @@ function handleGlobalKeydown(event: KeyboardEvent) {
         </div>
 
         <!-- Step text -->
-        <p class="mt-4 text-[13px] font-medium text-slate-400 tracking-wide">
+        <p class="mt-4 text-[13px] font-medium text-slate-500 dark:text-slate-400 tracking-wide">
           {{ loadingStep || '正在初始化...' }}
         </p>
       </div>
     </div>
   </Transition>
 
-  <div class="flex h-screen overflow-hidden">
+  <div class="flex h-full overflow-hidden">
     <!-- Sidebar on the left -->
     <Sidebar
       :categories="isAuthenticated ? filteredCategories : []"
@@ -705,28 +736,31 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     />
     <!-- 右侧可Y轴滚动内容区 -->
     <main
-      class="flex-1 h-full p-6 overflow-y-auto bg-gradient-to-br from-gray-900 via-slate-800 to-blue-900"
+      class="flex-1 h-full p-6 overflow-y-auto transition-colors duration-300"
+      :class="mainThemeClass"
     >
       <template v-if="currentMenuIdx === 0">
         <div class="p-6">
-          <h1 class="text-2xl font-bold mb-3 text-white">{{ t('videoManagementSystem') }}</h1>
+          <h1 class="text-2xl font-bold mb-3 text-slate-900 dark:text-white">
+            {{ t('videoManagementSystem') }}
+          </h1>
           <StreamMediaCard @upload-complete="fetchVideoData" />
           <!-- 功能卡片组 - 只保留流式转录并居中 -->
           <div class="flex justify-center mt-8 space-x-8">
             <!-- 流式转录卡片 -->
             <div
-              class="feature-card-hover bg-gradient-to-br from-gray-800/80 via-slate-700/80 to-blue-800/80 backdrop-blur-md rounded-2xl p-8 cursor-pointer border border-white/30 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 max-w-xs text-center"
+              class="feature-card-hover bg-gradient-to-br from-white/90 via-slate-50/90 to-teal-50/80 dark:from-gray-800/80 dark:via-slate-700/80 dark:to-blue-800/80 backdrop-blur-md rounded-2xl p-8 cursor-pointer border border-slate-200/80 dark:border-white/30 shadow-lg shadow-slate-200/70 dark:shadow-black/20 hover:shadow-xl transition-all duration-300 hover:scale-105 max-w-xs text-center"
               @click="router.push('/stream-transcription')"
             >
               <div
-                class="w-16 h-16 mx-auto rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 bg-opacity-20 flex items-center justify-center mb-4"
+                class="w-16 h-16 mx-auto rounded-xl bg-gradient-to-br from-teal-500 to-cyan-600 bg-opacity-20 flex items-center justify-center mb-4"
               >
-                <Radio :size="32" class="text-blue-400" />
+                <Radio :size="32" class="text-teal-50 dark:text-cyan-100" />
               </div>
-              <h3 class="text-xl font-semibold text-white mb-1">
+              <h3 class="text-xl font-semibold text-slate-900 dark:text-white mb-1">
                 {{ t('liveRecordTranscription') }}
               </h3>
-              <p class="text-white/70 text-sm leading-relaxed">
+              <p class="text-slate-600 dark:text-white/70 text-sm leading-relaxed">
                 {{ t('liveRecordTranscriptionDesc') }}
               </p>
             </div>
@@ -739,13 +773,13 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
       <!-- 📌 Settings -->
       <template v-if="currentMenuIdx === 3">
-          <div class="h-full p-6">
-            <SettingsPanel 
-                :active-tab="activeSettingsTab"
-                :categories="categories"
-                @categories-updated="onCategoriesUpdated"
-            />
-          </div>
+        <div class="h-full p-6">
+          <SettingsPanel
+            :active-tab="activeSettingsTab"
+            :categories="categories"
+            @categories-updated="onCategoriesUpdated"
+          />
+        </div>
       </template>
 
       <!-- 📌 媒体库 -->
@@ -768,17 +802,16 @@ function handleGlobalKeydown(event: KeyboardEvent) {
         />
       </template>
 
-
-
       <!-- 📌 单一分类 -->
       <template v-else-if="currentMenuIdx === -1 && currentCategory">
-        <h2 class="text-3xl font-bold mb-4 text-white">{{ currentCategory.name }}</h2>
+        <h2 class="text-3xl font-bold mb-4 text-slate-900 dark:text-white">
+          {{ currentCategory.name }}
+        </h2>
 
         <BatchToolbar
           :batch-mode="isBatchMode"
           :selected-ids="selectedIds"
           @show-move-dialog="showBatchMoveDialog = true"
-
           @generate-subtitles="batchSubtitle"
           @delete-videos="batchDelete"
           @concat-videos="batchConcat"
@@ -794,7 +827,6 @@ function handleGlobalKeydown(event: KeyboardEvent) {
           @generate-subtitle="generateSubtitle"
           @delete="deleteVideo"
           @edit-thumbnail="onEditThumbnail"
-
         />
 
         <!-- 分页组件 -->
@@ -825,8 +857,6 @@ function handleGlobalKeydown(event: KeyboardEvent) {
       @moved="onBatchMoved"
     />
 
-
-
     <EnhancedSubtitleDialog
       v-model="showSubtitleDialog"
       :video-id-list="selectedIds"
@@ -835,9 +865,8 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     />
 
     <!-- 实时转录对话框 -->
-    <RealtimeTranscriptionDialog
-      v-model="showRealtimeTranscriptionDialog"
-    />
+    <RealtimeTranscriptionDialog v-model="showRealtimeTranscriptionDialog" />
+  </div>
   </div>
 </template>
 

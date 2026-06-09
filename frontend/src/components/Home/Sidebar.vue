@@ -22,11 +22,17 @@ import {
   Mic,
   Tag,
   KeyRound,
+  Sun,
+  Moon,
+  Brain,
 } from 'lucide-vue-next'
 import { ElTooltip, ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/composables/useNotification'
 import ProfileDialog from '@/components/dialogs/ProfileDialog.vue'
 import { BACKEND } from '@/composables/ConfigAPI'
+import { useTheme } from '@/composables/useTheme'
+
+const { theme, toggleTheme } = useTheme()
 
 // 菜单列表 - 移除了 Settings，因为 Sidebar 固定显示 Settings
 const menuList = [
@@ -36,13 +42,19 @@ const menuList = [
 
 // Settings Tabs - 固定显示，不随菜单切换
 const settingsTabs = [
-  { id: 'model', label: 'LLM 设置', icon: Bot },
-  { id: 'interface', label: '界面设置', icon: Monitor },
-  { id: 'subtitle', label: '字幕样式', icon: Captions },
-  { id: 'transcription', label: '转录设置', icon: Mic },
-  { id: 'tags', label: '标签管理', icon: Tag },
-  { id: 'media', label: '媒体认证', icon: KeyRound },
+  { id: 'model', label: t('llmSettings'), icon: Bot },
+  { id: 'videoUnderstanding', label: t('videoUnderstandingSettings'), icon: Brain },
+  { id: 'interface', label: t('interfaceSettings'), icon: Monitor },
+  { id: 'subtitle', label: t('subtitleSettings'), icon: Captions },
+  { id: 'transcription', label: t('transcriptionSettings'), icon: Mic },
+  { id: 'tags', label: t('tagManagement'), icon: Tag },
+  { id: 'media', label: t('mediaCredentials'), icon: KeyRound },
 ]
+
+const handleSettingsTabClick = (tab: string) => {
+  emit('updateMenuIndex', 3)
+  emit('update-settings-tab', tab)
+}
 
 // 折叠侧边栏
 const collapsed = ref(false)
@@ -133,15 +145,19 @@ const emit = defineEmits<{
 
 <template>
   <div
-    class="sidebar bg-gradient-to-br from-gray-900 via-slate-900 to-blue-900 backdrop-blur-xl border-r border-white/20 flex flex-col h-full transition-all duration-300"
-    :class="collapsed ? 'sidebar-collapsed' : 'sidebar-expanded'"
+    class="sidebar backdrop-blur-xl border-r flex flex-col h-full transition-all duration-300"
+    :class="
+      collapsed
+        ? 'sidebar-collapsed bg-gradient-to-br from-slate-50 via-white to-slate-100 border-slate-200/80 dark:from-gray-900 dark:via-slate-900 dark:to-blue-900 dark:border-white/20'
+        : 'sidebar-expanded bg-gradient-to-br from-slate-50 via-white to-slate-100 border-slate-200/80 dark:from-gray-900 dark:via-slate-900 dark:to-blue-900 dark:border-white/20'
+    "
   >
     <!--缩起版 侧边栏-->
     <div v-if="collapsed" class="flex flex-col items-center py-6 space-y-6 flex-none px-2">
       <el-tooltip :content="t('displaySidebar')" placement="right">
         <button
           @click="toggleCollapse"
-          class="text-white/70 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-all"
+          class="text-slate-500 hover:text-slate-900 p-2 rounded-lg hover:bg-slate-100 dark:text-white/70 dark:hover:text-white dark:hover:bg-white/10 transition-all"
         >
           <LibraryBig :size="20" />
         </button>
@@ -149,7 +165,7 @@ const emit = defineEmits<{
       <el-tooltip :content="t('home')" placement="right">
         <button
           @click="emit('updateMenuIndex', 0)"
-          class="text-white/70 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-all"
+          class="text-slate-500 hover:text-slate-900 p-2 rounded-lg hover:bg-slate-100 dark:text-white/70 dark:hover:text-white dark:hover:bg-white/10 transition-all"
         >
           <Home :size="20" />
         </button>
@@ -158,60 +174,112 @@ const emit = defineEmits<{
 
     <!-- 展开版 侧边栏 -->
     <template v-if="!collapsed">
-      <!-- 加个空行美化排版 -->
-      <div class="py-2"></div>
-      <nav class="flex-none px-2">
-        <!-- Menu items -->
-        <div class="space-y-2 mb-6">
-        <div
-          v-for="(item, i) in menuList"
-          :key="i"
-          class="flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200"
-            :class="
-              props.currentMenuIdx === i
-                ? 'bg-teal-600/90 text-white shadow-md'
-                : 'text-white/80 hover:bg-white/10 hover:text-white'
-            "
-            @click="item.action()"
-          >
-            <div class="flex items-center">
-              <component :is="item.icon" :size="18" />
-              <span class="ml-3 font-medium">{{ t(item.key) }}</span>
+      <!-- Brand Header -->
+      <div class="px-4 pt-5 pb-4 border-b border-slate-200/80 dark:border-white/10">
+        <div class="flex items-center">
+          <div class="flex min-w-0 items-center">
+            <img
+              class="h-10 w-10 p-0.5 border border-slate-200/80 dark:border-white/30 hover:border-teal-400/70 dark:hover:border-white/50 rounded-xl transition-all shadow-sm"
+              src="@/assets/flute_icon.png"
+              alt="VidGo"
+            />
+            <div class="ml-3 min-w-0 flex flex-col">
+              <div class="flex items-center gap-2">
+                <span class="text-base font-semibold text-slate-950 dark:text-white">{{
+                  t('brand')
+                }}</span>
+                <span
+                  class="rounded-full border border-teal-500/20 bg-teal-500/10 px-2 py-0.5 text-[10px] font-semibold text-teal-700 dark:text-teal-200"
+                >
+                  v1.0
+                </span>
+              </div>
+              <span class="text-xs text-slate-500 dark:text-white/55">{{ t('tagline') }}</span>
             </div>
           </div>
-        </div>
-      </nav>
-
-       <!-- Settings Tabs - 固定显示，不再随菜单切换 -->
-      <div class="flex-1 overflow-y-auto px-2">
-        <h6 class="mb-4 px-2 text-xs font-semibold text-white/60 tracking-wide">
-          {{ t('settingsTitle') || '设置' }}
-        </h6>
-        <div class="flex-1 overflow-y-auto">
-          <div
-            v-for="tab in settingsTabs"
-            :key="tab.id"
-            class="p-3 mb-1 rounded-r-lg flex items-center cursor-pointer transition-all duration-200 border-l-3"
-            :class="
-              props.activeSettingsTab === tab.id
-                ? 'bg-teal-600/90 text-white border-l-cyan-300'
-                : 'text-white/80 border-l-transparent hover:bg-white/8 hover:border-l-cyan-400/70'
-            "
-            @click="emit('updateMenuIndex', 3); emit('update-settings-tab', tab.id)"
-          >
-            <component :is="tab.icon" :size="16" class="shrink-0" />
-            <span class="font-medium ml-2">{{ tab.label }}</span>
+          <div class="ml-auto flex flex-none items-center gap-2">
+            <el-tooltip
+              :content="theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')"
+              placement="top"
+            >
+              <button
+                @click="toggleTheme"
+                class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white/80 text-slate-600 shadow-sm hover:border-teal-400/60 hover:bg-teal-50 hover:text-teal-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10 dark:hover:text-white transition-all"
+              >
+                <Sun v-if="theme === 'dark'" :size="18" />
+                <Moon v-else :size="18" />
+              </button>
+            </el-tooltip>
+            <el-tooltip :content="t('hideSidebar')" placement="top">
+              <button
+                @click="toggleCollapse"
+                class="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white/80 text-slate-600 shadow-sm hover:border-teal-400/60 hover:bg-teal-50 hover:text-teal-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10 dark:hover:text-white transition-all"
+              >
+                <LibraryBig :size="20" />
+              </button>
+            </el-tooltip>
           </div>
         </div>
       </div>
 
-      <!-- User Status Area -->
-      <div class="px-4 py-2 backdrop-blur-sm bg-white/5 border-t border-white/10">
+      <div class="min-h-0 flex-1 flex flex-col py-4">
+        <nav class="flex-none px-2">
+          <!-- Menu items -->
+          <div class="space-y-2 mb-6">
+            <div
+              v-for="(item, i) in menuList"
+              :key="i"
+              class="flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200"
+              :class="
+                props.currentMenuIdx === i
+                  ? 'bg-teal-600/90 text-white shadow-md'
+                  : 'text-slate-700 hover:bg-slate-200/70 hover:text-slate-950 dark:text-white/80 dark:hover:bg-white/10 dark:hover:text-white'
+              "
+              @click="item.action()"
+            >
+              <div class="flex items-center">
+                <component :is="item.icon" :size="18" />
+                <span class="ml-3 font-medium">{{ t(item.key) }}</span>
+              </div>
+            </div>
+          </div>
+        </nav>
+
+        <!-- Settings Tabs - 固定显示，不再随菜单切换 -->
+        <div class="min-h-0 flex-1 flex flex-col px-2">
+          <h6
+            class="mb-4 px-2 text-xs font-semibold text-slate-500 dark:text-white/60 tracking-wide"
+          >
+            {{ t('settingsTitle') || '设置' }}
+          </h6>
+          <div class="settings-scroll min-h-0 flex-1 overflow-y-auto pr-1">
+            <div
+              v-for="tab in settingsTabs"
+              :key="tab.id"
+              class="p-3 mb-1 rounded-r-lg flex items-center cursor-pointer transition-all duration-200 border-l-3"
+              :class="
+                props.activeSettingsTab === tab.id
+                  ? 'bg-teal-600/90 text-white border-l-cyan-300'
+                  : 'text-slate-700 border-l-transparent hover:bg-slate-200/70 hover:border-l-teal-500/70 dark:text-white/80 dark:hover:bg-white/8 dark:hover:border-l-cyan-400/70'
+              "
+              @click="handleSettingsTabClick(tab.id)"
+            >
+              <component :is="tab.icon" :size="16" class="shrink-0" />
+              <span class="font-medium ml-2">{{ tab.label }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom User Status Area -->
+      <div
+        class="px-4 py-3 backdrop-blur-sm bg-white/75 dark:bg-white/5 border-t border-slate-200/80 dark:border-white/10"
+      >
         <div
           @click="handleUserAreaClick"
           @touchstart="handleUserAreaClick"
           @touchend.prevent
-          class="flex items-center p-3 rounded-xl cursor-pointer backdrop-blur-sm border border-white/10 hover:bg-white/10 active:bg-white/20 transition-all duration-200 relative"
+          class="flex items-center p-3 rounded-xl cursor-pointer backdrop-blur-sm border border-slate-200/80 bg-white/80 hover:bg-slate-100 active:bg-slate-200 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10 dark:active:bg-white/20 transition-all duration-200 relative"
         >
           <div
             class="w-8 h-8 rounded-full bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center"
@@ -219,15 +287,17 @@ const emit = defineEmits<{
             <User :size="16" class="text-white" />
           </div>
           <div class="ml-3 flex-1">
-            <div v-if="currentUser" class="text-sm font-medium text-white">
+            <div v-if="currentUser" class="text-sm font-medium text-slate-900 dark:text-white">
               {{ currentUser.username }}
             </div>
-            <div v-else class="text-sm font-medium text-white">{{ t('notLoggedIn') }}</div>
+            <div v-else class="text-sm font-medium text-slate-900 dark:text-white">
+              {{ t('notLoggedIn') }}
+            </div>
           </div>
           <ChevronUp
             v-if="currentUser"
             :size="16"
-            class="text-white/60 transition-transform duration-200"
+            class="text-slate-500 dark:text-white/60 transition-transform duration-200"
             :class="{ 'rotate-180': showUserDropdown }"
           />
         </div>
@@ -235,44 +305,23 @@ const emit = defineEmits<{
         <!-- User Dropdown -->
         <div
           v-if="currentUser && showUserDropdown"
-          class="mt-2 bg-white/10 backdrop-blur-md rounded-xl border border-white/20 overflow-hidden"
+          class="mt-2 bg-white/95 dark:bg-white/10 backdrop-blur-md rounded-xl border border-slate-200 dark:border-white/20 shadow-lg dark:shadow-none overflow-hidden"
         >
           <div
             @click="handleProfileClick"
-            class="flex items-center px-3 py-2 hover:bg-white/10 cursor-pointer transition-colors"
+            class="flex items-center px-3 py-2 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer transition-colors"
           >
-            <UserCircle :size="14" class="text-white/80 mr-3" />
-            <span class="text-sm text-white/90">我的资料</span>
+            <UserCircle :size="14" class="text-slate-600 dark:text-white/80 mr-3" />
+            <span class="text-sm text-slate-700 dark:text-white/90">我的资料</span>
           </div>
           <div
             @click="handleLogout"
-            class="flex items-center px-3 py-2 hover:bg-white/10 cursor-pointer transition-colors border-t border-white/10"
+            class="flex items-center px-3 py-2 hover:bg-slate-100 dark:hover:bg-white/10 cursor-pointer transition-colors border-t border-slate-200 dark:border-white/10"
           >
-            <LogOut :size="14" class="text-white/80 mr-3" />
-            <span class="text-sm text-white/90">{{ t('logout') }}</span>
+            <LogOut :size="14" class="text-slate-600 dark:text-white/80 mr-3" />
+            <span class="text-sm text-slate-700 dark:text-white/90">{{ t('logout') }}</span>
           </div>
         </div>
-      </div>
-
-      <!-- Bottom Logo -->
-      <div class="px-4 py-2 flex items-center backdrop-blur-sm bg-white/5 border-t border-white/10">
-        <img
-          class="h-8 w-8 p-0.5 border border-white/30 hover:border-white/50 rounded-lg transition-all"
-          src="@/assets/flute_icon.png"
-          alt="VidGo"
-        />
-        <div class="ml-2 flex flex-col">
-          <span class="text-sm font-semibold text-white">VidGo</span>
-          <span class="text-xs text-white/50">v1.0</span>
-        </div>
-        <el-tooltip :content="t('hideSidebar')" placement="bottom">
-          <button
-            @click="toggleCollapse"
-            class="ml-auto text-white/60 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-all"
-          >
-            <LibraryBig :size="20" />
-          </button>
-        </el-tooltip>
       </div>
     </template>
   </div>
@@ -289,19 +338,23 @@ const emit = defineEmits<{
 @reference "../../assets/tailwind.css";
 @tailwind utilities;
 
-.sidebar nav {
+.sidebar nav,
+.sidebar .settings-scroll {
   scrollbar-width: thin;
   scrollbar-color: #e5e7eb transparent;
 }
 
-.sidebar nav::-webkit-scrollbar {
+.sidebar nav::-webkit-scrollbar,
+.sidebar .settings-scroll::-webkit-scrollbar {
   width: 6px;
 }
-.sidebar nav::-webkit-scrollbar-thumb {
+.sidebar nav::-webkit-scrollbar-thumb,
+.sidebar .settings-scroll::-webkit-scrollbar-thumb {
   background-color: #e5e7eb;
   border-radius: 3px;
 }
-.sidebar nav::-webkit-scrollbar-track {
+.sidebar nav::-webkit-scrollbar-track,
+.sidebar .settings-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 

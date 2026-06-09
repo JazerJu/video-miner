@@ -211,16 +211,28 @@ watch(
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(71, 85, 105, 0.3);
+  background: rgba(226, 232, 240, 0.8);
   border-radius: 3px;
 }
 
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(71, 85, 105, 0.3);
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.45);
   border-radius: 3px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.65);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.8);
 }
 </style>
@@ -229,13 +241,13 @@ watch(
   <div class="p-6">
     <!-- Header with action buttons -->
     <div class="flex justify-between items-center mb-6">
-      <h3 class="text-xl font-semibold text-white">{{ t('videoChaptersTitle') }}</h3>
+      <h3 class="text-xl font-semibold text-slate-900 dark:text-white">{{ t('videoChaptersTitle') }}</h3>
       <div v-if="props.id && props.id > 0" class="flex space-x-3">
         <!-- Chapter Marker Toggle -->
         <button
           @click="toggleChapterMarkers"
-          :class="localShowChapterMarkers ? 'bg-green-600/80 hover:bg-green-600 border-green-500/30' : 'bg-slate-600/80 hover:bg-slate-600 border-slate-500/30'"
-          class="px-4 py-2 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border"
+          :class="localShowChapterMarkers ? 'bg-green-600/80 hover:bg-green-600 border-green-500/30 text-white' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-600/80 dark:hover:bg-slate-600 border-slate-200 dark:border-slate-500/30 text-slate-700 dark:text-white'"
+          class="px-4 py-2 text-sm rounded-lg transition-colors backdrop-blur-sm border"
           :title="localShowChapterMarkers ? '隐藏进度条章节标记' : '显示进度条章节标记'"
         >
           <span v-if="localShowChapterMarkers" class="flex items-center">
@@ -290,7 +302,7 @@ watch(
           <span v-else>获取缩略图</span>
         </button>
       </div>
-      <div v-else class="text-sm text-slate-400">{{ t('waitingVideoLoad') }}</div>
+      <div v-else class="text-sm text-slate-500 dark:text-slate-400">{{ t('waitingVideoLoad') }}</div>
     </div>
 
     <!-- Chapter List -->
@@ -299,23 +311,23 @@ watch(
         <!-- Parent Chapter -->
         <div
           @click="jumpToChapter(chapter)"
-          class="flex items-center p-4 rounded-xl border cursor-pointer hover:bg-slate-700/30 transition-all duration-200"
+          class="flex items-center p-4 rounded-xl border cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/30 transition-all duration-200"
           :class="
             getCurrentChapter?.id === chapter.id
-              ? 'border-blue-500/50 bg-blue-900/30 shadow-lg'
-              : 'border-slate-600/30 hover:border-slate-500/50'
+              ? 'border-blue-500/50 bg-blue-50 dark:bg-blue-900/30 shadow-lg'
+              : 'border-slate-200 dark:border-slate-600/30 hover:border-slate-300 dark:hover:border-slate-500/50'
           "
         >
           <!-- Thumbnail -->
-          <div class="flex-shrink-0 w-32 h-20 bg-slate-700/50 rounded-lg overflow-hidden mr-4 border border-slate-600/30">
+          <div class="flex-shrink-0 w-32 h-20 bg-slate-100 dark:bg-slate-700/50 rounded-lg overflow-hidden mr-4 border border-slate-200 dark:border-slate-600/30">
             <img
               v-if="chapter.thumbnail"
               :src="chapter.thumbnail"
               :alt="`Chapter ${index + 1} thumbnail`"
               class="w-full h-full object-cover"
             />
-            <div v-else class="w-full h-full flex items-center justify-center text-slate-400 text-sm">
-              <svg class="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div v-else class="w-full h-full flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm">
+              <svg class="w-8 h-8 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </div>
@@ -323,8 +335,8 @@ watch(
 
           <!-- Chapter Info -->
           <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-white truncate mb-1 text-lg">{{ chapter.title }}</h4>
-            <p class="text-sm text-slate-400">
+            <h4 class="font-medium text-slate-900 dark:text-white truncate mb-1 text-lg">{{ chapter.title }}</h4>
+            <p class="text-sm text-slate-500 dark:text-slate-400">
               {{ formatTime(chapter.startTime) }}
               <span v-if="chapter.endTime"> - {{ formatTime(chapter.endTime) }}</span>
             </p>
@@ -337,22 +349,22 @@ watch(
         </div>
 
         <!-- Child Chapters -->
-        <div v-if="chapter.children && chapter.children.length > 0" class="ml-12 space-y-2 border-l-2 border-slate-700/50 pl-4">
+        <div v-if="chapter.children && chapter.children.length > 0" class="ml-12 space-y-2 border-l-2 border-slate-200 dark:border-slate-700/50 pl-4">
           <div
             v-for="(child, childIndex) in chapter.children"
             :key="child.id"
             @click="jumpToChapter(child)"
-            class="flex items-center p-3 rounded-lg border cursor-pointer hover:bg-slate-700/30 transition-all duration-200 bg-slate-800/20"
+            class="flex items-center p-3 rounded-lg border cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/30 transition-all duration-200 bg-slate-50 dark:bg-slate-800/20"
             :class="
               getCurrentChapter?.id === child.id
-                ? 'border-blue-500/50 bg-blue-900/20'
-                : 'border-slate-600/20 hover:border-slate-500/40'
+                ? 'border-blue-500/50 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-slate-200 dark:border-slate-600/20 hover:border-slate-300 dark:hover:border-slate-500/40'
             "
           >
             <!-- No thumbnail for children to save space, or smaller one? Let's keep it text only for now or user feedback -->
             <div class="flex-1 min-w-0">
-               <h5 class="font-medium text-slate-200 truncate text-base">{{ child.title }}</h5>
-               <p class="text-xs text-slate-500">
+                <h5 class="font-medium text-slate-700 dark:text-slate-200 truncate text-base">{{ child.title }}</h5>
+                <p class="text-xs text-slate-500 dark:text-slate-500">
                  {{ formatTime(child.startTime) }}
                  <span v-if="child.endTime"> - {{ formatTime(child.endTime) }}</span>
                </p>
@@ -365,10 +377,10 @@ watch(
         </div>
       </div>
 
-      <div v-if="!props.id || props.id <= 0" class="text-center py-12 text-slate-400">
+      <div v-if="!props.id || props.id <= 0" class="text-center py-12 text-slate-500 dark:text-slate-400">
         {{ t('waitingVideoLoading') }}
       </div>
-      <div v-else-if="chapters.length === 0" class="text-center py-12 text-slate-400">
+      <div v-else-if="chapters.length === 0" class="text-center py-12 text-slate-500 dark:text-slate-400">
         {{ t('noChapters') }}
       </div>
     </div>
@@ -379,10 +391,10 @@ watch(
       class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
       @click.self="showEditDialog = false"
     >
-      <div class="bg-gradient-to-br from-slate-800/95 to-slate-700/95 rounded-2xl p-8 w-full max-w-4xl max-h-[85vh] overflow-y-auto border border-slate-600/50 shadow-2xl backdrop-blur-lg">
+      <div class="bg-white/95 dark:bg-gradient-to-br dark:from-slate-800/95 dark:to-slate-700/95 rounded-2xl p-8 w-full max-w-4xl max-h-[85vh] overflow-y-auto border border-slate-200 dark:border-slate-600/50 shadow-2xl backdrop-blur-lg">
         <div class="flex justify-between items-center mb-6">
-          <h3 class="text-2xl font-semibold text-white">编辑章节</h3>
-          <button @click="showEditDialog = false" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-700/50 transition-all">
+          <h3 class="text-2xl font-semibold text-slate-900 dark:text-white">编辑章节</h3>
+          <button @click="showEditDialog = false" class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-all">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -390,14 +402,14 @@ watch(
         </div>
 
         <div class="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
-          <div v-for="(chapter, index) in chapters" :key="chapter.id" class="space-y-2 border border-slate-600/30 rounded-xl p-3 bg-slate-800/30">
+          <div v-for="(chapter, index) in chapters" :key="chapter.id" class="space-y-2 border border-slate-200 dark:border-slate-600/30 rounded-xl p-3 bg-slate-50 dark:bg-slate-800/30">
             <!-- Parent Editor -->
             <div class="flex items-center space-x-3">
-              <span class="text-sm text-slate-400 w-6 font-mono font-bold">{{ index + 1 }}</span>
+              <span class="text-sm text-slate-500 dark:text-slate-400 w-6 font-mono font-bold">{{ index + 1 }}</span>
               <input
                 v-model="chapter.title"
                 type="text"
-                class="flex-1 px-3 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400 transition-all"
+                class="flex-1 px-3 py-2 bg-white dark:bg-slate-600/50 border border-slate-300 dark:border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 transition-all"
                 placeholder="一级章节标题"
               />
               <div class="flex items-center space-x-1">
@@ -406,17 +418,17 @@ watch(
                   type="number"
                   min="0"
                   step="1"
-                  class="w-20 px-2 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400 text-center text-sm"
+                  class="w-20 px-2 py-2 bg-white dark:bg-slate-600/50 border border-slate-300 dark:border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 text-center text-sm"
                   placeholder="开始"
                   title="开始时间(秒)"
                 />
-                <span class="text-slate-500">-</span>
+                <span class="text-slate-500 dark:text-slate-500">-</span>
                 <input
                   v-model.number="chapter.endTime"
                   type="number"
                   min="0"
                   step="1"
-                  class="w-20 px-2 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400 text-center text-sm"
+                  class="w-20 px-2 py-2 bg-white dark:bg-slate-600/50 border border-slate-300 dark:border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 text-center text-sm"
                   placeholder="结束"
                   title="结束时间(秒，可选)"
                 />
@@ -443,13 +455,13 @@ watch(
             </div>
 
             <!-- Children Editor -->
-            <div v-if="chapter.children && chapter.children.length > 0" class="ml-10 space-y-2 pl-4 border-l border-slate-600/30">
+            <div v-if="chapter.children && chapter.children.length > 0" class="ml-10 space-y-2 pl-4 border-l border-slate-200 dark:border-slate-600/30">
                <div v-for="(child, childIndex) in chapter.children" :key="child.id" class="flex items-center space-x-3">
-                  <span class="text-xs text-slate-500 w-6 font-mono">{{ index + 1 }}.{{ childIndex + 1 }}</span>
+                  <span class="text-xs text-slate-500 dark:text-slate-500 w-6 font-mono">{{ index + 1 }}.{{ childIndex + 1 }}</span>
                   <input
                     v-model="child.title"
                     type="text"
-                    class="flex-1 px-3 py-1.5 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-200 placeholder-slate-500 text-sm transition-all"
+                    class="flex-1 px-3 py-1.5 bg-white dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-sm transition-all"
                     placeholder="子章节标题"
                   />
                   <div class="flex items-center space-x-1">
@@ -458,16 +470,16 @@ watch(
                       type="number"
                       min="0"
                       step="1"
-                      class="w-16 px-2 py-1.5 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-200 placeholder-slate-500 text-center text-xs"
+                      class="w-16 px-2 py-1.5 bg-white dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-center text-xs"
                       placeholder="开始"
                     />
-                    <span class="text-slate-600">-</span>
+                    <span class="text-slate-500 dark:text-slate-600">-</span>
                     <input
                       v-model.number="child.endTime"
                       type="number"
                       min="0"
                       step="1"
-                      class="w-16 px-2 py-1.5 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-200 placeholder-slate-500 text-center text-xs"
+                      class="w-16 px-2 py-1.5 bg-white dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-center text-xs"
                       placeholder="结束"
                     />
                   </div>
@@ -486,7 +498,7 @@ watch(
 
           <button
             @click="addChapter"
-            class="w-full py-4 border-2 border-dashed border-slate-600/50 rounded-xl text-slate-400 hover:border-slate-500/70 hover:text-slate-300 hover:bg-slate-700/20 transition-all flex justify-center items-center"
+            class="w-full py-4 border-2 border-dashed border-slate-300 dark:border-slate-600/50 rounded-xl text-slate-500 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-500/70 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-all flex justify-center items-center"
           >
             <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -495,10 +507,10 @@ watch(
           </button>
         </div>
 
-        <div class="flex justify-end space-x-4 mt-8 pt-6 border-t border-slate-600/30">
+        <div class="flex justify-end space-x-4 mt-8 pt-6 border-t border-slate-200 dark:border-slate-600/30">
           <button
             @click="showEditDialog = false"
-            class="px-6 py-2 text-slate-300 hover:text-white bg-slate-700/50 hover:bg-slate-600/70 rounded-lg transition-all border border-slate-600/30"
+            class="px-6 py-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white hover:bg-slate-100 dark:bg-slate-700/50 dark:hover:bg-slate-600/70 rounded-lg transition-all border border-slate-200 dark:border-slate-600/30"
           >
             取消
           </button>
@@ -521,16 +533,28 @@ watch(
 }
 
 .max-h-96::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: #e2e8f0;
   border-radius: 3px;
 }
 
+:global(html.dark) .max-h-96::-webkit-scrollbar-track {
+  background: rgba(71, 85, 105, 0.3);
+}
+
 .max-h-96::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: #94a3b8;
   border-radius: 3px;
 }
 
 .max-h-96::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: #64748b;
+}
+
+:global(html.dark) .max-h-96::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+:global(html.dark) .max-h-96::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.8);
 }
 </style>

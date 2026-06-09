@@ -1,7 +1,7 @@
 <!-- 字幕编辑器，核心功能 -->
 <template>
-  <!-- 深色主题背景容器,min-h-screen:这个元素的最小高度等于整个视口的高度。 -->
-  <div class="min-h-screen bg-[#1B316A]">
+  <!-- 主题背景容器,min-h-screen:这个元素的最小高度等于整个视口的高度。 -->
+  <div class="min-h-screen transition-colors duration-300" :class="editorThemeClass">
     <!-- 头部导航栏 -->
     <NavBar
       :showTranslation="showTranslation"
@@ -19,7 +19,7 @@
       <div class="flex-[2] flex flex-col min-h-0 gap-6 min-w-0">
         <!-- 视频播放器 -->
         <div
-          class="flex-[2] flex flex-col min-h-0 bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-4 border border-slate-600/50 shadow-2xl min-w-0"
+          class="flex-[2] flex flex-col min-h-0 bg-white/90 dark:bg-slate-800/90 backdrop-blur-lg rounded-2xl p-4 border border-slate-200 dark:border-white/10 shadow-xl shadow-slate-200/70 dark:shadow-black/20 min-w-0 transition-colors duration-300"
         >
           <!-- 使用填充容器替代 aspect-video，以便可伸缩 -->
           <div class="relative w-full h-full overflow-hidden">
@@ -36,7 +36,7 @@
 
         <!-- 波形查看器 -->
         <div
-          class="flex-none px-2 py-1 border border-slate-600/50 bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-lg shadow-2xl min-w-0"
+          class="flex-none px-2 py-1 border border-slate-700/30 dark:border-white/10 bg-slate-950/95 dark:bg-slate-900/90 backdrop-blur-lg rounded-lg shadow-xl shadow-slate-300/60 dark:shadow-black/20 min-w-0 transition-colors duration-300"
         >
           <WaveformViewer
             v-if="waveformReady"
@@ -60,7 +60,7 @@
       <!-- 右侧字幕编辑器 - 占满右侧 -->
       <div class="flex-[1] h-full min-h-0">
         <div
-          class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl border border-slate-600/50 shadow-2xl h-full min-h-0 min-w-0"
+          class="bg-white/90 dark:bg-slate-800/90 backdrop-blur-lg rounded-2xl border border-slate-200 dark:border-white/10 shadow-xl shadow-slate-200/70 dark:shadow-black/20 h-full min-h-0 min-w-0 transition-colors duration-300"
         >
           <SubtitleEditor
             ref="subtitleEditorRef"
@@ -89,6 +89,7 @@ import { blobUrls } from '@/composables/Buildvtt'
 import type { VideoInfoData } from '@/types/media.d.ts'
 import { getVideoInfo } from '@/composables/GetVideoInfo'
 import { hhmmssToSeconds } from '@/composables/TimeFunc'
+import { useTheme } from '@/composables/useTheme'
 import { useRoute, useRouter } from 'vue-router'
 
 import NavBar from '@/components/WatchVideo/NavBar.vue'
@@ -102,6 +103,13 @@ const foreignSubtitles = ref<Subtitle[]>([]) // 译文字幕
 const showRawTrack = ref(true)
 const showForeignTrack = ref(true)
 const waveformHeight = ref(32)
+const { theme } = useTheme()
+
+const editorThemeClass = computed(() =>
+  theme.value === 'dark'
+    ? 'bg-gradient-to-br from-gray-900 via-slate-800 to-blue-900'
+    : 'bg-gradient-to-br from-slate-50 via-white to-slate-100',
+)
 
 function subsLoad(raw: Subtitle[], foreign: Subtitle[]) {
   console.log('subtitles accepted by editor:', raw.length, 'raw,', foreign.length, 'foreign')

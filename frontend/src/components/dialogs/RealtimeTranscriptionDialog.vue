@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onBeforeUnmount, nextTick } from 'vue'
 import { ElButton, ElSelect, ElOption, ElSwitch, ElInput, ElIcon } from 'element-plus'
 import { ElMessage } from '@/composables/useNotification'
 import { Microphone, VideoPlay, VideoPause, Close } from '@element-plus/icons-vue'
@@ -193,7 +193,26 @@ const clearAudioFile = () => {
 }
 
 // Methods
+const checkBrowserSupport = (): boolean => {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    const isSecureContext = window.isSecureContext ||
+      window.location.protocol === 'https:' ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1'
+
+    if (!isSecureContext) {
+      ElMessage.error('录音功能仅在HTTPS或本地环境(localhost)下可用')
+    } else {
+      ElMessage.error('您的浏览器不支持录音功能')
+    }
+    return false
+  }
+  return true
+}
+
 const startRecording = async () => {
+  if (!checkBrowserSupport()) return
+
   try {
     if (isTestMode.value && selectedAudioFile.value) {
       // Test mode: play audio file
@@ -680,24 +699,6 @@ const highlightKeywords = (text: string): string => {
 }
 
 // Lifecycle
-onMounted(() => {
-  // Check browser support
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    // Check if the issue is likely due to insecure context (HTTP vs HTTPS)
-    const isSecureContext = window.isSecureContext || 
-                           window.location.protocol === 'https:' || 
-                           window.location.hostname === 'localhost' || 
-                           window.location.hostname === '127.0.0.1';
-    
-    if (!isSecureContext) {
-      ElMessage.error('录音功能仅在HTTPS或本地环境(localhost)下可用')
-    } else {
-      ElMessage.error('您的浏览器不支持录音功能')
-    }
-    return
-  }
-})
-
 onBeforeUnmount(() => {
   if (isRecording.value) {
     stopRecording()

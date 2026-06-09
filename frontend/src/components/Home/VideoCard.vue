@@ -70,13 +70,13 @@ const sourceBadgeClass = computed(() => {
   const source = resolvedSource.value
   switch (source) {
     case 'bilibili':
-      return 'border-sky-400/25 bg-sky-500/12 text-sky-100'
+      return 'border-sky-400/35 bg-sky-50 text-sky-700 dark:border-sky-400/25 dark:bg-sky-500/12 dark:text-sky-100'
     case 'youtube':
-      return 'border-rose-400/25 bg-rose-500/12 text-rose-100'
+      return 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-500/12 dark:text-rose-100'
     case 'podcast':
-      return 'border-amber-300/25 bg-amber-500/12 text-amber-100'
+      return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-300/25 dark:bg-amber-500/12 dark:text-amber-100'
     default:
-      return 'border-white/12 bg-white/[0.06] text-slate-100'
+      return 'border-slate-200 bg-white text-slate-900 dark:border-white/12 dark:bg-white/[0.06] dark:text-slate-100'
   }
 })
 
@@ -265,6 +265,7 @@ const LANG_OPTIONS = [
   { value: 'zh', label: '中文' },
   { value: 'en', label: 'English' },
   { value: 'jp', label: '日本語' },
+  { value: 'de', label: 'Deutsch' },
 ]
 </script>
 
@@ -272,7 +273,7 @@ const LANG_OPTIONS = [
   <!-- ───────────── GRID STYLE ───────────── -->
   <div
     v-if="view === 'grid'"
-    class="video-card-hover group relative overflow-hidden rounded-[22px] border border-white/8 bg-[linear-gradient(180deg,rgba(30,41,59,0.96),rgba(15,23,42,0.96))] shadow-[0_18px_40px_rgba(2,6,23,0.22)] transition-all duration-300 hover:-translate-y-1 hover:border-white/14 hover:shadow-[0_22px_52px_rgba(2,6,23,0.3)]"
+    class="video-card-hover group relative overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_18px_40px_rgba(2,6,23,0.22)] transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_22px_52px_rgba(2,6,23,0.3)] dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(30,41,59,0.96),rgba(15,23,42,0.96))] dark:hover:border-white/14"
     :class="checked ? 'border-[rgb(34,124,46)] border-2' : ''"
   >
     <el-checkbox
@@ -289,7 +290,7 @@ const LANG_OPTIONS = [
       />
       <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
 
-      <div v-if="hasPlaybackProgress" class="absolute inset-x-0 bottom-0 z-10 h-1 bg-slate-950/45">
+      <div v-if="hasPlaybackProgress" class="absolute inset-x-0 bottom-0 z-10 h-1 bg-slate-200 dark:bg-slate-950/45">
         <div
           class="h-full rounded-r-full bg-[linear-gradient(90deg,#7dd3fc,#5eead4,#60a5fa)] shadow-[0_0_10px_rgba(125,211,252,0.45)]"
           :style="{ width: `${playbackProgress * 100}%` }"
@@ -300,7 +301,7 @@ const LANG_OPTIONS = [
         {{ sourceLabel }}
       </div>
 
-      <div v-if="durationLabel" class="absolute bottom-3 right-3 rounded-md bg-black/72 px-2.5 py-1 text-xs font-semibold text-white shadow-lg">
+      <div v-if="durationLabel" class="absolute bottom-3 right-3 rounded-md bg-black/72 px-2.5 py-1 text-xs font-semibold text-white/95 shadow-lg dark:text-white">
         {{ durationLabel }}
       </div>
 
@@ -308,14 +309,14 @@ const LANG_OPTIONS = [
         <span
           v-for="tag in visibleTags"
           :key="tag"
-          class="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold text-white shadow-[0_8px_20px_rgba(15,23,42,0.24)] backdrop-blur-sm"
+          class="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold text-white/95 shadow-[0_8px_20px_rgba(15,23,42,0.24)] backdrop-blur-sm dark:text-white"
           :style="getTagStyle(tag)"
         >
           <span class="truncate">{{ tag }}</span>
         </span>
         <span
           v-if="hiddenTagCount > 0"
-          class="inline-flex items-center rounded-full border border-white/18 bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur-sm"
+          class="inline-flex items-center rounded-full border border-slate-300 bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur-sm dark:border-white/18"
         >
           +{{ hiddenTagCount }}
         </span>
@@ -324,7 +325,7 @@ const LANG_OPTIONS = [
       <div class="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 group-hover:opacity-100">
         <a
           :href="watchUrl"
-          class="flex h-12 w-12 items-center justify-center rounded-full border border-white/18 bg-black/55 text-white shadow-lg backdrop-blur-md transition hover:scale-105 hover:bg-black/72"
+          class="flex h-12 w-12 items-center justify-center rounded-full border border-slate-300 bg-black/55 text-white/95 shadow-lg backdrop-blur-md transition hover:scale-105 hover:bg-black/72 dark:border-white/18 dark:text-white"
         >
           <Play :size="20" class="ml-0.5" />
         </a>
@@ -332,7 +333,7 @@ const LANG_OPTIONS = [
 
       <div class="absolute right-3 top-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
         <el-dropdown trigger="click">
-          <button class="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/45 text-white/85 backdrop-blur-md transition hover:bg-black/70 hover:text-white">
+          <button class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-black/45 text-white/85 backdrop-blur-md transition hover:bg-black/70 dark:border-white/10 dark:hover:text-white">
             <el-icon class="text-lg"><More /></el-icon>
           </button>
           <template #dropdown>
@@ -359,8 +360,8 @@ const LANG_OPTIONS = [
     <div class="p-4">
       <div v-if="!isEditing" class="flex items-start gap-3">
         <el-tooltip :content="video.name" placement="top">
-          <h3 class="flex-1 text-[1.05rem] font-semibold leading-6 text-white line-clamp-2">
-            <a :href="watchUrl" class="no-underline text-inherit transition-colors hover:text-cyan-200">
+          <h3 class="flex-1 text-[1.05rem] font-semibold leading-6 text-slate-900 line-clamp-2 dark:text-white">
+            <a :href="watchUrl" class="no-underline text-inherit transition-colors hover:text-cyan-600 dark:hover:text-cyan-200">
               {{ video.name }}
             </a>
           </h3>
@@ -368,7 +369,7 @@ const LANG_OPTIONS = [
 
         <el-popover placement="top-end" :width="280" trigger="hover">
           <template #reference>
-            <button class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:border-white/18 hover:bg-white/10 hover:text-white">
+            <button class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:border-white/18 dark:hover:bg-white/10 dark:hover:text-white">
               <Clock3 class="h-4 w-4" />
             </button>
           </template>
@@ -393,18 +394,18 @@ const LANG_OPTIONS = [
         <input
           ref="inputRef"
           v-model="editingName"
-          class="flex-1 rounded-lg border border-white/15 bg-white/10 px-3 py-2 font-semibold text-white backdrop-blur-sm placeholder-white/50 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-cyan-400"
+          class="flex-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 font-semibold text-slate-900 backdrop-blur-sm placeholder-slate-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-cyan-400 dark:border-white/15 dark:bg-white/10 dark:text-white dark:placeholder-white/50"
           @keydown="handleKeydown"
           @blur="saveEdit"
         />
       </div>
 
-      <div class="mt-3 flex items-center gap-2 text-xs text-slate-300">
-        <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-slate-200">
+      <div class="mt-3 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+        <span class="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-800 dark:border-white/10 dark:bg-white/5 dark:text-slate-200">
           {{ categoryLabel }}
         </span>
         <span class="text-slate-500">•</span>
-        <span class="truncate text-slate-400">{{ accessLabel }}</span>
+        <span class="truncate text-slate-500 dark:text-slate-400">{{ accessLabel }}</span>
       </div>
     </div>
   </div>
@@ -412,7 +413,7 @@ const LANG_OPTIONS = [
   <!-- ───────────── LIST STYLE ───────────── -->
   <div
     v-else
-    class="flex items-center justify-between rounded-2xl border border-slate-700/50 bg-slate-900/45 px-4 py-3 transition hover:border-slate-600/70 hover:bg-slate-900/72"
+    class="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/50 dark:bg-slate-900/45 dark:hover:border-slate-600/70 dark:hover:bg-slate-900/72"
   >
     <div class="flex items-center gap-4">
       <div class="relative overflow-hidden rounded-xl">
@@ -421,7 +422,7 @@ const LANG_OPTIONS = [
           class="h-16 w-28 object-cover"
           :alt="video.name"
         />
-        <div v-if="hasPlaybackProgress" class="absolute inset-x-0 bottom-0 z-10 h-1 bg-slate-950/40">
+        <div v-if="hasPlaybackProgress" class="absolute inset-x-0 bottom-0 z-10 h-1 bg-slate-200 dark:bg-slate-950/40">
           <div
             class="h-full rounded-r-full bg-[linear-gradient(90deg,#7dd3fc,#5eead4,#60a5fa)] shadow-[0_0_8px_rgba(125,211,252,0.4)]"
             :style="{ width: `${playbackProgress * 100}%` }"
@@ -431,12 +432,12 @@ const LANG_OPTIONS = [
           class="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity hover:opacity-100"
         >
           <a :href="watchUrl">
-            <span class="flex h-9 w-9 items-center justify-center rounded-full border border-white/18 bg-black/55 text-white backdrop-blur-md">
+            <span class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-black/55 text-white/95 backdrop-blur-md dark:border-white/18 dark:text-white">
               <Play :size="16" class="ml-0.5" />
             </span>
           </a>
         </div>
-        <div v-if="durationLabel" class="absolute bottom-2 right-2 rounded-md bg-black/72 px-2 py-0.5 text-[11px] font-semibold text-white">
+        <div v-if="durationLabel" class="absolute bottom-2 right-2 rounded-md bg-black/72 px-2 py-0.5 text-[11px] font-semibold text-white/95 dark:text-white">
           {{ durationLabel }}
         </div>
       </div>
@@ -444,7 +445,7 @@ const LANG_OPTIONS = [
       <div class="min-w-0">
         <div v-if="!isEditing" class="flex items-center gap-2">
           <el-tooltip :content="video.name" placement="top">
-            <a :href="watchUrl" class="line-clamp-1 font-medium text-white no-underline hover:text-cyan-200">
+            <a :href="watchUrl" class="line-clamp-1 font-medium text-slate-900 no-underline hover:text-cyan-600 dark:text-white dark:hover:text-cyan-200">
               {{ video.name }}
             </a>
           </el-tooltip>
@@ -458,7 +459,7 @@ const LANG_OPTIONS = [
             @blur="saveEdit"
           />
         </div>
-        <div class="mt-1 flex items-center gap-2 text-xs text-slate-400">
+        <div class="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="sourceBadgeClass">{{ sourceLabel }}</span>
           <span>•</span>
           <span>{{ categoryLabel }}</span>
@@ -471,7 +472,7 @@ const LANG_OPTIONS = [
     <div class="flex items-center gap-2">
       <el-popover placement="top-end" :width="280" trigger="hover">
         <template #reference>
-          <button class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-800/80 text-slate-300 transition hover:border-slate-500 hover:text-white">
+          <button class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-white">
             <Clock3 class="h-4 w-4" />
           </button>
         </template>
@@ -493,7 +494,7 @@ const LANG_OPTIONS = [
       </el-popover>
 
       <el-dropdown trigger="click">
-        <el-button circle class="!w-9 !h-9 !border-slate-700 !bg-slate-800/80 !text-slate-200 hover:!border-slate-500 hover:!bg-slate-700">
+        <el-button circle class="!w-9 !h-9 !border-slate-200 !bg-slate-100 !text-slate-800 hover:!border-slate-400 hover:!bg-slate-200 dark:!border-slate-700 dark:!bg-slate-800/80 dark:!text-slate-200 dark:hover:!border-slate-500 dark:hover:!bg-slate-700">
           <el-icon><More /></el-icon>
         </el-button>
         <template #dropdown>
@@ -524,9 +525,9 @@ const LANG_OPTIONS = [
     class="video-props-dialog-shell"
     @close="showPropsDialog = false"
   >
-    <div class="space-y-4 rounded-[20px] bg-[linear-gradient(180deg,rgba(15,23,42,0.84),rgba(17,24,39,0.78))] p-4">
+    <div class="space-y-4 rounded-[20px] bg-slate-50 p-4 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.84),rgba(17,24,39,0.78))]">
       <div class="space-y-2">
-        <label class="mb-2 block text-sm font-medium text-slate-200">原始语言</label>
+        <label class="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200">原始语言</label>
         <el-select
           v-model="propsForm.rawLang"
           placeholder="不设置"
@@ -544,8 +545,8 @@ const LANG_OPTIONS = [
         </el-select>
       </div>
 
-      <div class="border-t border-white/8 pt-4">
-        <label class="mb-3 block text-sm font-medium text-slate-200">源平台</label>
+      <div class="border-t border-slate-200 pt-4 dark:border-white/8">
+        <label class="mb-3 block text-sm font-medium text-slate-800 dark:text-slate-200">源平台</label>
         <div class="flex flex-wrap gap-2">
           <button
             v-for="p in PLATFORM_OPTIONS"
@@ -554,8 +555,8 @@ const LANG_OPTIONS = [
             :class="[
               'flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm transition-all',
               propsForm.videoSource === p.value
-                ? 'border-cyan-300/35 bg-cyan-400/14 text-cyan-100 font-medium shadow-[0_10px_24px_rgba(34,211,238,0.12)]'
-                : 'border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:bg-white/[0.07]',
+                ? 'border-cyan-300/35 bg-cyan-400/14 text-cyan-600 dark:text-cyan-100 font-medium shadow-[0_10px_24px_rgba(34,211,238,0.12)]'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-100 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300 dark:hover:border-white/20 dark:hover:bg-white/[0.07]',
             ]"
           >
             <!-- Bilibili icon -->
@@ -575,8 +576,8 @@ const LANG_OPTIONS = [
         </div>
       </div>
 
-      <div class="border-t border-white/8 pt-4">
-        <label class="mb-2 block text-sm font-medium text-slate-200">源链接</label>
+      <div class="border-t border-slate-200 pt-4 dark:border-white/8">
+        <label class="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200">源链接</label>
         <el-input
           v-model="propsForm.sourceUrl"
           placeholder="https://..."
@@ -588,13 +589,13 @@ const LANG_OPTIONS = [
     <template #footer>
       <div class="flex items-center justify-end gap-3">
         <button
-          class="inline-flex h-10 items-center justify-center rounded-xl border border-white/12 bg-white/[0.04] px-4 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08]"
+          class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-100 dark:border-white/12 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
           @click="showPropsDialog = false"
         >
           取消
         </button>
         <button
-          class="inline-flex h-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(59,130,246,0.24))] px-4 text-sm font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:shadow-[0_12px_28px_rgba(34,211,238,0.16)] disabled:cursor-not-allowed disabled:opacity-65"
+          class="inline-flex h-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(59,130,246,0.24))] px-4 text-sm font-semibold text-cyan-600 transition hover:border-cyan-300/35 hover:shadow-[0_12px_28px_rgba(34,211,238,0.16)] disabled:cursor-not-allowed disabled:opacity-65 dark:text-cyan-50"
           :disabled="propsSaving"
           @click="saveProps"
         >
@@ -631,10 +632,15 @@ const LANG_OPTIONS = [
 :deep(.video-select .el-checkbox__inner) {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.6);
+  border: 2px solid rgba(15, 23, 42, 0.35);
   border-radius: 4px;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(255, 255, 255, 0.92);
   transition: all 0.2s ease;
+}
+
+:global(html.dark) :deep(.video-select .el-checkbox__inner) {
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background-color: rgba(0, 0, 0, 0.5);
 }
 
 :deep(.video-select .el-checkbox__input.is-checked .el-checkbox__inner) {
@@ -656,8 +662,17 @@ const LANG_OPTIONS = [
 .el-dialog.video-props-dialog-shell,
 .video-props-dialog-shell .el-dialog {
   overflow: hidden;
-  border: 1px solid rgba(125, 211, 252, 0.1);
+  border: 1px solid rgba(203, 213, 225, 0.9);
   border-radius: 22px;
+  background:
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.08), transparent 38%),
+    linear-gradient(180deg, #ffffff, #f8fafc 52%, #f1f5f9);
+  box-shadow: 0 24px 56px rgba(15, 23, 42, 0.16);
+}
+
+html.dark .el-dialog.video-props-dialog-shell,
+html.dark .video-props-dialog-shell .el-dialog {
+  border: 1px solid rgba(125, 211, 252, 0.1);
   background:
     radial-gradient(circle at top, rgba(34, 211, 238, 0.07), transparent 38%),
     linear-gradient(180deg, #111827, #0f172a 52%, #020617);
@@ -681,14 +696,24 @@ const LANG_OPTIONS = [
 
 .el-dialog.video-props-dialog-shell .el-dialog__title,
 .video-props-dialog-shell .el-dialog__title {
-  color: #f8fafc;
+  color: #0f172a;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 
+html.dark .el-dialog.video-props-dialog-shell .el-dialog__title,
+html.dark .video-props-dialog-shell .el-dialog__title {
+  color: #f8fafc;
+}
+
 .el-dialog.video-props-dialog-shell .el-dialog__headerbtn .el-dialog__close,
 .video-props-dialog-shell .el-dialog__headerbtn .el-dialog__close {
+  color: rgba(71, 85, 105, 0.78);
+}
+
+html.dark .el-dialog.video-props-dialog-shell .el-dialog__headerbtn .el-dialog__close,
+html.dark .video-props-dialog-shell .el-dialog__headerbtn .el-dialog__close {
   color: rgba(226, 232, 240, 0.78);
 }
 
@@ -706,8 +731,17 @@ const LANG_OPTIONS = [
 .el-dialog.video-props-dialog-shell .el-select__wrapper,
 .video-props-dialog-shell .el-input__wrapper,
 .video-props-dialog-shell .el-select__wrapper {
-  border: 1px solid rgba(125, 211, 252, 0.12);
+  border: 1px solid rgba(203, 213, 225, 0.95);
   border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+html.dark .el-dialog.video-props-dialog-shell .el-input__wrapper,
+html.dark .el-dialog.video-props-dialog-shell .el-select__wrapper,
+html.dark .video-props-dialog-shell .el-input__wrapper,
+html.dark .video-props-dialog-shell .el-select__wrapper {
+  border: 1px solid rgba(125, 211, 252, 0.12);
   background: rgba(15, 23, 42, 0.82);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
@@ -726,11 +760,25 @@ const LANG_OPTIONS = [
 .video-props-dialog-shell .el-input__inner,
 .video-props-dialog-shell .el-select__placeholder,
 .video-props-dialog-shell .el-select__selected-item {
+  color: #0f172a;
+}
+
+html.dark .el-dialog.video-props-dialog-shell .el-input__inner,
+html.dark .el-dialog.video-props-dialog-shell .el-select__placeholder,
+html.dark .el-dialog.video-props-dialog-shell .el-select__selected-item,
+html.dark .video-props-dialog-shell .el-input__inner,
+html.dark .video-props-dialog-shell .el-select__placeholder,
+html.dark .video-props-dialog-shell .el-select__selected-item {
   color: #e2e8f0;
 }
 
 .el-dialog.video-props-dialog-shell .el-input__inner::placeholder,
 .video-props-dialog-shell .el-input__inner::placeholder {
+  color: rgba(100, 116, 139, 0.72);
+}
+
+html.dark .el-dialog.video-props-dialog-shell .el-input__inner::placeholder,
+html.dark .video-props-dialog-shell .el-input__inner::placeholder {
   color: rgba(148, 163, 184, 0.72);
 }
 
@@ -738,13 +786,28 @@ const LANG_OPTIONS = [
 .el-dialog.video-props-dialog-shell .el-input__clear,
 .video-props-dialog-shell .el-select__caret,
 .video-props-dialog-shell .el-input__clear {
+  color: rgba(100, 116, 139, 0.78);
+}
+
+html.dark .el-dialog.video-props-dialog-shell .el-select__caret,
+html.dark .el-dialog.video-props-dialog-shell .el-input__clear,
+html.dark .video-props-dialog-shell .el-select__caret,
+html.dark .video-props-dialog-shell .el-input__clear {
   color: rgba(148, 163, 184, 0.78);
 }
 
 .video-props-select-popper.el-popper,
 .video-props-select-popper.el-select__popper {
-  border: 1px solid rgba(125, 211, 252, 0.14);
+  border: 1px solid rgba(203, 213, 225, 0.95);
   border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98)) !important;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+}
+
+html.dark .video-props-select-popper.el-popper,
+html.dark .video-props-select-popper.el-select__popper {
+  border: 1px solid rgba(125, 211, 252, 0.14);
   background:
     linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.98)) !important;
   box-shadow: 0 18px 45px rgba(2, 6, 23, 0.42);
@@ -752,6 +815,12 @@ const LANG_OPTIONS = [
 
 .video-props-select-popper.el-popper .el-popper__arrow::before,
 .video-props-select-popper.el-select__popper .el-popper__arrow::before {
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.98) !important;
+}
+
+html.dark .video-props-select-popper.el-popper .el-popper__arrow::before,
+html.dark .video-props-select-popper.el-select__popper .el-popper__arrow::before {
   border: 1px solid rgba(125, 211, 252, 0.14);
   background: rgba(17, 24, 39, 0.98) !important;
 }
@@ -770,17 +839,31 @@ const LANG_OPTIONS = [
 
 .video-props-select-popper .el-select-dropdown__item {
   border-radius: 10px;
+  color: #334155 !important;
+}
+
+html.dark .video-props-select-popper .el-select-dropdown__item {
   color: #dbeafe !important;
 }
 
 .video-props-select-popper .el-select-dropdown__item.hover,
 .video-props-select-popper .el-select-dropdown__item:hover,
 .video-props-select-popper .el-select-dropdown__item.is-hovering {
+  background: rgba(34, 211, 238, 0.1) !important;
+}
+
+html.dark .video-props-select-popper .el-select-dropdown__item.hover,
+html.dark .video-props-select-popper .el-select-dropdown__item:hover,
+html.dark .video-props-select-popper .el-select-dropdown__item.is-hovering {
   background: rgba(34, 211, 238, 0.12) !important;
 }
 
 .video-props-select-popper .el-select-dropdown__item.selected {
-  color: #a5f3fc !important;
+  color: #0891b2 !important;
   font-weight: 600;
+}
+
+html.dark .video-props-select-popper .el-select-dropdown__item.selected {
+  color: #a5f3fc !important;
 }
 </style>

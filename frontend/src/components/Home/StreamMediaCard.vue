@@ -25,9 +25,13 @@ const proxyThumbnailUrl = computed(() => {
     : ''
 })
 const inputUrl = ref('')
+const isParsing = ref(false)
+
 async function submitUrl() {
+  if (isParsing.value) return
   if (!inputUrl.value) return alert(t('pleaseEnterUrl'))
   const csrfToken = await getCSRFToken()
+  isParsing.value = true
   try {
     const res = await fetch(`${BACKEND}/api/stream_media/query`, {
       method: 'POST',
@@ -53,6 +57,8 @@ async function submitUrl() {
     }
   } catch (e) {
     console.error('请求失败：', e)
+  } finally {
+    isParsing.value = false
   }
 }
 
@@ -258,41 +264,48 @@ onMounted(() => {
   <!-- 视频链接输入区域 -->
   <div class="mb-8">
     <div
-      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
+      class="bg-gradient-to-r from-white to-slate-50 dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-300 dark:border-slate-600/50 shadow-2xl"
     >
-      <h2 class="text-xl font-bold text-white mb-6 text-center">{{ t('videoLink') }}</h2>
+      <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-6 text-center">
+        {{ t('videoLink') }}
+      </h2>
 
       <!-- URL输入框区域 -->
       <div class="flex items-stretch mb-4">
         <input
           v-model="inputUrl"
           :placeholder="t('linkPlaceholder')"
-          class="flex-1 px-4 py-3 bg-slate-700/70 text-white border border-slate-600/50 border-r-0 rounded-l-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 placeholder-slate-400 transition-all"
+          class="flex-1 px-4 py-3 bg-white dark:bg-slate-700/70 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600/50 border-r-0 rounded-l-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 placeholder-slate-400 transition-all"
         />
         <button
           @click="submitUrl"
-          class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-r-xl border border-blue-600 transition-colors flex items-center justify-center font-medium"
+          :disabled="isParsing"
+          class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-r-xl border border-blue-600 transition-colors flex items-center justify-center font-medium disabled:opacity-60 disabled:cursor-not-allowed min-w-[100px]"
         >
-          {{ t('parseBtn') }}
+          <div
+            v-if="isParsing"
+            class="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"
+          ></div>
+          {{ isParsing ? t('parsing') || '解析中...' : t('parseBtn') }}
         </button>
       </div>
 
-      <div class="text-center text-slate-400 text-sm">{{ t('orText') }}</div>
+      <div class="text-center text-slate-500 dark:text-slate-400 text-sm">{{ t('orText') }}</div>
 
       <!-- 本地文件上传区域 -->
       <div class="mt-4">
         <div
-          class="block border-2 border-dashed border-slate-600/50 rounded-xl p-8 text-center hover:border-slate-500/70 transition-colors cursor-pointer bg-slate-800/30"
+          class="block border-2 border-dashed border-slate-300 dark:border-slate-600/50 rounded-xl p-8 text-center hover:border-slate-400 dark:hover:border-slate-500/70 transition-colors cursor-pointer bg-slate-50 dark:bg-slate-800/30"
           @click="triggerFileUpload"
           @dragover.prevent
           @drop.prevent="handleDrop"
         >
           <div class="flex flex-col items-center">
             <div
-              class="w-12 h-12 rounded-full bg-slate-600/50 flex items-center justify-center mb-4"
+              class="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-600/50 flex items-center justify-center mb-4"
             >
               <svg
-                class="w-6 h-6 text-slate-300"
+                class="w-6 h-6 text-slate-500 dark:text-slate-300"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -305,8 +318,10 @@ onMounted(() => {
                 />
               </svg>
             </div>
-            <h3 class="text-lg font-semibold text-white mb-2">{{ t('clickUploadMedia') }}</h3>
-            <p class="text-slate-400 text-sm">{{ t('supportedFormats') }}</p>
+            <h3 class="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+              {{ t('clickUploadMedia') }}
+            </h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">{{ t('supportedFormats') }}</p>
           </div>
         </div>
 
@@ -325,26 +340,30 @@ onMounted(() => {
   <!-- 已解析视频卡片 -->
   <div v-if="requestVideo" class="mb-8">
     <div
-      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
+      class="bg-gradient-to-r from-white to-slate-50 dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-300 dark:border-slate-600/50 shadow-2xl"
     >
-      <h2 class="text-xl font-bold text-white mb-6 text-center">{{ t('parsedVideo') }}</h2>
+      <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-6 text-center">
+        {{ t('parsedVideo') }}
+      </h2>
 
       <div
-        class="flex items-center gap-6 p-4 bg-slate-700/50 rounded-xl border border-slate-600/30"
+        class="flex items-center gap-6 p-4 bg-slate-100 dark:bg-slate-700/50 rounded-xl border border-slate-200 dark:border-slate-600/30"
       >
         <!-- 左侧缩略图 -->
         <div class="flex-shrink-0">
           <img
             :src="proxyThumbnailUrl"
             :alt="t('videoThumbnail')"
-            class="w-20 h-16 object-cover rounded-lg border border-slate-600/50"
+            class="w-20 h-16 object-cover rounded-lg border border-slate-300 dark:border-slate-600/50"
           />
         </div>
 
         <!-- 中间视频信息 -->
         <div class="flex-1 min-w-0">
-          <h3 class="text-white font-medium truncate mb-1">{{ requestVideo.title }}</h3>
-          <div class="flex items-center gap-4 text-sm text-slate-400">
+          <h3 class="text-slate-900 dark:text-white font-medium truncate mb-1">
+            {{ requestVideo.title }}
+          </h3>
+          <div class="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
             <span>{{ t('duration') }}: {{ requestVideo.duration }}</span>
             <span v-if="requestVideo.video_data.length > 1">{{ t('parsed') }}</span>
           </div>
@@ -361,7 +380,7 @@ onMounted(() => {
             <!-- 下拉框内容 -->
             <template #dropdown>
               <div
-                class="bg-slate-800 border border-slate-600 rounded-lg shadow-xl p-4 min-w-[300px]"
+                class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-xl p-4 min-w-[300px]"
               >
                 <!-- 复选框组 -->
                 <el-checkbox-group
@@ -373,15 +392,15 @@ onMounted(() => {
                     :key="item.cid"
                     :label="idx"
                     @change="(checked: boolean) => onCheckChange(idx, checked)"
-                    class="block p-2 hover:bg-slate-700/50 rounded text-white"
+                    class="block p-2 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded text-slate-900 dark:text-white"
                   >
-                    <span class="text-blue-400 font-medium">P{{ idx + 1 }}</span>
-                    <span class="ml-2 text-slate-200">{{ item.part }}</span>
+                    <span class="text-blue-600 dark:text-blue-400 font-medium">P{{ idx + 1 }}</span>
+                    <span class="ml-2 text-slate-700 dark:text-slate-200">{{ item.part }}</span>
                   </el-checkbox>
                 </el-checkbox-group>
 
                 <!-- 操作按钮 -->
-                <div class="mt-4 pt-3 border-t border-slate-600">
+                <div class="mt-4 pt-3 border-t border-slate-200 dark:border-slate-600">
                   <el-button
                     type="primary"
                     size="default"

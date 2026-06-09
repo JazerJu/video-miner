@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from '@/composables/useNotification'
 import { getCookie } from '@/composables/GetCSRFToken'
 
 import { BACKEND } from '@/composables/ConfigAPI'
+
+const { t } = useI18n()
 
 // —— Props ——
 const props = defineProps<{
@@ -32,10 +35,10 @@ const visible = computed<boolean>({
 
 // —— 表单状态 ——
 // 优先使用当前视频的rawLang，如果没有则保持之前的选择（默认'zh'）
-const srcLang = ref<'zh' | 'en' | 'jp' | 'system_define'>(
-  (props.currentRawLang as 'zh' | 'en' | 'jp' | 'system_define') || 'zh',
+const srcLang = ref<'zh' | 'en' | 'jp' | 'de' | 'system_define'>(
+  (props.currentRawLang as 'zh' | 'en' | 'jp' | 'de' | 'system_define') || 'zh',
 )
-const transLang = ref<'none' | 'zh' | 'en' | 'jp'>('none')
+const transLang = ref<'none' | 'zh' | 'en' | 'jp' | 'de'>('none')
 const emphasizeSrc = ref('')
 const emphasizeDst = ref('')
 const loading = ref(false)
@@ -48,7 +51,7 @@ const actionType = ref<'set_language' | 'generate_bilingual' | 'generate_transla
 // —— API调用函数 ——
 async function setVideoLanguage() {
   if (!srcLang.value) {
-    ElMessage.warning('请选择视频语言')
+    ElMessage.warning(t('pleaseSelectVideoLanguage'))
     return
   }
 
@@ -73,12 +76,12 @@ async function setVideoLanguage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     }
 
-    ElMessage.success('视频语言设置成功')
+    ElMessage.success(t('videoLanguageSetSuccess'))
     emit('submitted')
     emit('update:modelValue', false)
   } catch (err: any) {
     console.error(err)
-    ElMessage.error(`设置失败：${err.message}`)
+    ElMessage.error(t('setupFailed', { error: err.message }))
   } finally {
     loading.value = false
   }
@@ -86,7 +89,7 @@ async function setVideoLanguage() {
 
 async function generateBilingualSubtitles() {
   if (!srcLang.value) {
-    ElMessage.warning('请选择原文语言')
+    ElMessage.warning(t('pleaseSelectOriginalLanguage'))
     return
   }
 
@@ -113,12 +116,12 @@ async function generateBilingualSubtitles() {
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-    ElMessage.success('已提交双语字幕生成任务')
+    ElMessage.success(t('bilingualTaskSubmitted'))
     emit('submitted')
     emit('update:modelValue', false)
   } catch (err: any) {
     console.error(err)
-    ElMessage.error(`提交失败：${err.message}`)
+    ElMessage.error(t('submitFailed', { error: err.message }))
   } finally {
     loading.value = false
   }
@@ -126,7 +129,7 @@ async function generateBilingualSubtitles() {
 
 async function generateTranslationOnly() {
   if (!transLang.value || transLang.value === 'none') {
-    ElMessage.warning('请选择翻译语言')
+    ElMessage.warning(t('pleaseSelectTranslationLanguage'))
     return
   }
 
@@ -151,12 +154,12 @@ async function generateTranslationOnly() {
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
-    ElMessage.success('已提交翻译字幕生成任务')
+    ElMessage.success(t('translationTaskSubmitted'))
     emit('submitted')
     emit('update:modelValue', false)
   } catch (err: any) {
     console.error(err)
-    ElMessage.error(`提交失败：${err.message}`)
+    ElMessage.error(t('submitFailed', { error: err.message }))
   } finally {
     loading.value = false
   }
@@ -181,13 +184,13 @@ async function confirm() {
 const dialogTitle = computed(() => {
   switch (actionType.value) {
     case 'set_language':
-      return '设置视频语言'
+      return t('setVideoLanguage')
     case 'generate_bilingual':
-      return '生成双语字幕'
+      return t('generateBilingualSubtitles')
     case 'generate_translation':
-      return '生成翻译字幕'
+      return t('generateTranslationSubtitles')
     default:
-      return '字幕操作'
+      return t('subtitleActions')
   }
 })
 
@@ -195,13 +198,13 @@ const dialogTitle = computed(() => {
 const confirmButtonText = computed(() => {
   switch (actionType.value) {
     case 'set_language':
-      return '设置语言'
+      return t('setLanguage')
     case 'generate_bilingual':
-      return '生成双语字幕'
+      return t('generateBilingualSubtitles')
     case 'generate_translation':
-      return '生成翻译'
+      return t('generateTranslation')
     default:
-      return '确定'
+      return t('confirm')
   }
 })
 </script>
@@ -213,32 +216,32 @@ const confirmButtonText = computed(() => {
     width="430px"
     class="enhanced-subtitle-dialog-shell"
   >
-    <div class="space-y-4 rounded-[20px] bg-[linear-gradient(180deg,rgba(15,23,42,0.84),rgba(17,24,39,0.78))] p-4">
+    <div class="space-y-4 rounded-[20px] border border-slate-200 bg-slate-50 p-4 dark:border-white/8 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.84),rgba(17,24,39,0.78))]">
       <div class="space-y-3">
-        <label class="block text-sm font-medium text-slate-200">操作类型</label>
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-200">{{ t('actionType') }}</label>
         <el-radio-group v-model="actionType" class="w-full">
           <div class="space-y-2">
-            <el-radio value="set_language" class="w-full !mr-0 rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2.5">
-              <span class="text-slate-200">设置视频语言（用于正确展示字幕）</span>
+            <el-radio value="set_language" class="w-full !mr-0 rounded-xl border border-slate-200 bg-white dark:border-white/8 dark:bg-white/[0.025] px-3 py-2.5">
+              <span class="text-slate-700 dark:text-slate-200">{{ t('setVideoLanguageDesc') }}</span>
             </el-radio>
-            <el-radio value="generate_bilingual" class="w-full !mr-0 rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2.5">
-              <span class="text-slate-200">生成双语字幕（原文+翻译）</span>
+            <el-radio value="generate_bilingual" class="w-full !mr-0 rounded-xl border border-slate-200 bg-white dark:border-white/8 dark:bg-white/[0.025] px-3 py-2.5">
+              <span class="text-slate-700 dark:text-slate-200">{{ t('generateBilingualDesc') }}</span>
             </el-radio>
-            <el-radio value="generate_translation" class="w-full !mr-0 rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2.5">
-              <span class="text-slate-200">仅生成翻译字幕（基于已有原文）</span>
+            <el-radio value="generate_translation" class="w-full !mr-0 rounded-xl border border-slate-200 bg-white dark:border-white/8 dark:bg-white/[0.025] px-3 py-2.5">
+              <span class="text-slate-700 dark:text-slate-200">{{ t('generateTranslationOnlyDesc') }}</span>
             </el-radio>
           </div>
         </el-radio-group>
       </div>
 
-      <div class="space-y-4 border-t border-white/8 pt-4">
+      <div class="space-y-4 border-t border-slate-200 pt-4 dark:border-white/8">
         <div v-if="actionType === 'set_language' || actionType === 'generate_bilingual'">
-          <label class="mb-2 block text-sm font-medium text-slate-300">
-            {{ actionType === 'set_language' ? '视频语言' : '原文语言' }}
+          <label class="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            {{ actionType === 'set_language' ? t('videoLanguage') : t('originalLanguage') }}
           </label>
           <el-select
             v-model="srcLang"
-            placeholder="选择语言"
+            :placeholder="t('selectLanguage')"
             class="w-full"
             popper-class="enhanced-subtitle-select-popper"
             :teleported="false"
@@ -246,6 +249,7 @@ const confirmButtonText = computed(() => {
             <el-option label="中文 (zh)" value="zh" />
             <el-option label="English (en)" value="en" />
             <el-option label="日本語 (jp)" value="jp" />
+            <el-option label="Deutsch (de)" value="de" />
             <el-option
               v-if="actionType === 'generate_bilingual'"
               label="System Define"
@@ -255,12 +259,12 @@ const confirmButtonText = computed(() => {
         </div>
 
         <div v-if="actionType === 'generate_bilingual' || actionType === 'generate_translation'">
-          <label class="mb-2 block text-sm font-medium text-slate-300">
-            {{ actionType === 'generate_bilingual' ? '译文语言' : '翻译目标语言' }}
+          <label class="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            {{ actionType === 'generate_bilingual' ? t('translationLanguage') : t('translationTargetLanguage') }}
           </label>
           <el-select
             v-model="transLang"
-            placeholder="选择译文语言"
+            :placeholder="t('selectTranslationLanguage')"
             class="w-full"
             popper-class="enhanced-subtitle-select-popper"
             :teleported="false"
@@ -269,16 +273,17 @@ const confirmButtonText = computed(() => {
             <el-option label="中文 (zh)" value="zh" />
             <el-option label="English (en)" value="en" />
             <el-option label="日本語 (jp)" value="jp" />
+            <el-option label="Deutsch (de)" value="de" />
           </el-select>
         </div>
 
         <div v-if="actionType === 'generate_bilingual' || actionType === 'generate_translation'">
-          <label class="mb-2 block text-sm font-medium text-slate-300">译文强调名词</label>
+          <label class="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">{{ t('translationEmphasisNouns') }}</label>
           <el-input
             v-model="emphasizeDst"
             type="textarea"
             :rows="2"
-            placeholder="译文中需强调的名词（仅本地记录，可留空）"
+            :placeholder="t('translationEmphasisPlaceholder')"
           />
         </div>
       </div>
@@ -287,17 +292,17 @@ const confirmButtonText = computed(() => {
     <template #footer>
       <div class="flex items-center justify-end gap-3">
         <button
-          class="inline-flex h-10 items-center justify-center rounded-xl border border-white/12 bg-white/[0.04] px-4 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/[0.08]"
+          class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 dark:border-white/12 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
           @click="emit('update:modelValue', false)"
         >
-          取消
+          {{ t('cancel') }}
         </button>
         <button
-          class="inline-flex h-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(59,130,246,0.24))] px-4 text-sm font-semibold text-cyan-50 transition hover:border-cyan-300/35 hover:shadow-[0_12px_28px_rgba(34,211,238,0.16)] disabled:cursor-not-allowed disabled:opacity-65"
+          class="inline-flex h-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(59,130,246,0.24))] px-4 text-sm font-semibold text-cyan-700 transition hover:border-cyan-300/35 hover:shadow-[0_12px_28px_rgba(34,211,238,0.16)] disabled:cursor-not-allowed disabled:opacity-65 dark:text-cyan-50"
           :disabled="loading"
           @click="confirm"
         >
-          {{ loading ? '提交中...' : confirmButtonText }}
+          {{ loading ? t('submitting') : confirmButtonText }}
         </button>
       </div>
     </template>
@@ -324,8 +329,15 @@ const confirmButtonText = computed(() => {
 .el-dialog.enhanced-subtitle-dialog-shell,
 .enhanced-subtitle-dialog-shell .el-dialog {
   overflow: hidden;
-  border: 1px solid rgba(125, 211, 252, 0.1);
+  border: 1px solid #e2e8f0;
   border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.12);
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell,
+html.dark .enhanced-subtitle-dialog-shell .el-dialog {
+  border: 1px solid rgba(125, 211, 252, 0.1);
   background:
     radial-gradient(circle at top, rgba(34, 211, 238, 0.07), transparent 38%),
     linear-gradient(180deg, #111827, #0f172a 52%, #020617);
@@ -349,14 +361,24 @@ const confirmButtonText = computed(() => {
 
 .el-dialog.enhanced-subtitle-dialog-shell .el-dialog__title,
 .enhanced-subtitle-dialog-shell .el-dialog__title {
-  color: #f8fafc;
+  color: #1e293b;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.01em;
 }
 
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-dialog__title,
+html.dark .enhanced-subtitle-dialog-shell .el-dialog__title {
+  color: #f8fafc;
+}
+
 .el-dialog.enhanced-subtitle-dialog-shell .el-dialog__headerbtn .el-dialog__close,
 .enhanced-subtitle-dialog-shell .el-dialog__headerbtn .el-dialog__close {
+  color: #64748b;
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-dialog__headerbtn .el-dialog__close,
+html.dark .enhanced-subtitle-dialog-shell .el-dialog__headerbtn .el-dialog__close {
   color: rgba(226, 232, 240, 0.78);
 }
 
@@ -374,8 +396,17 @@ const confirmButtonText = computed(() => {
 .el-dialog.enhanced-subtitle-dialog-shell .el-select__wrapper,
 .enhanced-subtitle-dialog-shell .el-input__wrapper,
 .enhanced-subtitle-dialog-shell .el-select__wrapper {
-  border: 1px solid rgba(125, 211, 252, 0.12);
+  border: 1px solid #cbd5e1;
   border-radius: 14px;
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-input__wrapper,
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-select__wrapper,
+html.dark .enhanced-subtitle-dialog-shell .el-input__wrapper,
+html.dark .enhanced-subtitle-dialog-shell .el-select__wrapper {
+  border: 1px solid rgba(125, 211, 252, 0.12);
   background: rgba(15, 23, 42, 0.82);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
@@ -396,6 +427,17 @@ const confirmButtonText = computed(() => {
 .enhanced-subtitle-dialog-shell .el-textarea__inner,
 .enhanced-subtitle-dialog-shell .el-select__placeholder,
 .enhanced-subtitle-dialog-shell .el-select__selected-item {
+  color: #1e293b;
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-input__inner,
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-textarea__inner,
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-select__placeholder,
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-select__selected-item,
+html.dark .enhanced-subtitle-dialog-shell .el-input__inner,
+html.dark .enhanced-subtitle-dialog-shell .el-textarea__inner,
+html.dark .enhanced-subtitle-dialog-shell .el-select__placeholder,
+html.dark .enhanced-subtitle-dialog-shell .el-select__selected-item {
   color: #e2e8f0;
 }
 
@@ -403,13 +445,27 @@ const confirmButtonText = computed(() => {
 .el-dialog.enhanced-subtitle-dialog-shell .el-textarea__inner::placeholder,
 .enhanced-subtitle-dialog-shell .el-input__inner::placeholder,
 .enhanced-subtitle-dialog-shell .el-textarea__inner::placeholder {
+  color: rgba(100, 116, 139, 0.72);
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-input__inner::placeholder,
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-textarea__inner::placeholder,
+html.dark .enhanced-subtitle-dialog-shell .el-input__inner::placeholder,
+html.dark .enhanced-subtitle-dialog-shell .el-textarea__inner::placeholder {
   color: rgba(148, 163, 184, 0.72);
 }
 
 .el-dialog.enhanced-subtitle-dialog-shell .el-textarea__inner,
 .enhanced-subtitle-dialog-shell .el-textarea__inner {
-  border: 1px solid rgba(125, 211, 252, 0.12);
+  border: 1px solid #cbd5e1;
   border-radius: 14px;
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-textarea__inner,
+html.dark .enhanced-subtitle-dialog-shell .el-textarea__inner {
+  border: 1px solid rgba(125, 211, 252, 0.12);
   background: rgba(15, 23, 42, 0.82);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
@@ -421,6 +477,12 @@ const confirmButtonText = computed(() => {
 
 .el-dialog.enhanced-subtitle-dialog-shell .el-radio__inner,
 .enhanced-subtitle-dialog-shell .el-radio__inner {
+  border-color: #cbd5e1;
+  background: #ffffff;
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-radio__inner,
+html.dark .enhanced-subtitle-dialog-shell .el-radio__inner {
   border-color: rgba(148, 163, 184, 0.55);
   background: rgba(15, 23, 42, 0.86);
 }
@@ -433,13 +495,25 @@ const confirmButtonText = computed(() => {
 
 .el-dialog.enhanced-subtitle-dialog-shell .el-radio__input.is-checked + .el-radio__label,
 .enhanced-subtitle-dialog-shell .el-radio__input.is-checked + .el-radio__label {
+  color: #1e293b;
+}
+
+html.dark .el-dialog.enhanced-subtitle-dialog-shell .el-radio__input.is-checked + .el-radio__label,
+html.dark .enhanced-subtitle-dialog-shell .el-radio__input.is-checked + .el-radio__label {
   color: #f8fafc;
 }
 
 .enhanced-subtitle-select-popper.el-popper,
 .enhanced-subtitle-select-popper.el-select__popper {
-  border: 1px solid rgba(125, 211, 252, 0.14);
+  border: 1px solid #cbd5e1;
   border-radius: 16px;
+  background: #ffffff !important;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+}
+
+html.dark .enhanced-subtitle-select-popper.el-popper,
+html.dark .enhanced-subtitle-select-popper.el-select__popper {
+  border: 1px solid rgba(125, 211, 252, 0.14);
   background:
     linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.98)) !important;
   box-shadow: 0 18px 45px rgba(2, 6, 23, 0.42);
@@ -447,6 +521,12 @@ const confirmButtonText = computed(() => {
 
 .enhanced-subtitle-select-popper.el-popper .el-popper__arrow::before,
 .enhanced-subtitle-select-popper.el-select__popper .el-popper__arrow::before {
+  border: 1px solid #cbd5e1;
+  background: #ffffff !important;
+}
+
+html.dark .enhanced-subtitle-select-popper.el-popper .el-popper__arrow::before,
+html.dark .enhanced-subtitle-select-popper.el-select__popper .el-popper__arrow::before {
   border: 1px solid rgba(125, 211, 252, 0.14);
   background: rgba(17, 24, 39, 0.98) !important;
 }
@@ -465,17 +545,31 @@ const confirmButtonText = computed(() => {
 
 .enhanced-subtitle-select-popper .el-select-dropdown__item {
   border-radius: 10px;
+  color: #1e293b !important;
+}
+
+html.dark .enhanced-subtitle-select-popper .el-select-dropdown__item {
   color: #dbeafe !important;
 }
 
 .enhanced-subtitle-select-popper .el-select-dropdown__item.hover,
 .enhanced-subtitle-select-popper .el-select-dropdown__item:hover,
 .enhanced-subtitle-select-popper .el-select-dropdown__item.is-hovering {
+  background: rgba(34, 211, 238, 0.1) !important;
+}
+
+html.dark .enhanced-subtitle-select-popper .el-select-dropdown__item.hover,
+html.dark .enhanced-subtitle-select-popper .el-select-dropdown__item:hover,
+html.dark .enhanced-subtitle-select-popper .el-select-dropdown__item.is-hovering {
   background: rgba(34, 211, 238, 0.12) !important;
 }
 
 .enhanced-subtitle-select-popper .el-select-dropdown__item.selected {
-  color: #a5f3fc !important;
+  color: #0891b2 !important;
   font-weight: 600;
+}
+
+html.dark .enhanced-subtitle-select-popper .el-select-dropdown__item.selected {
+  color: #a5f3fc !important;
 }
 </style>

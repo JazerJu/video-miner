@@ -1,10 +1,11 @@
 // tailwind.config.cjs
 module.exports = {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
-        primary: '#54CACA',        //  bg-primary      bg-primary/10  bg-primary/50 ...
+        primary: '#54CACA', //  bg-primary      bg-primary/10  bg-primary/50 ...
         'primary-dark': '#3EB5B5',
         secondary: '#ACD2D3',
         accent: '#6896A2',
@@ -13,5 +14,5 @@ module.exports = {
       },
     },
   },
-  plugins: [],
-};
+  plugins: [require('@tailwindcss/typography')],
+}

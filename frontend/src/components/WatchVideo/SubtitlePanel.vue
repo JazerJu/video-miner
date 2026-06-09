@@ -3,6 +3,7 @@
 import type { Subtitle } from '@/types/subtitle'
 import { useSubtitles } from '@/composables/useSubtitles'
 import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { blobUrls, generateVTT } from '@/composables/Buildvtt'
 import { MoreHorizontal, Upload, Sparkles } from 'lucide-vue-next'
 import { ElMessage } from '@/composables/useNotification'
@@ -16,6 +17,8 @@ const {
   linkSubtitles,
   fetchSubtitle,
 } = useSubtitles()
+
+const { t } = useI18n()
 
 // parse & read subtitles
 const uploadSubtitles = (event: Event): void => {
@@ -422,13 +425,13 @@ function handleSubtitleDialogSubmitted() {
   <div class="p-6">
     <!-- Control Bar -->
     <div
-      class="flex items-center justify-between mb-6 p-4 bg-slate-700/30 rounded-xl border border-slate-600/30"
+      class="flex items-center justify-between mb-6 p-4 bg-slate-50 dark:bg-slate-700/30 rounded-xl border border-slate-200 dark:border-slate-600/30"
     >
       <!-- Left Side Controls -->
       <div class="flex items-center space-x-4">
         <!-- Auto Scroll Checkbox -->
         <el-checkbox v-model="autoScroll" class="blue-checkbox">
-          <span class="text-slate-300">自动滚动</span>
+          <span class="text-slate-700 dark:text-slate-300">{{ t('autoScroll') }}</span>
         </el-checkbox>
       </div>
 
@@ -442,12 +445,12 @@ function handleSubtitleDialogSubmitted() {
           class="!bg-green-600 !border-green-600 hover:!bg-green-700"
         >
           <Sparkles class="w-4 h-4 mr-1" />
-          字幕操作
+          {{ t('subtitleActions') }}
         </el-button>
 
         <!-- More Options Dropdown -->
         <el-dropdown trigger="click">
-          <el-button size="small" class="!bg-slate-600 !border-slate-600 hover:!bg-slate-700">
+          <el-button size="small" class="!bg-white !border-slate-300 !text-slate-700 hover:!bg-slate-50 dark:!bg-slate-600 dark:!border-slate-600 dark:!text-white dark:hover:!bg-slate-700">
             <MoreHorizontal class="w-4 h-4" />
           </el-button>
           <template #dropdown>
@@ -456,7 +459,7 @@ function handleSubtitleDialogSubmitted() {
               <el-dropdown-item>
                 <label class="flex items-center cursor-pointer w-full">
                   <Upload class="w-4 h-4 mr-2" />
-                  <span>上传字幕文件</span>
+                  <span>{{ t('uploadSubtitleFile') }}</span>
                   <input
                     type="file"
                     @change="(e) => uploadSubtitles(e)"
@@ -469,21 +472,21 @@ function handleSubtitleDialogSubmitted() {
                <!-- Language Toggle Option -->
                <el-dropdown-item>
                  <div class="flex items-center space-x-3">
-                   <span class="text-sm text-slate-600 font-medium">原文</span>
+                   <span class="text-sm text-slate-600 font-medium">{{ t('original') }}</span>
                    <el-switch
                      v-model="showTranslationProxy"
                      active-color="#3b82f6"
                      inactive-color="#475569"
                      size="small"
                    />
-                   <span class="text-sm text-slate-600 font-medium">翻译</span>
+                   <span class="text-sm text-slate-600 font-medium">{{ t('translation') }}</span>
                  </div>
                </el-dropdown-item>
 
                <!-- Compact Mode Toggle Option -->
                <el-dropdown-item>
                  <div class="flex items-center justify-between w-full">
-                   <span class="text-sm text-slate-600 font-medium">紧凑模式</span>
+                   <span class="text-sm text-slate-600 font-medium">{{ t('compactMode') }}</span>
                    <el-switch
                      v-model="compactMode"
                      active-color="#10b981"
@@ -521,8 +524,8 @@ function handleSubtitleDialogSubmitted() {
           <div class="absolute inset-0 flex items-center justify-center">
             <span
               :class="[
-                'font-semibold text-white shadow-lg border border-slate-600/50 backdrop-blur-sm rounded-full',
-                compactMode ? 'bg-slate-800/95 px-2 py-0.5 text-[10px]' : 'bg-slate-800/95 px-4 py-1 text-sm'
+                'font-semibold text-slate-900 dark:text-white shadow-lg border border-slate-200 dark:border-slate-600/50 backdrop-blur-sm rounded-full',
+                compactMode ? 'bg-white/95 dark:bg-slate-800/95 px-2 py-0.5 text-[10px]' : 'bg-white/95 dark:bg-slate-800/95 px-4 py-1 text-sm'
               ]"
             >
               {{ group.chapter.title }}
@@ -534,18 +537,18 @@ function handleSubtitleDialogSubmitted() {
         <div v-else-if="groupIndex === 0 && group.subtitles.length > 0" class="relative">
           <div
             :class="[
-              'bg-gradient-to-r from-gray-500 via-slate-600 to-gray-500 rounded-lg opacity-60 shadow-lg border border-white/10',
+                'bg-gradient-to-r from-slate-300 via-slate-400 to-slate-300 dark:from-gray-500 dark:via-slate-600 dark:to-gray-500 rounded-lg opacity-60 shadow-lg border border-slate-200 dark:border-white/10',
               compactMode ? 'h-3' : 'h-5'
             ]"
           ></div>
           <div class="absolute inset-0 flex items-center justify-center">
             <span
               :class="[
-                'font-medium text-slate-300 shadow-lg border border-slate-600/50 backdrop-blur-sm rounded-full',
-                compactMode ? 'bg-slate-800/95 px-2 py-0.5 text-[10px]' : 'bg-slate-800/95 px-4 py-1 text-sm'
+                'font-medium text-slate-600 dark:text-slate-300 shadow-lg border border-slate-200 dark:border-slate-600/50 backdrop-blur-sm rounded-full',
+                compactMode ? 'bg-white/95 dark:bg-slate-800/95 px-2 py-0.5 text-[10px]' : 'bg-white/95 dark:bg-slate-800/95 px-4 py-1 text-sm'
               ]"
             >
-              开场内容
+              {{ t('openingContent') }}
             </span>
           </div>
         </div>
@@ -566,17 +569,17 @@ function handleSubtitleDialogSubmitted() {
           "
           @click="emit('seek', s.start)"
           :class="[
-            'rounded-xl cursor-pointer hover:bg-slate-700/30 transition-all duration-200 border-l-4 backdrop-blur-sm',
+            'rounded-xl cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/30 transition-all duration-200 border-l-4 backdrop-blur-sm',
             compactMode ? 'p-2' : 'p-4',
             isActive(s)
-              ? 'border-blue-500 bg-blue-900/30 shadow-lg'
-              : 'border-slate-600/30 hover:border-slate-500/50'
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-lg'
+              : 'border-slate-200 dark:border-slate-600/30 hover:border-slate-300 dark:hover:border-slate-500/50'
           ]"
         >
           <div :class="['flex items-start', compactMode ? 'gap-2' : 'gap-3']">
             <span
               :class="[
-                'font-mono text-blue-400 bg-slate-700/50 rounded-md whitespace-nowrap',
+                'font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-700/50 rounded-md whitespace-nowrap',
                 compactMode ? 'text-[10px] px-1 py-0.5' : 'text-xs px-2 py-1'
               ]"
             >{{ formatTime(s.start) }}</span
@@ -584,7 +587,7 @@ function handleSubtitleDialogSubmitted() {
             <p
               :class="[
                 'flex-1',
-                compactMode ? 'text-sm leading-tight text-slate-200' : 'text-slate-200 leading-relaxed'
+                compactMode ? 'text-sm leading-tight text-slate-700 dark:text-slate-200' : 'text-slate-700 dark:text-slate-200 leading-relaxed'
               ]"
             >{{ s.text }}</p>
           </div>
@@ -621,16 +624,28 @@ function handleSubtitleDialogSubmitted() {
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(71, 85, 105, 0.3);
+  background: rgba(226, 232, 240, 0.8);
   border-radius: 3px;
 }
 
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(71, 85, 105, 0.3);
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.45);
   border-radius: 3px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.65);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.8);
 }
 </style>

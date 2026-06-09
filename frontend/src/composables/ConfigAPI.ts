@@ -114,15 +114,14 @@ export interface ConfigData {
   DEFAULT: {
     selected_model_provider: string
     split_use_proxy: string
+    split_num_threads: string
+    enable_split: string
     deepseek_api_key: string
     deepseek_base_url: string
     deepseek_model: string
     openai_api_key: string
     openai_base_url: string
     openai_model: string
-    glm_api_key: string
-    glm_base_url: string
-    glm_model: string
     qwen_api_key: string
     qwen_base_url: string
     qwen_model: string
@@ -135,9 +134,12 @@ export interface ConfigData {
     moonshot_api_key: string
     moonshot_base_url: string
     moonshot_model: string
-    zhipu_api_key: string
-    zhipu_base_url: string
-    zhipu_model: string
+    volcano_api_key: string
+    volcano_base_url: string
+    volcano_model: string
+    openrouter_api_key: string
+    openrouter_base_url: string
+    openrouter_model: string
     cerebras_api_key: string
     cerebras_base_url: string
     cerebras_model: string
@@ -148,9 +150,6 @@ export interface ConfigData {
     translate_openai_api_key: string
     translate_openai_base_url: string
     translate_openai_model: string
-    translate_glm_api_key: string
-    translate_glm_base_url: string
-    translate_glm_model: string
     translate_qwen_api_key: string
     translate_qwen_base_url: string
     translate_qwen_model: string
@@ -163,14 +162,20 @@ export interface ConfigData {
     translate_moonshot_api_key: string
     translate_moonshot_base_url: string
     translate_moonshot_model: string
-    translate_zhipu_api_key: string
-    translate_zhipu_base_url: string
-    translate_zhipu_model: string
+    translate_volcano_api_key: string
+    translate_volcano_base_url: string
+    translate_volcano_model: string
+    translate_openrouter_api_key: string
+    translate_openrouter_base_url: string
+    translate_openrouter_model: string
     translate_cerebras_api_key: string
     translate_cerebras_base_url: string
     translate_cerebras_model: string
     translate_use_proxy: string
+    translate_num_threads: string
+    enable_translate: string
     plain_translate: string
+    hotwords: string
   }
   'Video watch': {
     raw_language: string
@@ -218,15 +223,28 @@ export interface ConfigData {
     elevenlabs_api_key: string
     elevenlabs_model: string
     include_punctuation: string
-    alibaba_api_key: string
-    alibaba_model: string
-    openai_api_key: string
-    openai_base_url: string
   }
-  'Remote VidGo Service': {
-    host: string
-    port: string
-    use_ssl: string
+  'Video Understanding': {
+    vu_thinking_budget: string
+    vu_n_gpu_layers: string
+    vu_glm_ocr_n_gpu_layers: string
+    vu_corner_provider: string
+    vu_corner_gemini_api_key: string
+    vu_corner_gemini_base_url: string
+    vu_corner_gemini_model: string
+    vu_corner_mimo_api_key: string
+    vu_corner_mimo_base_url: string
+    vu_corner_mimo_model: string
+    vu_summary_api_key: string
+    vu_summary_base_url: string
+    vu_summary_model: string
+    vu_knowledge_provider: string
+    vu_knowledge_api_key: string
+    vu_knowledge_base_url: string
+    vu_knowledge_model: string
+    vu_corner_use_proxy: string
+    vu_summary_use_proxy: string
+    vu_knowledge_use_proxy: string
   }
 }
 
@@ -234,15 +252,14 @@ export interface FrontendSettings {
   // Split LLM settings
   selectedModelProvider: string
   splitUseProxy: boolean
+  splitNumThreads: number
+  enableSplit: boolean
   deepseekApiKey: string
   deepseekBaseUrl: string
   deepseekModel: string
   openaiApiKey: string
   openaiBaseUrl: string
   openaiModel: string
-  glmApiKey: string
-  glmBaseUrl: string
-  glmModel: string
   qwenApiKey: string
   qwenBaseUrl: string
   qwenModel: string
@@ -255,25 +272,28 @@ export interface FrontendSettings {
   moonshotApiKey: string
   moonshotBaseUrl: string
   moonshotModel: string
-  zhipuApiKey: string
-  zhipuBaseUrl: string
-  zhipuModel: string
+  volcanoApiKey: string
+  volcanoBaseUrl: string
+  volcanoModel: string
+  openrouterApiKey: string
+  openrouterBaseUrl: string
+  openrouterModel: string
   cerebrasApiKey: string
   cerebrasBaseUrl: string
   cerebrasModel: string
   // Translate LLM settings
   translateSelectedModelProvider: string
   translateUseProxy: boolean
+  translateNumThreads: number
+  enableTranslate: boolean
   plainTranslate: boolean
+  hotwords: string
   translateDeepseekApiKey: string
   translateDeepseekBaseUrl: string
   translateDeepseekModel: string
   translateOpenaiApiKey: string
   translateOpenaiBaseUrl: string
   translateOpenaiModel: string
-  translateGlmApiKey: string
-  translateGlmBaseUrl: string
-  translateGlmModel: string
   translateQwenApiKey: string
   translateQwenBaseUrl: string
   translateQwenModel: string
@@ -286,9 +306,12 @@ export interface FrontendSettings {
   translateMoonshotApiKey: string
   translateMoonshotBaseUrl: string
   translateMoonshotModel: string
-  translateZhipuApiKey: string
-  translateZhipuBaseUrl: string
-  translateZhipuModel: string
+  translateVolcanoApiKey: string
+  translateVolcanoBaseUrl: string
+  translateVolcanoModel: string
+  translateOpenrouterApiKey: string
+  translateOpenrouterBaseUrl: string
+  translateOpenrouterModel: string
   translateCerebrasApiKey: string
   translateCerebrasBaseUrl: string
   translateCerebrasModel: string
@@ -334,14 +357,27 @@ export interface FrontendSettings {
   transcriptionElevenlabsApiKey: string
   transcriptionElevenlabsModel: string
   transcriptionIncludePunctuation: boolean
-  transcriptionAlibabaApiKey: string
-  transcriptionAlibabaModel: string
-  transcriptionOpenaiApiKey: string
-  transcriptionOpenaiBaseUrl: string
-  // Remote VidGo Service settings
-  remoteVidGoHost: string
-  remoteVidGoPort: string
-  remoteVidGoUseSsl: boolean
+  // Video Understanding settings
+  vuThinkingBudget: string
+  vuNGpuLayers: number
+  vuGlmOcrNGpuLayers: number
+  vuCornerProvider: string
+  vuCornerGeminiApiKey: string
+  vuCornerGeminiBaseUrl: string
+  vuCornerGeminiModel: string
+  vuCornerMimoApiKey: string
+  vuCornerMimoBaseUrl: string
+  vuCornerMimoModel: string
+  vuSummaryApiKey: string
+  vuSummaryBaseUrl: string
+  vuSummaryModel: string
+  vuKnowledgeProvider: string
+  vuKnowledgeApiKey: string
+  vuKnowledgeBaseUrl: string
+  vuKnowledgeModel: string
+  vuCornerUseProxy: boolean
+  vuSummaryUseProxy: boolean
+  vuKnowledgeUseProxy: boolean
 }
 
 export async function loadConfig(): Promise<FrontendSettings> {
@@ -375,9 +411,6 @@ export async function loadConfig(): Promise<FrontendSettings> {
       openaiApiKey: data.DEFAULT?.openai_api_key || '',
       openaiBaseUrl: data.DEFAULT?.openai_base_url || 'https://api.chatanywhere.tech/v1',
       openaiModel: data.DEFAULT?.openai_model || 'gpt-4o',
-      glmApiKey: data.DEFAULT?.glm_api_key || '',
-      glmBaseUrl: data.DEFAULT?.glm_base_url || 'https://open.bigmodel.cn/api/paas/v4',
-      glmModel: data.DEFAULT?.glm_model || 'glm-4',
       qwenApiKey: data.DEFAULT?.qwen_api_key || '',
       qwenBaseUrl:
         data.DEFAULT?.qwen_base_url || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -391,13 +424,18 @@ export async function loadConfig(): Promise<FrontendSettings> {
       moonshotApiKey: data.DEFAULT?.moonshot_api_key || '',
       moonshotBaseUrl: data.DEFAULT?.moonshot_base_url || 'https://api.moonshot.cn/v1',
       moonshotModel: data.DEFAULT?.moonshot_model || 'moonshot-v1-8k',
-      zhipuApiKey: data.DEFAULT?.zhipu_api_key || '',
-      zhipuBaseUrl: data.DEFAULT?.zhipu_base_url || 'https://open.bigmodel.cn/api/paas/v4',
-      zhipuModel: data.DEFAULT?.zhipu_model || 'glm-4-plus',
+      volcanoApiKey: data.DEFAULT?.volcano_api_key || '',
+      volcanoBaseUrl: data.DEFAULT?.volcano_base_url || 'https://ark.cn-beijing.volces.com/api/v3',
+      volcanoModel: data.DEFAULT?.volcano_model || 'doubao-seed-2-0-lite-260428',
+      openrouterApiKey: data.DEFAULT?.openrouter_api_key || '',
+      openrouterBaseUrl: data.DEFAULT?.openrouter_base_url || 'https://openrouter.ai/api/v1',
+      openrouterModel: data.DEFAULT?.openrouter_model || 'google/gemini-3-flash',
       cerebrasApiKey: data.DEFAULT?.cerebras_api_key || '',
       cerebrasBaseUrl: data.DEFAULT?.cerebras_base_url || 'https://api.cerebras.ai/v1',
       cerebrasModel: data.DEFAULT?.cerebras_model || 'llama3.1-8b',
       splitUseProxy: data.DEFAULT?.split_use_proxy === 'true',
+      splitNumThreads: parseInt(data.DEFAULT?.split_num_threads || '8', 10),
+      enableSplit: data.DEFAULT?.enable_split !== 'false',
       translateSelectedModelProvider:
         data.DEFAULT?.translate_selected_model_provider || 'deepseek',
       translateDeepseekApiKey: data.DEFAULT?.translate_deepseek_api_key || '',
@@ -408,10 +446,6 @@ export async function loadConfig(): Promise<FrontendSettings> {
       translateOpenaiBaseUrl:
         data.DEFAULT?.translate_openai_base_url || 'https://api.chatanywhere.tech/v1',
       translateOpenaiModel: data.DEFAULT?.translate_openai_model || 'gpt-4o',
-      translateGlmApiKey: data.DEFAULT?.translate_glm_api_key || '',
-      translateGlmBaseUrl:
-        data.DEFAULT?.translate_glm_base_url || 'https://open.bigmodel.cn/api/paas/v4',
-      translateGlmModel: data.DEFAULT?.translate_glm_model || 'glm-4',
       translateQwenApiKey: data.DEFAULT?.translate_qwen_api_key || '',
       translateQwenBaseUrl:
         data.DEFAULT?.translate_qwen_base_url ||
@@ -427,14 +461,20 @@ export async function loadConfig(): Promise<FrontendSettings> {
       translateMoonshotApiKey: data.DEFAULT?.translate_moonshot_api_key || '',
       translateMoonshotBaseUrl: data.DEFAULT?.translate_moonshot_base_url || 'https://api.moonshot.cn/v1',
       translateMoonshotModel: data.DEFAULT?.translate_moonshot_model || 'moonshot-v1-8k',
-      translateZhipuApiKey: data.DEFAULT?.translate_zhipu_api_key || '',
-      translateZhipuBaseUrl: data.DEFAULT?.translate_zhipu_base_url || 'https://open.bigmodel.cn/api/paas/v4',
-      translateZhipuModel: data.DEFAULT?.translate_zhipu_model || 'glm-4-plus',
+      translateVolcanoApiKey: data.DEFAULT?.translate_volcano_api_key || '',
+      translateVolcanoBaseUrl: data.DEFAULT?.translate_volcano_base_url || 'https://ark.cn-beijing.volces.com/api/v3',
+      translateVolcanoModel: data.DEFAULT?.translate_volcano_model || 'doubao-seed-2-0-lite-260428',
+      translateOpenrouterApiKey: data.DEFAULT?.translate_openrouter_api_key || '',
+      translateOpenrouterBaseUrl: data.DEFAULT?.translate_openrouter_base_url || 'https://openrouter.ai/api/v1',
+      translateOpenrouterModel: data.DEFAULT?.translate_openrouter_model || 'google/gemini-3-flash',
       translateCerebrasApiKey: data.DEFAULT?.translate_cerebras_api_key || '',
       translateCerebrasBaseUrl: data.DEFAULT?.translate_cerebras_base_url || 'https://api.cerebras.ai/v1',
       translateCerebrasModel: data.DEFAULT?.translate_cerebras_model || 'llama3.1-8b',
       translateUseProxy: data.DEFAULT?.translate_use_proxy === 'true',
+      translateNumThreads: parseInt(data.DEFAULT?.translate_num_threads || '8', 10),
+      enableTranslate: data.DEFAULT?.enable_translate !== 'false',
       plainTranslate: data.DEFAULT?.plain_translate === 'true',
+      hotwords: data.DEFAULT?.hotwords || '',
       // Interface settings
       rawLanguage: data['Video watch']?.raw_language || 'zh',
       defaultTranslateLang: data['Video watch']?.default_translate_lang || 'zh',
@@ -487,28 +527,44 @@ export async function loadConfig(): Promise<FrontendSettings> {
       proxyUrl: data['Media Credentials']?.proxy_url || '',
       downloadUseProxy: data['Media Credentials']?.download_use_proxy === 'true',
       // Transcription Engine settings
-      transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'faster_whisper',
+      transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'funasr_gguf',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
       useGpu: data['Transcription Engine']?.use_gpu === 'true',
       transcriptionElevenlabsApiKey: data['Transcription Engine']?.elevenlabs_api_key || '',
       transcriptionElevenlabsModel: data['Transcription Engine']?.elevenlabs_model || 'scribe_v1',
       transcriptionIncludePunctuation: data['Transcription Engine']?.include_punctuation === 'true',
-      transcriptionAlibabaApiKey: data['Transcription Engine']?.alibaba_api_key || '',
-      transcriptionAlibabaModel:
-        data['Transcription Engine']?.alibaba_model || 'paraformer-realtime-v2',
-      transcriptionOpenaiApiKey: data['Transcription Engine']?.openai_api_key || '',
-      transcriptionOpenaiBaseUrl:
-        data['Transcription Engine']?.openai_base_url || 'https://api.openai.com/v1',
-      // Remote VidGo Service settings
-      remoteVidGoHost: data['Remote VidGo Service']?.host || '',
-      remoteVidGoPort: data['Remote VidGo Service']?.port || '8000',
-      remoteVidGoUseSsl: data['Remote VidGo Service']?.use_ssl === 'true',
+      // Video Understanding settings
+      vuThinkingBudget: data['Video Understanding']?.vu_thinking_budget || 'low',
+      vuNGpuLayers: parseInt(data['Video Understanding']?.vu_n_gpu_layers || '36'),
+      vuGlmOcrNGpuLayers: parseInt(data['Video Understanding']?.vu_glm_ocr_n_gpu_layers || '17'),
+      vuCornerProvider: data['Video Understanding']?.vu_corner_provider || 'gemini',
+      vuCornerGeminiApiKey: data['Video Understanding']?.vu_corner_gemini_api_key || '',
+      vuCornerGeminiBaseUrl:
+        data['Video Understanding']?.vu_corner_gemini_base_url || 'https://openrouter.ai/api/v1',
+      vuCornerGeminiModel:
+        data['Video Understanding']?.vu_corner_gemini_model || 'google/gemini-2.5-flash',
+      vuCornerMimoApiKey: data['Video Understanding']?.vu_corner_mimo_api_key || '',
+      vuCornerMimoBaseUrl: data['Video Understanding']?.vu_corner_mimo_base_url || '',
+      vuCornerMimoModel: data['Video Understanding']?.vu_corner_mimo_model || 'mimo-v2.5',
+      vuSummaryApiKey: data['Video Understanding']?.vu_summary_api_key || '',
+      vuSummaryBaseUrl:
+        data['Video Understanding']?.vu_summary_base_url || 'https://api.deepseek.com',
+      vuSummaryModel: data['Video Understanding']?.vu_summary_model || 'deepseek-chat',
+      vuKnowledgeProvider: data['Video Understanding']?.vu_knowledge_provider || 'doubao',
+      vuKnowledgeApiKey: data['Video Understanding']?.vu_knowledge_api_key || '',
+      vuKnowledgeBaseUrl: data['Video Understanding']?.vu_knowledge_base_url || '',
+      vuKnowledgeModel: data['Video Understanding']?.vu_knowledge_model || '',
+      vuCornerUseProxy: data['Video Understanding']?.vu_corner_use_proxy === 'true',
+      vuSummaryUseProxy: data['Video Understanding']?.vu_summary_use_proxy === 'true',
+      vuKnowledgeUseProxy: data['Video Understanding']?.vu_knowledge_use_proxy === 'true',
     }
   } catch (error) {
     console.error('Error loading config:', error)
     throw error
   }
 }
+
+export const loadSettings = loadConfig
 
 export async function saveConfig(settings: FrontendSettings): Promise<void> {
   try {
@@ -524,9 +580,6 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         openai_api_key: settings.openaiApiKey,
         openai_base_url: settings.openaiBaseUrl,
         openai_model: settings.openaiModel,
-        glm_api_key: settings.glmApiKey,
-        glm_base_url: settings.glmBaseUrl,
-        glm_model: settings.glmModel,
         qwen_api_key: settings.qwenApiKey,
         qwen_base_url: settings.qwenBaseUrl,
         qwen_model: settings.qwenModel,
@@ -539,13 +592,18 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         moonshot_api_key: settings.moonshotApiKey,
         moonshot_base_url: settings.moonshotBaseUrl,
         moonshot_model: settings.moonshotModel,
-        zhipu_api_key: settings.zhipuApiKey,
-        zhipu_base_url: settings.zhipuBaseUrl,
-        zhipu_model: settings.zhipuModel,
+        volcano_api_key: settings.volcanoApiKey,
+        volcano_base_url: settings.volcanoBaseUrl,
+        volcano_model: settings.volcanoModel,
+        openrouter_api_key: settings.openrouterApiKey,
+        openrouter_base_url: settings.openrouterBaseUrl,
+        openrouter_model: settings.openrouterModel,
         cerebras_api_key: settings.cerebrasApiKey,
         cerebras_base_url: settings.cerebrasBaseUrl,
         cerebras_model: settings.cerebrasModel,
-        split_use_proxy: settings.splitUseProxy.toString(),
+split_use_proxy: settings.splitUseProxy.toString(),
+      split_num_threads: settings.splitNumThreads.toString(),
+      enable_split: settings.enableSplit.toString(),
         translate_selected_model_provider: settings.translateSelectedModelProvider,
         translate_deepseek_api_key: settings.translateDeepseekApiKey,
         translate_deepseek_base_url: settings.translateDeepseekBaseUrl,
@@ -553,9 +611,6 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         translate_openai_api_key: settings.translateOpenaiApiKey,
         translate_openai_base_url: settings.translateOpenaiBaseUrl,
         translate_openai_model: settings.translateOpenaiModel,
-        translate_glm_api_key: settings.translateGlmApiKey,
-        translate_glm_base_url: settings.translateGlmBaseUrl,
-        translate_glm_model: settings.translateGlmModel,
         translate_qwen_api_key: settings.translateQwenApiKey,
         translate_qwen_base_url: settings.translateQwenBaseUrl,
         translate_qwen_model: settings.translateQwenModel,
@@ -568,14 +623,20 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         translate_moonshot_api_key: settings.translateMoonshotApiKey,
         translate_moonshot_base_url: settings.translateMoonshotBaseUrl,
         translate_moonshot_model: settings.translateMoonshotModel,
-        translate_zhipu_api_key: settings.translateZhipuApiKey,
-        translate_zhipu_base_url: settings.translateZhipuBaseUrl,
-        translate_zhipu_model: settings.translateZhipuModel,
+        translate_volcano_api_key: settings.translateVolcanoApiKey,
+        translate_volcano_base_url: settings.translateVolcanoBaseUrl,
+        translate_volcano_model: settings.translateVolcanoModel,
+        translate_openrouter_api_key: settings.translateOpenrouterApiKey,
+        translate_openrouter_base_url: settings.translateOpenrouterBaseUrl,
+        translate_openrouter_model: settings.translateOpenrouterModel,
         translate_cerebras_api_key: settings.translateCerebrasApiKey,
         translate_cerebras_base_url: settings.translateCerebrasBaseUrl,
         translate_cerebras_model: settings.translateCerebrasModel,
         translate_use_proxy: settings.translateUseProxy.toString(),
+        translate_num_threads: settings.translateNumThreads.toString(),
+        enable_translate: settings.enableTranslate.toString(),
         plain_translate: settings.plainTranslate.toString(),
+        hotwords: settings.hotwords,
       },
       'Video watch': {
         raw_language: settings.rawLanguage,
@@ -623,15 +684,28 @@ export async function saveConfig(settings: FrontendSettings): Promise<void> {
         elevenlabs_api_key: settings.transcriptionElevenlabsApiKey,
         elevenlabs_model: settings.transcriptionElevenlabsModel,
         include_punctuation: settings.transcriptionIncludePunctuation.toString(),
-        alibaba_api_key: settings.transcriptionAlibabaApiKey,
-        alibaba_model: settings.transcriptionAlibabaModel,
-        openai_api_key: settings.transcriptionOpenaiApiKey,
-        openai_base_url: settings.transcriptionOpenaiBaseUrl,
       },
-      'Remote VidGo Service': {
-        host: settings.remoteVidGoHost,
-        port: settings.remoteVidGoPort,
-        use_ssl: settings.remoteVidGoUseSsl.toString(),
+      'Video Understanding': {
+        vu_thinking_budget: settings.vuThinkingBudget,
+        vu_n_gpu_layers: settings.vuNGpuLayers.toString(),
+        vu_glm_ocr_n_gpu_layers: settings.vuGlmOcrNGpuLayers.toString(),
+        vu_corner_provider: settings.vuCornerProvider,
+        vu_corner_gemini_api_key: settings.vuCornerGeminiApiKey,
+        vu_corner_gemini_base_url: settings.vuCornerGeminiBaseUrl,
+        vu_corner_gemini_model: settings.vuCornerGeminiModel,
+        vu_corner_mimo_api_key: settings.vuCornerMimoApiKey,
+        vu_corner_mimo_base_url: settings.vuCornerMimoBaseUrl,
+        vu_corner_mimo_model: settings.vuCornerMimoModel,
+        vu_summary_api_key: settings.vuSummaryApiKey,
+        vu_summary_base_url: settings.vuSummaryBaseUrl,
+        vu_summary_model: settings.vuSummaryModel,
+        vu_knowledge_provider: settings.vuKnowledgeProvider,
+        vu_knowledge_api_key: settings.vuKnowledgeApiKey,
+        vu_knowledge_base_url: settings.vuKnowledgeBaseUrl,
+        vu_knowledge_model: settings.vuKnowledgeModel,
+        vu_corner_use_proxy: settings.vuCornerUseProxy.toString(),
+        vu_summary_use_proxy: settings.vuSummaryUseProxy.toString(),
+        vu_knowledge_use_proxy: settings.vuKnowledgeUseProxy.toString(),
       },
     }
 
@@ -707,7 +781,7 @@ export async function loadWhisperModels(): Promise<WhisperModelData> {
 
 export async function downloadWhisperModel(
   modelName: string,
-  engine: string = 'faster_whisper'
+  engine: string = 'funasr_gguf'
 ): Promise<void> {
   try {
     const csrf = await getCSRFToken()
@@ -809,3 +883,127 @@ export async function getModelSize(modelName: string): Promise<ModelSizeData> {
     throw error
   }
 }
+
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1)
+  return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i]
+}
+
+export type VidUnderModelStatus = 'not_downloaded' | 'downloading' | 'downloaded' | 'error'
+export type VidUnderModelSource = 'hf' | 'modelscope'
+
+export interface VidUnderModel {
+  name: string
+  label: string
+  description: string
+  total_size?: number
+  totalSize?: number
+  downloaded_size?: number
+  downloaded?: boolean
+  downloading?: boolean
+  progress?: number
+  status?: VidUnderModelStatus
+  file_count?: number
+  error?: string
+}
+
+export interface VidUnderProgress {
+  [modelName: string]: {
+    current: number
+    total: number
+    percent: number
+    status: string
+    current_file?: string
+    error?: string
+  }
+}
+
+export interface VidUnderModelData {
+  models: VidUnderModel[]
+}
+
+export async function loadVidUnderModels(): Promise<VidUnderModel[]> {
+  try {
+    const response = await fetch(`${BACKEND}/api/vidunder-models/`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to load vidUnder models')
+    }
+
+    return (result.data?.models || result.models || []) as VidUnderModel[]
+  } catch (error) {
+    console.error('Error loading vidUnder models:', error)
+    throw error
+  }
+}
+
+export async function downloadVidUnderModel(
+  modelName: string,
+  source: VidUnderModelSource = 'hf',
+): Promise<void> {
+  try {
+    const csrf = await getCSRFToken()
+    const response = await fetch(`${BACKEND}/api/vidunder-models/download/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrf,
+      },
+      credentials: 'include',
+      body: JSON.stringify({ model_name: modelName, source }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to start vidUnder model download')
+    }
+  } catch (error) {
+    console.error('Error downloading vidUnder model:', error)
+    throw error
+  }
+}
+
+export async function getVidUnderDownloadProgress(): Promise<VidUnderProgress> {
+  try {
+    const response = await fetch(`${BACKEND}/api/vidunder-models/progress/`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to get vidUnder model progress')
+    }
+
+    return (result.data?.progress || result.progress || {}) as VidUnderProgress
+  } catch (error) {
+    console.error('Error getting vidUnder model progress:', error)
+    throw error
+  }
+}
+
+export const getVidUnderProgress = getVidUnderDownloadProgress

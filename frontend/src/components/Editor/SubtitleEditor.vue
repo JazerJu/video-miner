@@ -10,16 +10,16 @@
             <!-- Time Filter Button -->
             <button
               @click="openTimeFilter"
-              class="flex items-center space-x-2 px-3 py-2 bg-slate-700/50 hover:bg-slate-600/70 text-white rounded-lg transition-colors border border-slate-600/30"
-              :class="{ 'border-blue-500/50 bg-blue-900/20': filterStartTime !== null || filterEndTime !== null }"
+              class="flex items-center space-x-2 px-3 py-2 bg-white/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 rounded-lg transition-colors border border-slate-200 dark:border-white/10"
+              :class="{ 'border-blue-500/50 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-200': filterStartTime !== null || filterEndTime !== null }"
             >
               <el-icon><Clock /></el-icon>
-              <span class="font-semibold">{{ (filterStartTime !== null || filterEndTime !== null) ? '已筛选' : t('subtitleList') }}</span>
+              <span class="font-semibold">{{ (filterStartTime !== null || filterEndTime !== null) ? t('filtered') : t('subtitleList') }}</span>
             </button>
             <div class="flex space-x-3">
               <!-- 批量删除 -->
               <template v-if="selectedIndices.size > 0">
-                <el-tooltip content="删除所选" placement="bottom">
+                <el-tooltip :content="t('deleteSelected')" placement="bottom">
                   <button
                     @click="batchDelete"
                     class="px-4 py-2 bg-red-600/80 hover:bg-red-600 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-red-500/30"
@@ -28,11 +28,11 @@
                   </button>
                 </el-tooltip>
                 <!-- 批量合并（至少选2条才启用） -->
-                <el-tooltip content="合并所选" placement="bottom">
+                <el-tooltip :content="t('mergeSelected')" placement="bottom">
                   <button
                     @click="batchMerge"
                     :disabled="selectedIndices.size < 2"
-                    class="px-4 py-2 bg-purple-600/80 hover:bg-purple-600 disabled:opacity-40 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-purple-500/30"
+                  class="px-4 py-2 bg-purple-600/80 hover:bg-purple-600 disabled:opacity-40 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-purple-500/30"
                   >
                     <el-icon><Finished /></el-icon>
                   </button>
@@ -52,40 +52,40 @@
               <!-- 导出按钮 -->
               <el-dropdown @command="handleExport" trigger="click">
                 <button
-                  class="px-4 py-2 bg-slate-700/50 hover:bg-slate-600/70 text-slate-300 text-sm rounded-lg transition-colors border border-slate-600/30"
+                  class="px-4 py-2 bg-white/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 text-sm rounded-lg transition-colors border border-slate-200 dark:border-white/10"
                 >
                   <el-icon><Upload /></el-icon> {{ t('export') }}
                 </button>
                 <template #dropdown>
                   <el-dropdown-menu
-                    class="rounded-lg shadow-lg border border-slate-600/50 bg-slate-800"
+                    class="rounded-lg shadow-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800"
                   >
                     <div
-                      class="text-xs text-white px-4 py-2 bg-slate-700/50 uppercase tracking-wide font-semibold"
+                      class="text-xs text-slate-600 dark:text-white px-4 py-2 bg-slate-50 dark:bg-white/5 uppercase tracking-wide font-semibold"
                     >
                       {{ t('textKind') }}
                     </div>
                     <el-dropdown-item
                       command="vtt"
-                      class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
+                      class="hover:bg-slate-100 dark:hover:bg-white/10 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-slate-700 dark:text-slate-300"
                     >
                       VTT
                     </el-dropdown-item>
                     <el-dropdown-item
                       command="txt"
-                      class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
+                      class="hover:bg-slate-100 dark:hover:bg-white/10 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-slate-700 dark:text-slate-300"
                     >
                       TXT
                     </el-dropdown-item>
                     <el-dropdown-item
                       command="srt"
-                      class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
+                      class="hover:bg-slate-100 dark:hover:bg-white/10 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-slate-700 dark:text-slate-300"
                     >
                       SRT
                     </el-dropdown-item>
                     <el-dropdown-item
                       command="ass"
-                      class="hover:bg-slate-700/50 hover:text-blue-400 transition-colors text-slate-300"
+                      class="hover:bg-slate-100 dark:hover:bg-white/10 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-slate-700 dark:text-slate-300"
                     >
                       ASS
                     </el-dropdown-item>
@@ -98,7 +98,7 @@
             <span
               class="bg-blue-600/20 text-blue-400 px-3 py-1 rounded-full text-xs font-medium border border-blue-500/30"
             >
-              {{ filteredSubtitles.length }} 条
+              {{ filteredSubtitles.length }} {{ t('items') }}
             </span>
           </div>
 
@@ -118,10 +118,10 @@
               :class="[
                 'p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer backdrop-blur-sm',
                 activeSubtitleIndex === s.originalIndex
-                  ? 'border-blue-500 bg-blue-900/30 shadow-lg'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 shadow-lg'
                   : currentSubtitleIndex === s.originalIndex
-                    ? 'border-green-500 bg-green-900/30 shadow-md'
-                    : 'border-slate-600/30 bg-slate-700/20 hover:border-slate-500/50 hover:bg-slate-700/30',
+                    ? 'border-green-500 bg-green-50 dark:bg-green-900/30 shadow-md'
+                    : 'border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:border-white/20 dark:hover:bg-white/10',
               ]"
               @click="setActiveSubtitle(s.originalIndex)"
             >
@@ -133,7 +133,7 @@
                     @click.stop="toggleSelect(s.originalIndex)"
                     class="w-4 h-4 rounded accent-blue-500 cursor-pointer"
                   />
-                  <span class="text-sm font-medium text-slate-400">#{{ s.originalIndex }}</span>
+                  <span class="text-sm font-medium text-slate-500 dark:text-slate-400">#{{ s.originalIndex }}</span>
                   <span
                     :class="[
                       'text-xs px-2 py-1 rounded-full border',
@@ -146,7 +146,7 @@
                 <div class="flex space-x-1">
                   <button
                     @click.stop="startEdit(s.originalIndex)"
-                    class="h-6 w-6 p-0 hover:bg-blue-600/20 rounded flex items-center justify-center transition-colors text-slate-400 hover:text-blue-400"
+                    class="h-6 w-6 p-0 hover:bg-blue-50 dark:hover:bg-blue-600/20 rounded flex items-center justify-center transition-colors text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
                   >
                     <Edit3Icon class="w-3 h-3" />
                   </button>
@@ -154,7 +154,7 @@
               </div>
 
               <div class="space-y-2">
-                <div class="text-xs font-mono text-slate-400 bg-slate-700/30 px-2 py-1 rounded-md">
+                <div class="text-xs font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-white/5 px-2 py-1 rounded-md">
                   {{ s.start }} → {{ s.end }}
                 </div>
                 <!-- if Editing index !=i display plain text as below,if Editing index ==i,change into input -->
@@ -163,47 +163,47 @@
                   <!-- 时间区域 -->
                   <div class="flex gap-3 mb-3">
                     <div class="flex-1">
-                      <label class="text-xs text-slate-400 block mb-1">开始时间 (秒)</label>
+                      <label class="text-xs text-slate-500 dark:text-slate-400 block mb-1">{{ t('startTimeSeconds') }}</label>
                       <input
                         type="number"
                         step="0.01"
                         v-model.number="rawSubtitle[s.originalIndex].start"
                         @change="syncForeignTiming(s.originalIndex)"
-                        class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white text-sm"
+                        class="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white text-sm"
                       />
                     </div>
                     <div class="flex-1">
-                      <label class="text-xs text-slate-400 block mb-1">结束时间 (秒)</label>
+                      <label class="text-xs text-slate-500 dark:text-slate-400 block mb-1">{{ t('endTimeSeconds') }}</label>
                       <input
                         type="number"
                         step="0.01"
                         v-model.number="rawSubtitle[s.originalIndex].end"
                         @change="syncForeignTiming(s.originalIndex)"
-                        class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white text-sm"
+                        class="w-full px-3 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white text-sm"
                       />
                     </div>
                   </div>
 
                   <!-- 原文 -->
                   <div v-if="showRawEditor" class="space-y-2">
-                    <label class="text-xs text-slate-400 block">{{ t('original') }}:</label>
+                    <label class="text-xs text-slate-500 dark:text-slate-400 block">{{ t('original') }}:</label>
                     <textarea
                       v-model="rawSubtitle[s.originalIndex].text"
-                      class="w-full p-3 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400 resize-none"
-                      placeholder="输入字幕原文…"
+                      class="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 resize-none"
+                      :placeholder="t('enterSubtitleOriginal')"
                       rows="2"
                     />
                   </div>
 
                   <!-- 译文 -->
                   <div v-if="showTranslatedEditor" class="space-y-2">
-                    <label class="text-xs text-slate-400 block"
+                    <label class="text-xs text-slate-500 dark:text-slate-400 block"
                       >{{ t('translatedSubtitle') }}:</label
                     >
                     <textarea
                       v-model="foreignSubtitle[s.originalIndex].text"
-                      class="w-full p-3 bg-slate-700/50 border border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400 resize-none"
-                      placeholder="输入字幕译文…"
+                      class="w-full p-3 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 resize-none"
+                      :placeholder="t('enterSubtitleTranslation')"
                       rows="2"
                     />
                   </div>
@@ -217,7 +217,7 @@
                     </button>
                     <button
                       @click.stop="cancelEdit"
-                      class="px-3 py-1 bg-slate-600/50 hover:bg-slate-600/70 text-slate-300 text-sm rounded-lg transition-colors"
+                      class="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 text-sm rounded-lg transition-colors"
                     >
                       {{ t('cancel') }}
                     </button>
@@ -226,15 +226,15 @@
 
                 <!-- ▸ READ-ONLY STATE  -->
                 <template v-else>
-                  <div class="text-sm text-white leading-relaxed" v-show="displayMode === 'both' || displayMode === 'raw'">
-                    <span class="text-xs text-slate-400 block mb-1">{{ t('original') }}:</span>
+                  <div class="text-sm text-slate-900 dark:text-white leading-relaxed" v-show="displayMode === 'both' || displayMode === 'raw'">
+                    <span class="text-xs text-slate-500 dark:text-slate-400 block mb-1">{{ t('original') }}:</span>
                     {{ s.text }}
                   </div>
 
-                  <div class="border-t border-slate-600/30 my-2" v-show="displayMode === 'both'" />
+                  <div class="border-t border-slate-200 dark:border-white/10 my-2" v-show="displayMode === 'both'" />
 
-                  <div class="text-sm text-slate-200 leading-relaxed" v-show="displayMode === 'both' || displayMode === 'translated'">
-                    <span class="text-xs text-slate-400 block mb-1"
+                  <div class="text-sm text-slate-700 dark:text-slate-200 leading-relaxed" v-show="displayMode === 'both' || displayMode === 'translated'">
+                    <span class="text-xs text-slate-500 dark:text-slate-400 block mb-1"
                       >{{ t('translatedSubtitle') }}:</span
                     >
                     {{ s.translation }}
@@ -262,38 +262,38 @@
       class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
       @click.self="showLanguageDialog = false"
     >
-      <div class="bg-slate-800 rounded-lg shadow-xl w-96 border border-slate-600">
+      <div class="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-96 border border-slate-200 dark:border-white/10">
         <div class="p-6">
-          <h3 class="text-lg font-semibold text-white mb-4">选择导出语言</h3>
+          <h3 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">{{ t('selectExportLanguage') }}</h3>
           <div class="space-y-3">
             <button
               @click="exportWithLanguage('raw')"
-              class="w-full p-3 text-left bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors border border-slate-600"
+              class="w-full p-3 text-left bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-900 dark:text-white rounded-lg transition-colors border border-slate-200 dark:border-white/10"
             >
-              <div class="font-medium">原文字幕</div>
-              <div class="text-sm text-slate-300">仅导出视频原始语言字幕</div>
+              <div class="font-medium">{{ t('originalSubtitle') }}</div>
+              <div class="text-sm text-slate-600 dark:text-slate-300">{{ t('rawSubtitleDesc') }}</div>
             </button>
             <button
               @click="exportWithLanguage('translated')"
-              class="w-full p-3 text-left bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors border border-slate-600"
+              class="w-full p-3 text-left bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-900 dark:text-white rounded-lg transition-colors border border-slate-200 dark:border-white/10"
             >
-              <div class="font-medium">译文字幕</div>
-              <div class="text-sm text-slate-300">仅导出翻译后的字幕</div>
+              <div class="font-medium">{{ t('translatedSubtitleFull') }}</div>
+              <div class="text-sm text-slate-600 dark:text-slate-300">{{ t('translatedSubtitleDesc') }}</div>
             </button>
             <button
               @click="exportWithLanguage('both')"
-              class="w-full p-3 text-left bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors border border-slate-600"
+              class="w-full p-3 text-left bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-900 dark:text-white rounded-lg transition-colors border border-slate-200 dark:border-white/10"
             >
-              <div class="font-medium">双语字幕</div>
-              <div class="text-sm text-slate-300">导出原文+译文（原文在上，译文在下）</div>
+              <div class="font-medium">{{ t('bilingualSubtitle') }}</div>
+              <div class="text-sm text-slate-600 dark:text-slate-300">{{ t('bilingualSubtitleDesc') }}</div>
             </button>
           </div>
           <div class="mt-4 text-right">
             <button
               @click="showLanguageDialog = false"
-              class="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+              class="px-4 py-2 text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white transition-colors"
             >
-              取消
+              {{ t('cancel') }}
             </button>
           </div>
         </div>
@@ -306,42 +306,42 @@
       class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
       @click.self="showTimeFilterDialog = false"
     >
-      <div class="bg-gradient-to-br from-slate-800/95 to-slate-700/95 rounded-2xl p-8 w-full max-w-md border border-slate-600/50 shadow-2xl backdrop-blur-lg">
-        <h3 class="text-xl font-semibold text-white mb-6">字幕时间筛选</h3>
+      <div class="bg-white/95 dark:bg-slate-800/95 rounded-2xl p-8 w-full max-w-md border border-slate-200 dark:border-white/10 shadow-2xl shadow-slate-300/70 dark:shadow-black/30 backdrop-blur-lg">
+        <h3 class="text-xl font-semibold text-slate-900 dark:text-white mb-6">{{ t('subtitleTimeFilter') }}</h3>
         
         <div class="space-y-4">
           <div>
-            <label class="block text-sm text-slate-400 mb-2">开始时间 (秒)</label>
+            <label class="block text-sm text-slate-600 dark:text-slate-400 mb-2">{{ t('startTimeSeconds') }}</label>
             <input
               v-model.number="editFilterStart"
               type="number"
               min="0"
-              placeholder="例如: 60"
-              class="w-full px-4 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400"
+              :placeholder="t('exampleSeconds', { seconds: 60 })"
+              class="w-full px-4 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400"
             />
           </div>
           <div>
-            <label class="block text-sm text-slate-400 mb-2">结束时间 (秒)</label>
+            <label class="block text-sm text-slate-600 dark:text-slate-400 mb-2">{{ t('endTimeSeconds') }}</label>
             <input
               v-model.number="editFilterEnd"
               type="number"
               min="0"
-              placeholder="例如: 120"
-              class="w-full px-4 py-2 bg-slate-600/50 border border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-white placeholder-slate-400"
+              :placeholder="t('exampleSeconds', { seconds: 120 })"
+              class="w-full px-4 py-2 bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400"
             />
           </div>
           <div>
-            <label class="block text-sm text-slate-400 mb-2">字幕显示</label>
+            <label class="block text-sm text-slate-600 dark:text-slate-400 mb-2">{{ t('subtitleDisplay') }}</label>
             <div class="flex gap-2">
               <button
-                v-for="mode in [{ value: 'both', label: '双语' }, { value: 'raw', label: '原文' }, { value: 'translated', label: '译文' }]"
+                v-for="mode in displayModeOptions"
                 :key="mode.value"
                 @click="editDisplayMode = mode.value as any"
                 :class="[
                   'flex-1 py-2 rounded-lg text-sm transition-colors border',
                   editDisplayMode === mode.value
                     ? 'bg-blue-600/80 border-blue-500/30 text-white'
-                    : 'bg-slate-600/50 border-slate-500/50 text-slate-300 hover:bg-slate-500/50'
+                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 dark:bg-white/5 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/10'
                 ]"
               >
                 {{ mode.label }}
@@ -355,20 +355,20 @@
             @click="clearTimeFilter"
             class="text-sm text-red-400 hover:text-red-300 transition-colors"
           >
-            清除筛选
+            {{ t('clearFilter') }}
           </button>
           <div class="space-x-3">
             <button
               @click="showTimeFilterDialog = false"
-              class="px-4 py-2 text-slate-300 hover:text-white bg-slate-700/50 hover:bg-slate-600/70 rounded-lg transition-all border border-slate-600/30"
+              class="px-4 py-2 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-lg transition-all border border-slate-200 dark:border-white/10"
             >
-              取消
+              {{ t('cancel') }}
             </button>
             <button
               @click="applyTimeFilter"
               class="px-4 py-2 bg-blue-600/80 hover:bg-blue-600 text-white rounded-lg transition-all border border-blue-500/30 shadow-lg"
             >
-              应用
+              {{ t('apply') }}
             </button>
           </div>
         </div>
@@ -440,6 +440,11 @@ const editFilterEnd = ref<number | null>(null)
 // 显示模式：'both' | 'raw' | 'translated'
 const displayMode = ref<'both' | 'raw' | 'translated'>('both')
 const editDisplayMode = ref<'both' | 'raw' | 'translated'>('both')
+const displayModeOptions = computed(() => [
+  { value: 'both' as const, label: t('bilingual') },
+  { value: 'raw' as const, label: t('original') },
+  { value: 'translated' as const, label: t('translatedSubtitle') },
+])
 const showRawEditor = computed(() => displayMode.value !== 'translated')
 const showTranslatedEditor = computed(() => displayMode.value !== 'raw')
 const foreignTrackLoaded = ref(false)
@@ -529,7 +534,7 @@ const applyTimeFilter = () => {
     editFilterEnd.value !== null &&
     editFilterStart.value > editFilterEnd.value
   ) {
-    ElMessage.error('开始时间不能大于结束时间')
+    ElMessage.error(t('startTimeGreaterThanEnd'))
     return
   }
   filterStartTime.value = editFilterStart.value
@@ -598,7 +603,7 @@ function exportVTT(languageType: 'raw' | 'translated' | 'both' = 'both') {
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(vtt, `${props.videoName || 'subtitles'}${suffix}.vtt`, 'text/vtt')
-  successNotify('VTT字幕导出成功')
+  successNotify(t('vttExportSuccess'))
 }
 
 function exportSRT(languageType: 'raw' | 'translated' | 'both' = 'both') {
@@ -627,7 +632,7 @@ function exportSRT(languageType: 'raw' | 'translated' | 'both' = 'both') {
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(srt, `${props.videoName || 'subtitles'}${suffix}.srt`, 'text/srt')
-  successNotify('SRT字幕导出成功')
+  successNotify(t('srtExportSuccess'))
 }
 
 function exportTXT(languageType: 'raw' | 'translated' | 'both' = 'both') {
@@ -651,7 +656,7 @@ function exportTXT(languageType: 'raw' | 'translated' | 'both' = 'both') {
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(txt, `${props.videoName || 'subtitles'}${suffix}.txt`, 'text/plain')
-  successNotify('TXT文本导出成功')
+  successNotify(t('txtExportSuccess'))
 }
 
 async function exportASS(languageType: 'raw' | 'translated' | 'both' = 'both') {
@@ -832,7 +837,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const suffix =
     languageType === 'raw' ? '_raw' : languageType === 'translated' ? '_translated' : ''
   downloadFile(ass, `${props.videoName || 'subtitles'}${suffix}.ass`, 'text/ass')
-  successNotify('ASS字幕导出成功')
+  successNotify(t('assExportSuccess'))
 }
 
 function downloadFile(content: string, filename: string, mimeType: string) {
@@ -1037,20 +1042,24 @@ function calculateCPS(subtitle: any) {
 }
 
 function getCharacterSpeedColor(speed: number) {
-  if (speed <= 2.5) return 'bg-green-600/20 text-green-400 border-green-500/30'
-  if (speed <= 3.0) return 'bg-yellow-600/20 text-yellow-400 border-yellow-500/30'
-  return 'bg-red-600/20 text-red-400 border-red-500/30'
+  if (speed <= 2.5) {
+    return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-600/20 dark:text-green-400 dark:border-green-500/30'
+  }
+  if (speed <= 3.0) {
+    return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-600/20 dark:text-yellow-400 dark:border-yellow-500/30'
+  }
+  return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-600/20 dark:text-red-400 dark:border-red-500/30'
 }
 
 function getSpeedUnit(text: string) {
-  if (!text) return '字/秒'
+  if (!text) return t('charsPerSecond')
 
   // 判断是否为英文文本（检查是否主要包含英文字符）
   const englishChars = text.match(/[a-zA-Z]/g)
   const totalChars = text.replace(/\s/g, '').length
   const isEnglish = englishChars && englishChars.length / totalChars > 0.5
 
-  return isEnglish ? '词/秒' : '字/秒'
+  return isEnglish ? t('wordsPerSecond') : t('charsPerSecond')
 }
 
 async function saveSubtitle(index: number) {
@@ -1129,7 +1138,7 @@ function addSubtitle() {
   )
   activeSubtitleIndex.value = newIndex
 
-  successNotify('已添加新字幕')
+  successNotify(t('subtitleAdded'))
 }
 
 async function deleteSubtitle(index: number) {
@@ -1182,7 +1191,7 @@ async function batchDelete() {
     await linkSubtitles(props.id, foreignLang, foreignSubtitle.value)
     foreignTrackLoaded.value = true
   }
-  successNotify(`已删除 ${indices.length} 条字幕`)
+  successNotify(t('subtitlesDeleted', { count: indices.length }))
 }
 
 async function batchMerge() {
@@ -1217,7 +1226,7 @@ async function batchMerge() {
     await linkSubtitles(props.id, foreignLang, foreignSubtitle.value)
     foreignTrackLoaded.value = true
   }
-  successNotify('已合并所选字幕')
+  successNotify(t('subtitlesMerged'))
 }
 
 const rawBeforeEdit = ref('') // 原文旧值
@@ -1398,7 +1407,7 @@ function handleManualScroll() {
 
 /* Custom textarea styles */
 :deep(.el-textarea__inner) {
-  border: 1px solid #e5e7eb !important;
+  border: 1px solid var(--el-border-color) !important;
   border-radius: 0.5rem !important;
   transition: all 0.2s !important;
   font-family: inherit !important;
@@ -1406,8 +1415,8 @@ function handleManualScroll() {
 }
 
 :deep(.el-textarea__inner:focus) {
-  border-color: #4361ee !important;
-  box-shadow: 0 0 0 2px rgba(67, 97, 238, 0.2) !important;
+  border-color: var(--el-color-primary) !important;
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-8) !important;
 }
 
 /* 自定义滚动条 - 与背景相融 */
@@ -1416,23 +1425,41 @@ function handleManualScroll() {
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(30, 41, 59, 0.4); /* slate-800 with opacity */
+  background: color-mix(in srgb, var(--el-fill-color-light) 80%, transparent);
   border-radius: 4px;
   margin: 4px 0;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(71, 85, 105, 0.6); /* slate-600 with opacity */
+  background: color-mix(in srgb, var(--el-text-color-placeholder) 50%, transparent);
   border-radius: 4px;
-  border: 1px solid rgba(51, 65, 85, 0.3); /* slate-700 border */
+  border: 1px solid color-mix(in srgb, var(--el-border-color) 70%, transparent);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.8); /* slate-500 on hover */
-  border-color: rgba(71, 85, 105, 0.5);
+  background: color-mix(in srgb, var(--el-text-color-secondary) 60%, transparent);
+  border-color: color-mix(in srgb, var(--el-border-color-darker) 70%, transparent);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:active {
-  background: rgba(100, 116, 139, 1); /* slate-500 solid when active */
+  background: var(--el-text-color-secondary);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.6);
+  border-color: rgba(51, 65, 85, 0.3);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.8);
+  border-color: rgba(71, 85, 105, 0.5);
+}
+
+:global(html.dark) .custom-scrollbar::-webkit-scrollbar-thumb:active {
+  background: rgba(100, 116, 139, 1);
 }
 </style>

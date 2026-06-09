@@ -57,6 +57,13 @@ const router = createRouter({
       name: 'waveform-test',
       component: () => import('@/views/waveform_test.vue'),
     },
+
+    // 视频摘要路由
+    {
+      path: '/summary/:basename([^/]+)\\.:ext(mp4|webm|mkv|m4a|mp3|wav|aac|flac|ogg|opus|alac)',
+      name: 'video-summary',
+      component: () => import('@/views/VideoSummaryView.vue'),
+    },
     {
       path: '/login',
       name: 'login',

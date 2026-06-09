@@ -4,6 +4,7 @@ import { ref, computed } from 'vue'
 import { markdownToHtml } from '@/composables/ConvertMarkdown'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import NotesPanel from './NotesPanel.vue'
+import VideoQA from './VideoQA.vue'
 import { useI18n } from 'vue-i18n'
 import { BACKEND } from '@/composables/ConfigAPI'
 
@@ -80,9 +81,9 @@ const renderedDescription = computed(() =>
 </script>
 
 <template>
-  <div class="bg-slate-800/30 rounded-2xl backdrop-blur-lg border border-slate-600/30">
+  <div class="bg-white dark:bg-slate-800/30 rounded-2xl backdrop-blur-lg border border-slate-200 dark:border-slate-600/30 flex flex-col overflow-hidden">
     <!-- Tab Header -->
-    <div class="border-b border-slate-600/30 p-2">
+    <div class="flex-shrink-0 border-b border-slate-200 dark:border-slate-600/30 p-2">
       <nav class="flex space-x-2 px-2">
         <button
           @click="activeTab = 'notes'"
@@ -90,7 +91,7 @@ const renderedDescription = computed(() =>
             'flex-1 px-6 py-3 text-sm font-medium rounded-xl transition-all duration-300',
             activeTab === 'notes'
               ? 'text-white bg-blue-600/80 shadow-lg border border-blue-500/30'
-              : 'text-slate-300 hover:text-white hover:bg-slate-700/50',
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-700/50',
           ]"
         >
           {{ t('notes') }}
@@ -101,7 +102,7 @@ const renderedDescription = computed(() =>
             'flex-1 px-6 py-3 text-sm font-medium rounded-xl transition-all duration-300',
             activeTab === 'videoQA'
               ? 'text-white bg-blue-600/80 shadow-lg border border-blue-500/30'
-              : 'text-slate-300 hover:text-white hover:bg-slate-700/50',
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-700/50',
           ]"
         >
           {{ t('videoQA') }}
@@ -110,26 +111,15 @@ const renderedDescription = computed(() =>
     </div>
 
     <!-- Tab Content -->
-    <div class="p-0">
+    <div class="flex-1 min-h-0 overflow-hidden">
       <!-- Notes Tab -->
-      <div v-show="activeTab === 'notes'">
+      <div v-show="activeTab === 'notes'" class="h-full overflow-y-auto">
         <NotesPanel :videoId="props.id" />
       </div>
 
       <!-- Video Q&A Tab -->
-      <div v-show="activeTab === 'videoQA'" class="p-12 flex flex-col items-center justify-center text-center space-y-4">
-        <div class="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mb-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-          </svg>
-        </div>
-        <h3 class="text-xl font-semibold text-white">Video Q&A</h3>
-        <p class="text-slate-400 max-w-xs">
-          Coming soon, involves VLA model.
-        </p>
-        <div class="px-3 py-1 bg-slate-700/50 rounded-full text-xs font-medium text-slate-300 border border-slate-600/50">
-          Planned Feature
-        </div>
+      <div v-show="activeTab === 'videoQA'" class="h-full">
+        <VideoQA :videoId="props.id" :filename="props.filename" />
       </div>
     </div>
   </div>

@@ -583,8 +583,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <!-- 深色主题背景容器 -->
-  <div class="min-h-screen bg-gradient-to-br from-gray-900 via-slate-800 to-blue-900">
+  <!-- 主题背景容器 -->
+  <div
+    class="fixed inset-0 flex flex-col overflow-y-auto bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-gray-900 dark:via-slate-800 dark:to-blue-900"
+  >
     <!-- 导航栏组件，含用户信息与设置按钮 -->
     <NavBar
       v-if="!isVideoFullscreen"
@@ -605,7 +607,7 @@ onMounted(() => {
         <div :class="isVideoFullscreen ? 'col-span-1 space-y-4' : 'lg:col-span-2 space-y-4'">
           <!-- 视频播放器卡片容器 -->
           <div
-            class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-4 border border-slate-600/50 shadow-2xl"
+            class="bg-white/90 dark:bg-gradient-to-r dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-4 border border-slate-200 dark:border-slate-600/50 shadow-2xl"
           >
             <div class="aspect-video w-full rounded-xl overflow-hidden">
               <VideoPlayer
@@ -628,7 +630,7 @@ onMounted(() => {
 
           <!-- 视频信息卡片，带选项卡 -->
           <div
-            class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl border border-slate-600/50 shadow-2xl"
+            class="bg-white/90 dark:bg-gradient-to-r dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl border border-slate-200 dark:border-slate-600/50 shadow-2xl"
             :class="{ 'fullscreen-hidden': isVideoFullscreen }"
           >
             <Suspense>
@@ -643,7 +645,7 @@ onMounted(() => {
                 />
               </template>
               <template #fallback>
-                <div class="text-slate-400 p-6">{{ t('loadingVideoInfo') }}</div>
+                <div class="text-slate-500 dark:text-slate-400 p-6">{{ t('loadingVideoInfo') }}</div>
               </template>
             </Suspense>
           </div>
@@ -653,7 +655,7 @@ onMounted(() => {
         <div v-show="!isVideoFullscreen" class="space-y-4" :class="{ 'fullscreen-hidden': isVideoFullscreen }">
           <!-- 选项卡面板卡片 -->
           <div
-            class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl border border-slate-600/50 shadow-2xl"
+            class="bg-white/90 dark:bg-gradient-to-r dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl border border-slate-200 dark:border-slate-600/50 shadow-2xl"
           >
             <TabbedPanel
               v-if="videoData.id !== -1"
@@ -667,12 +669,12 @@ onMounted(() => {
               @seek="handleSeekFromSubs"
               @toggle-chapter-markers="handleChapterMarkerToggle"
             />
-            <div v-else class="text-slate-400 text-center py-8">{{ t('loadingSubtitles') }}</div>
+            <div v-else class="text-slate-500 dark:text-slate-400 text-center py-8">{{ t('loadingSubtitles') }}</div>
           </div>
 
           <!-- 播放列表卡片 -->
           <div
-            class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl border border-slate-600/50 shadow-2xl"
+            class="bg-white/90 dark:bg-gradient-to-r dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl border border-slate-200 dark:border-slate-600/50 shadow-2xl"
           >
             <PlayList
               ref="playlistRef"

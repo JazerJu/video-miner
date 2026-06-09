@@ -295,7 +295,7 @@ const openImagePreview = (initialIndex: number) => {
   // Create a modal/overlay for image preview
   const overlay = document.createElement('div')
   overlay.className =
-    'fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm'
+    'fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-black/80 backdrop-blur-sm'
 
   const container = document.createElement('div')
   container.className = 'relative flex items-center justify-center w-full h-full'
@@ -306,23 +306,23 @@ const openImagePreview = (initialIndex: number) => {
   const closeBtn = document.createElement('button')
   closeBtn.innerHTML = '✕'
   closeBtn.className =
-    'absolute top-4 right-4 text-white text-2xl font-bold bg-black/50 rounded-full w-10 h-10 flex items-center justify-center hover:bg-black/70 transition-colors z-10'
+    'absolute top-4 right-4 text-slate-700 dark:text-white text-2xl font-bold bg-white/80 dark:bg-black/50 rounded-full w-10 h-10 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-black/70 transition-colors z-10'
 
   // Navigation arrows
   const leftArrow = document.createElement('button')
   leftArrow.innerHTML = '❮'
   leftArrow.className =
-    'absolute left-4 top-1/2 transform -translate-y-1/2 text-white text-3xl font-bold bg-black/50 rounded-full w-12 h-12 flex items-center justify-center hover:bg-black/70 transition-colors z-10'
+    'absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-700 dark:text-white text-3xl font-bold bg-white/80 dark:bg-black/50 rounded-full w-12 h-12 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-black/70 transition-colors z-10'
 
   const rightArrow = document.createElement('button')
   rightArrow.innerHTML = '❯'
   rightArrow.className =
-    'absolute right-4 top-1/2 transform -translate-y-1/2 text-white text-3xl font-bold bg-black/50 rounded-full w-12 h-12 flex items-center justify-center hover:bg-black/70 transition-colors z-10'
+    'absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-700 dark:text-white text-3xl font-bold bg-white/80 dark:bg-black/50 rounded-full w-12 h-12 flex items-center justify-center hover:bg-slate-100 dark:hover:bg-black/70 transition-colors z-10'
 
   // Image counter
   const counter = document.createElement('div')
   counter.className =
-    'absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white bg-black/50 rounded-lg px-3 py-1 text-sm'
+    'absolute bottom-4 left-1/2 transform -translate-x-1/2 text-slate-700 dark:text-white bg-white/80 dark:bg-black/50 rounded-lg px-3 py-1 text-sm'
 
   const updateImage = () => {
     const currentImage = images[currentIndex]
@@ -612,8 +612,8 @@ watch(
       <div class="flex items-center space-x-4">
         <!-- Character count -->
         <div
-          class="text-sm px-3 py-1 rounded-lg bg-slate-700/50 border border-slate-600/30"
-          :class="isOverLimit ? 'text-red-400 border-red-500/50' : 'text-slate-300'"
+          class="text-sm px-3 py-1 rounded-lg bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600/30"
+          :class="isOverLimit ? 'text-red-500 dark:text-red-400 border-red-500/50' : 'text-slate-600 dark:text-slate-300'"
         >
           {{ characterCount }} / {{ characterLimit }}
         </div>
@@ -626,7 +626,7 @@ watch(
           :class="[
             editMode
               ? 'bg-blue-600/80 hover:bg-blue-600 text-white border border-blue-500/30 disabled:opacity-50'
-              : 'bg-slate-700/50 hover:bg-slate-600/70 text-slate-300 border border-slate-600/30'
+              : 'bg-white hover:bg-slate-100 dark:bg-slate-700/50 dark:hover:bg-slate-600/70 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600/30'
           ]"
         >
           <span v-if="isSaving" class="flex items-center">
@@ -659,7 +659,7 @@ watch(
 
     <!-- Content -->
     <div>
-      <div v-if="isLoading" class="flex items-center justify-center py-12 text-slate-400">
+      <div v-if="isLoading" class="flex items-center justify-center py-12 text-slate-500 dark:text-slate-400">
         <div
           class="animate-spin w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full mr-3"
         ></div>
@@ -673,23 +673,23 @@ watch(
             ref="textareaRef"
             v-model="notesContent"
             @paste="handlePaste"
-            class="w-full h-80 p-4 bg-slate-700/30 border rounded-xl resize-none focus:outline-none focus:ring-2 text-white placeholder-slate-400 backdrop-blur-sm transition-all notes-textarea"
+            class="w-full h-80 p-4 bg-white dark:bg-slate-700/30 border rounded-xl resize-none focus:outline-none focus:ring-2 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 backdrop-blur-sm transition-all notes-textarea"
             :class="[
               isOverLimit
                 ? 'border-red-500/50 focus:ring-red-500/50'
-                : 'border-slate-600/50 focus:ring-blue-500/50'
+                : 'border-slate-300 dark:border-slate-600/50 focus:ring-blue-500/50'
             ]"
             :placeholder="t('notePlaceholder')"
           ></textarea>
         </div>
 
         <!-- Toolbar -->
-        <div class="bg-slate-700/40 border border-slate-600/30 rounded-lg p-1.5 flex items-center">
+        <div class="bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600/30 rounded-lg p-1.5 flex items-center">
           <!-- Bold -->
           <button
             @click="toggleBold"
             title="粗体 (Bold)"
-            class="p-1.5 rounded hover:bg-slate-600/50 text-slate-400 hover:text-white transition-colors"
+            class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-600/50 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/>
@@ -700,7 +700,7 @@ watch(
           <button
             @click="toggleItalic"
             title="斜体 (Italic)"
-            class="p-1.5 rounded hover:bg-slate-600/50 text-slate-400 hover:text-white transition-colors"
+            class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-600/50 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/>
@@ -708,14 +708,14 @@ watch(
           </button>
 
           <!-- Separator -->
-          <div class="w-px h-5 bg-slate-600/50 mx-1"></div>
+          <div class="w-px h-5 bg-slate-200 dark:bg-slate-600/50 mx-1"></div>
 
           <!-- Grid Layout -->
           <button
             @click="setImageLayout('grid')"
             title="网格布局 (Grid)"
-            class="p-1.5 rounded hover:bg-slate-600/50 transition-colors"
-            :class="activeLayout === 'grid' ? 'text-blue-400 bg-slate-600/50' : 'text-slate-400 hover:text-white'"
+            class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-600/50 transition-colors"
+            :class="activeLayout === 'grid' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"/>
@@ -726,8 +726,8 @@ watch(
           <button
             @click="setImageLayout('carousel')"
             title="轮播布局 (Carousel)"
-            class="p-1.5 rounded hover:bg-slate-600/50 transition-colors"
-            :class="activeLayout === 'carousel' ? 'text-blue-400 bg-slate-600/50' : 'text-slate-400 hover:text-white'"
+            class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-600/50 transition-colors"
+            :class="activeLayout === 'carousel' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/>
@@ -738,8 +738,8 @@ watch(
           <button
             @click="setImageLayout('thumbnail')"
             title="缩略图布局 (Thumbnail)"
-            class="p-1.5 rounded hover:bg-slate-600/50 transition-colors"
-            :class="activeLayout === 'thumbnail' ? 'text-blue-400 bg-slate-600/50' : 'text-slate-400 hover:text-white'"
+            class="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-600/50 transition-colors"
+            :class="activeLayout === 'thumbnail' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M4 4h10v10H4V4zm12 0h4v10h-4V4zM4 16h10v4H4v-4zm12 0h4v4h-4v-4z"/>
@@ -749,7 +749,7 @@ watch(
 
         <!-- Help text -->
         <div
-          class="text-xs text-slate-300 bg-slate-700/30 p-3 rounded-lg border border-slate-600/30"
+          class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-700/30 p-3 rounded-lg border border-slate-200 dark:border-slate-600/30"
         >
           <strong class="text-blue-400">快速帮助：</strong>
           支持完整 Markdown 语法 | 粘贴多张图片自动创建相册 | 自动保存（30秒后）
@@ -758,7 +758,7 @@ watch(
         <!-- Warning for character limit -->
         <div
           v-if="isOverLimit"
-          class="text-sm text-red-300 bg-red-900/20 p-3 rounded-lg border border-red-500/30"
+            class="text-sm text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg border border-red-200 dark:border-red-500/30"
         >
           ⚠️ 内容超出字符限制，请删减至 {{ characterLimit }} 字符以内
         </div>
@@ -771,15 +771,15 @@ watch(
           <div
             v-if="renderedNotes.trim()"
             ref="notesContentRef"
-            class="prose prose-sm max-w-none prose-invert notes-content bg-slate-800/30 rounded-xl p-4 backdrop-blur-lg border border-slate-600/30"
+            class="prose prose-sm max-w-none notes-content bg-white dark:bg-slate-800/30 rounded-xl p-4 backdrop-blur-lg border border-slate-200 dark:border-slate-600/30"
             v-html="renderedNotes"
           ></div>
         </div>
 
         <!-- Empty State -->
-        <div v-else class="text-center py-16 text-slate-400">
+        <div v-else class="text-center py-16 text-slate-500 dark:text-slate-400">
           <svg
-            class="mx-auto h-16 w-16 text-slate-500 mb-6"
+            class="mx-auto h-16 w-16 text-slate-400 dark:text-slate-500 mb-6"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -791,8 +791,8 @@ watch(
               d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
             ></path>
           </svg>
-          <p class="text-xl font-medium text-slate-300 mb-2">{{ t('noNotes') }}</p>
-          <p class="text-sm text-slate-500">{{ t('clickEditToStartNotes') }}</p>
+          <p class="text-xl font-medium text-slate-700 dark:text-slate-300 mb-2">{{ t('noNotes') }}</p>
+          <p class="text-sm text-slate-500 dark:text-slate-500">{{ t('clickEditToStartNotes') }}</p>
         </div>
       </div>
     </div>
@@ -802,11 +802,19 @@ watch(
 
 <style scoped>
 .notes-textarea {
+  color: rgb(15 23 42) !important;
+}
+
+:global(html.dark) .notes-textarea {
   color: white !important;
 }
 
 /* Main prose styles - using Tailwind prose plugin */
 :deep(.notes-content) {
+  color: rgb(51 65 85) !important;
+}
+
+:global(html.dark) :deep(.notes-content) {
   color: #e2e8f0 !important;
 }
 
@@ -816,12 +824,22 @@ watch(
 :deep(.notes-content h4),
 :deep(.notes-content h5),
 :deep(.notes-content h6) {
-  color: white !important;
+  color: rgb(15 23 42) !important;
   font-weight: bold;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid #e2e8f0;
   padding-bottom: 0.3em;
   margin-bottom: 0.5em;
   margin-top: 1em;
+}
+
+:global(html.dark) :deep(.notes-content h1),
+:global(html.dark) :deep(.notes-content h2),
+:global(html.dark) :deep(.notes-content h3),
+:global(html.dark) :deep(.notes-content h4),
+:global(html.dark) :deep(.notes-content h5),
+:global(html.dark) :deep(.notes-content h6) {
+  color: white !important;
+  border-bottom-color: #334155;
 }
 
 :deep(.notes-content h1) {
@@ -837,9 +855,13 @@ watch(
 }
 
 :deep(.notes-content p) {
-  color: rgb(226 232 240) !important;
+  color: rgb(51 65 85) !important;
   margin-bottom: 1em;
   line-height: 1.6;
+}
+
+:global(html.dark) :deep(.notes-content p) {
+  color: rgb(226 232 240) !important;
 }
 
 :deep(.notes-content ul),
@@ -857,30 +879,48 @@ watch(
 }
 
 :deep(.notes-content li) {
-  color: rgb(226 232 240) !important;
+  color: rgb(51 65 85) !important;
   margin-bottom: 0.25em;
+}
+
+:global(html.dark) :deep(.notes-content li) {
+  color: rgb(226 232 240) !important;
 }
 
 :deep(.notes-content strong),
 :deep(.notes-content b) {
-  color: white !important;
+  color: rgb(15 23 42) !important;
   font-weight: bold;
 }
 
+:global(html.dark) :deep(.notes-content strong),
+:global(html.dark) :deep(.notes-content b) {
+  color: white !important;
+}
+
 :deep(.notes-content code) {
-  background-color: #1e293b !important;
-  color: rgb(96 165 250) !important;
+  background-color: #f1f5f9 !important;
+  color: rgb(37 99 235) !important;
   padding: 0.2em 0.4em;
   border-radius: 0.25rem;
   font-family: monospace;
 }
 
-:deep(.notes-content pre) {
+:global(html.dark) :deep(.notes-content code) {
   background-color: #1e293b !important;
+  color: rgb(96 165 250) !important;
+}
+
+:deep(.notes-content pre) {
+  background-color: #f8fafc !important;
   padding: 1em;
   border-radius: 0.5rem;
   overflow-x: auto;
   margin-bottom: 1em;
+}
+
+:global(html.dark) :deep(.notes-content pre) {
+  background-color: #1e293b !important;
 }
 
 :deep(.notes-content pre code) {
@@ -892,9 +932,13 @@ watch(
 :deep(.notes-content blockquote) {
   border-left: 4px solid #3b82f6;
   padding-left: 1em;
-  color: rgb(148 163 184);
+  color: rgb(100 116 139);
   font-style: italic;
   margin-bottom: 1em;
+}
+
+:global(html.dark) :deep(.notes-content blockquote) {
+  color: rgb(148 163 184);
 }
 
 :deep(.notes-content a) {
@@ -904,12 +948,16 @@ watch(
 
 /* Mermaid styles */
 :deep(.notes-content .mermaid) {
-  background-color: #1e293b;
+  background-color: #f8fafc;
   padding: 1rem;
   border-radius: 0.5rem;
   margin-bottom: 1rem;
   display: flex;
   justify-content: center;
+}
+
+:global(html.dark) :deep(.notes-content .mermaid) {
+  background-color: #1e293b;
 }
 
 :deep(.notes-content .mermaid svg) {
@@ -924,9 +972,14 @@ watch(
   gap: 1rem;
   margin: 1.5rem 0;
   padding: 1rem;
-  background-color: #1e293b;
+  background-color: #f8fafc;
   border-radius: 0.5rem;
-  border: 1px solid #334155;
+  border: 1px solid #e2e8f0;
+}
+
+:global(html.dark) :deep(.notes-content .album-grid) {
+  background-color: #1e293b;
+  border-color: #334155;
 }
 
 :deep(.notes-content .album-item) {
@@ -934,10 +987,14 @@ watch(
   flex-direction: column;
   justify-content: center;
   break-inside: avoid;
-  background-color: #0f172a;
+  background-color: #ffffff;
   border-radius: 0.5rem;
   overflow: hidden;
   transition: transform 0.2s;
+}
+
+:global(html.dark) :deep(.notes-content .album-item) {
+  background-color: #0f172a;
 }
 
 :deep(.notes-content .album-item:hover) {
@@ -956,33 +1013,48 @@ watch(
 :deep(.notes-content .album-caption) {
   padding: 0.5rem;
   font-size: 0.85rem;
-  color: rgb(148 163 184);
+  color: rgb(100 116 139);
   text-align: center;
+  background-color: #ffffff;
+  border-top: 1px solid #e2e8f0;
+}
+
+:global(html.dark) :deep(.notes-content .album-caption) {
+  color: rgb(148 163 184);
   background-color: #0f172a;
-  border-top: 1px solid #1e293b;
+  border-top-color: #1e293b;
 }
 
 /* Album: Carousel & Thumbnail Modes */
 :deep(.notes-content .album-carousel-container) {
   position: relative;
-  background-color: #1e293b;
+  background-color: #f8fafc;
   border-radius: 0.5rem;
-  border: 1px solid #334155;
+  border: 1px solid #e2e8f0;
   padding: 1rem;
   margin: 1.5rem 0;
   user-select: none;
+}
+
+:global(html.dark) :deep(.notes-content .album-carousel-container) {
+  background-color: #1e293b;
+  border-color: #334155;
 }
 
 :deep(.notes-content .carousel-stage) {
   position: relative;
   width: 100%;
   height: 400px;
-  background-color: #0f172a;
+  background-color: #ffffff;
   border-radius: 0.5rem;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+:global(html.dark) :deep(.notes-content .carousel-stage) {
+  background-color: #0f172a;
 }
 
 :deep(.notes-content .carousel-slide) {
@@ -1103,8 +1175,12 @@ watch(
 
 :deep(.notes-content .image-caption) {
   text-align: center;
-  color: rgb(148 163 184);
+  color: rgb(100 116 139);
   font-size: 0.85rem;
   margin-top: 0.5rem;
+}
+
+:global(html.dark) :deep(.notes-content .image-caption) {
+  color: rgb(148 163 184);
 }
 </style>

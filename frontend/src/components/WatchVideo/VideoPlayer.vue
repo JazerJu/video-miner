@@ -35,7 +35,7 @@ const availableSubtitles = ref<Record<string, boolean>>({})
 const playerReady = ref(false)
 
 const showLanguagePanel = ref(false)
-const activeLanguageTab = ref<'dubbing' | 'subtitle'>('subtitle')
+const activeLanguageTab = ref<'subtitle'>('subtitle')
 const languagePanelRef = ref<HTMLElement | null>(null)
 const languageBtnRef = ref<HTMLElement | null>(null)
 
@@ -2362,53 +2362,8 @@ onBeforeUnmount(() => {
               ref="languagePanelRef"
               class="lang-panel"
             >
-              <!-- Tab bar -->
-              <div class="lang-panel-tabs">
-                <button
-                  class="lang-panel-tab"
-                  :class="{ 'active': activeLanguageTab === 'dubbing' }"
-                  @click="activeLanguageTab = 'dubbing'"
-                >
-                  AI原声翻译
-                  <span class="lang-panel-tab-badge">Beta</span>
-                </button>
-                <button
-                  class="lang-panel-tab"
-                  :class="{ 'active': activeLanguageTab === 'subtitle' }"
-                  @click="activeLanguageTab = 'subtitle'"
-                >
-                  字幕
-                </button>
-              </div>
-
-              <!-- Dubbing tab content -->
-              <div v-if="activeLanguageTab === 'dubbing'" class="lang-panel-body">
-                <button class="lang-panel-item" @click="handleDubbingChange(null)">
-                  <span :class="{ 'text-accent': dubbingLang === null }">关闭</span>
-                  <Check v-if="dubbingLang === null" :size="14" class="text-accent" />
-                </button>
-                <button
-                  class="lang-panel-item"
-                  :class="{ 'disabled': !availableDubbings.en }"
-                  :disabled="!availableDubbings.en"
-                  @click="availableDubbings.en && handleDubbingChange('en')"
-                >
-                  <span :class="{ 'text-accent': dubbingLang === 'en' }">English (AI)</span>
-                  <Check v-if="dubbingLang === 'en'" :size="14" class="text-accent" />
-                </button>
-                <button
-                  class="lang-panel-item"
-                  :class="{ 'disabled': !availableDubbings.ja }"
-                  :disabled="!availableDubbings.ja"
-                  @click="availableDubbings.ja && handleDubbingChange('ja')"
-                >
-                  <span :class="{ 'text-accent': dubbingLang === 'ja' }">日本語 (AI)</span>
-                  <Check v-if="dubbingLang === 'ja'" :size="14" class="text-accent" />
-                </button>
-              </div>
-
-              <!-- Subtitle tab content -->
-              <div v-if="activeLanguageTab === 'subtitle'" class="lang-panel-body">
+              <!-- Subtitle content (directly shown, no tab bar needed) -->
+              <div class="lang-panel-body">
                 <button class="lang-panel-item" @click="handleSubtitleChange(null)">
                   <span :class="{ 'text-accent': subtitleLang === null }">关闭</span>
                   <Check v-if="subtitleLang === null" :size="14" class="text-accent" />
@@ -2566,68 +2521,23 @@ onBeforeUnmount(() => {
   bottom: calc(100% + 8px);
   right: 0;
   width: 240px;
-  background: rgba(15, 15, 20, 0.95);
+  background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.95);
   border-radius: 10px;
   overflow: hidden;
   box-shadow:
-    0 -4px 24px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(19, 245, 245, 0.06);
+    0 -4px 24px rgba(15, 23, 42, 0.18),
+    0 0 0 1px rgba(19, 245, 245, 0.08);
   z-index: 9999;
 }
 
-/* Tab bar */
-.lang-panel-tabs {
-  display: flex;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.lang-panel-tab {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 10px 6px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  position: relative;
-  transition: color 0.15s ease;
-  letter-spacing: 0.02em;
-}
-
-.lang-panel-tab:hover {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.lang-panel-tab.active {
-  color: #13f5f5;
-}
-
-.lang-panel-tab.active::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 20%;
-  right: 20%;
-  height: 2px;
-  background: #13f5f5;
-  border-radius: 2px 2px 0 0;
-}
-
-.lang-panel-tab-badge {
-  font-size: 9px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: rgba(19, 245, 245, 0.15);
-  color: #13f5f5;
-  line-height: 1.2;
-  letter-spacing: 0.03em;
+:global(html.dark) .lang-panel {
+  background: rgba(15, 15, 20, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 -4px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(19, 245, 245, 0.06);
 }
 
 /* Panel body */
@@ -2643,14 +2553,22 @@ onBeforeUnmount(() => {
   padding: 8px 16px;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.82);
+  color: rgb(51, 65, 85);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
   text-align: left;
 }
 
+:global(html.dark) .lang-panel-item {
+  color: rgba(255, 255, 255, 0.82);
+}
+
 .lang-panel-item:hover:not(.disabled) {
+  background: rgba(241, 245, 249, 0.95);
+}
+
+:global(html.dark) .lang-panel-item:hover:not(.disabled) {
   background: rgba(255, 255, 255, 0.06);
 }
 
@@ -2664,13 +2582,21 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  color: rgba(255, 255, 255, 0.82);
+  color: rgb(51, 65, 85);
   font-size: 13px;
+}
+
+:global(html.dark) .lang-panel-row {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .lang-panel-divider {
   height: 1px;
   margin: 4px 14px;
+  background: rgba(226, 232, 240, 0.95);
+}
+
+:global(html.dark) .lang-panel-divider {
   background: rgba(255, 255, 255, 0.08);
 }
 

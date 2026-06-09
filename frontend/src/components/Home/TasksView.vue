@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { ElMessage } from '@/composables/useNotification'
 import { Refresh, More } from '@element-plus/icons-vue'
 import { getCookie } from '@/composables/GetCSRFToken'
 import { useI18n } from 'vue-i18n'
+import { useTheme } from '@/composables/useTheme'
 
 interface TaskRow {
   id: number
@@ -50,23 +51,33 @@ interface DownloadTaskInfo {
   total_progress: number // 🆕 总进度
 }
 
-interface ExportTaskRow {
+interface SummaryTaskRow {
   id: string
   videoName: string
-  subtitleType: string
-  status: string
-  progress: number
-  outputFilename: string
+  build: string
+  extract: string
+  summarize: string
+  totalProgress: number
+  resultPath: string
   errorMessage: string
 }
 
-interface ExportTaskInfo {
+interface SummaryTaskInfo {
   video_id: number
   video_name: string
-  subtitle_type: 'raw' | 'translated' | 'both'
+  stages: {
+    build: string
+    extract: string
+    summarize: string
+  }
+  stage_progress: {
+    build: number
+    extract: number
+    summarize: number
+  }
+  total_progress: number
   status: string
-  progress: number
-  output_filename: string
+  result_path: string
   error_message: string
 }
 
@@ -77,18 +88,41 @@ const { uploadTasks, clearFinished } = useUploadTasks()
 
 const TASKS_URL = '/api/tasks/subtitle_generate/status'
 const DOWNLOAD_STATUS_URL = '/api/stream_media/download_status'
-const EXPORT_STATUS_URL = '/api/export/status'
+const SUMMARY_STATUS_URL = '/api/summary/status'
 const POLL_INTERVAL = 3_000
 
 // i18n functionality
 const { t } = useI18n()
+const { theme } = useTheme()
+
+const isDark = computed(() => theme.value === 'dark')
+
+const headerCellStyle = computed(() =>
+  isDark.value
+    ? { background: '#1e293b', color: '#e2e8f0', borderColor: '#475569' }
+    : { background: '#f8fafc', color: '#1e293b', borderColor: '#e2e8f0' },
+)
+
+const cellStyle = computed(() =>
+  isDark.value
+    ? { background: '#334155', color: '#e2e8f0', borderColor: '#475569' }
+    : { background: '#ffffff', color: '#1e293b', borderColor: '#e2e8f0' },
+)
+
+const rowStyle = computed(() =>
+  isDark.value ? { background: '#334155' } : { background: '#ffffff' },
+)
+
+const tableStyle = computed(() =>
+  isDark.value ? 'width: 100%; background: #334155' : 'width: 100%; background: #ffffff',
+)
 
 const subtitleTasks = ref<TaskRow[]>([])
 const downloadTasks = ref<DownloadTaskRow[]>([])
-const exportTasks = ref<ExportTaskRow[]>([])
+const summaryTasks = ref<SummaryTaskRow[]>([])
 let timer_download: number | undefined
 let timer_subtitle: number | undefined
-let timer_export: number | undefined
+let timer_summary: number | undefined
 
 async function fetchSubtitleTasks() {
   try {
@@ -130,60 +164,29 @@ async function fetchDownloadTasks() {
   }
 }
 
-async function fetchExportTasks() {
+async function fetchSummaryTasks() {
   try {
-    const res = await fetch(`${BACKEND}${EXPORT_STATUS_URL}`, { credentials: 'include' })
+    const res = await fetch(`${BACKEND}${SUMMARY_STATUS_URL}`, { credentials: 'include' })
     if (!res.ok) throw new Error(await res.text())
 
-    const result = await res.json()
-    if (!result.success) {
-      throw new Error(result.message || '获取导出任务失败')
-    }
+    const raw = (await res.json()) as Record<string, SummaryTaskInfo>
 
-    const raw = result.data as Record<string, ExportTaskInfo>
-
-    exportTasks.value = Object.entries(raw).map(([id, info]) => ({
+    summaryTasks.value = Object.entries(raw).map(([id, info]) => ({
       id: id,
       videoName: info.video_name,
-      subtitleType: getSubtitleTypeLabel(info.subtitle_type),
-      status: info.status,
-      progress: info.progress,
-      outputFilename: info.output_filename,
+      build: info.stages.build,
+      extract: info.stages.extract,
+      summarize: info.stages.summarize,
+      totalProgress: info.total_progress || 0,
+      resultPath: info.result_path,
       errorMessage: info.error_message,
     }))
   } catch (err) {
-    ElMessage.error(`${t('exportTaskListFailed')}：${err}`)
+    // silent - summary may not be configured
   }
 }
 
-function getSubtitleTypeLabel(type: string): string {
-  switch (type) {
-    case 'raw':
-      return t('originalSubtitle')
-    case 'translated':
-      return t('translatedSubtitle')
-    case 'both':
-      return t('bilingualSubtitle')
-    default:
-      return type
-  }
-}
-
-function getStatusLabel(status: string): string {
-  switch (status) {
-    case 'Queued':
-      return t('queued')
-    case 'Running':
-      return t('running')
-    case 'Completed':
-      return t('completed')
-    case 'Failed':
-      return t('failed')
-    default:
-      return status
-  }
-}
-type Command = 'retry' | 'delete' | 'download'
+type Command = 'retry' | 'delete'
 const csrfToken = getCookie('csrftoken')
 
 async function retrySubtitle(id: number) {
@@ -255,96 +258,51 @@ async function deleteDownload(id: string) {
   }
 }
 
-// 导出任务重试／删除函数
-async function retryExport(id: string) {
+async function retrySummary(id: string) {
   try {
-    const res = await fetch(`${BACKEND}/api/export/${id}/retry`, {
+    const res = await fetch(`${BACKEND}/api/summary/${id}/retry`, {
       method: 'POST',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrfToken,
-      },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
     })
     if (!res.ok) throw new Error(await res.text())
-    ElMessage.success(t('exportTaskRescheduled'))
-    await fetchExportTasks()
+    ElMessage.success('摘要任务已重新排队')
+    await fetchSummaryTasks()
   } catch (err: any) {
     ElMessage.error(`${t('retryFailed')}：${err.message}`)
   }
 }
 
-// 下载导出的视频文件
-async function downloadExportedVideo(taskId: string, filename: string) {
+async function deleteSummary(id: string) {
   try {
-    ElMessage.info(t('startingDownload'))
-
-    const response = await fetch(`${BACKEND}/api/export/${taskId}/download`, {
-      method: 'GET',
-      credentials: 'include',
-    })
-
-    if (!response.ok) {
-      throw new Error(`下载失败: ${response.status}`)
-    }
-
-    // 使用 Blob 和 createObjectURL 创建下载链接
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-
-    // 创建临时下载链接
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename || 'exported_video.mp4'
-    link.style.display = 'none'
-
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-
-    // 清理 blob URL
-    URL.revokeObjectURL(url)
-
-    ElMessage.success(t('downloadCompleted'))
-  } catch (err: any) {
-    console.error('Download error:', err)
-    ElMessage.error(`${t('downloadFailed')}：${err.message}`)
-  }
-}
-
-async function deleteExport(id: string) {
-  try {
-    const res = await fetch(`${BACKEND}/api/export/${id}/delete`, {
+    const res = await fetch(`${BACKEND}/api/summary/${id}/delete`, {
       method: 'DELETE',
       credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
     })
     if (!res.ok) throw new Error(await res.text())
-    ElMessage.success(t('exportTaskDeleted'))
-    await fetchExportTasks()
+    ElMessage.success('摘要任务已删除')
+    await fetchSummaryTasks()
   } catch (err: any) {
     ElMessage.error(`${t('deleteFailed')}：${err.message}`)
   }
 }
 
-function handleCommand(row: TaskRow | DownloadTaskRow | ExportTaskRow, command: Command): void {
+function handleCommand(row: TaskRow | DownloadTaskRow | SummaryTaskRow, command: Command): void {
   console.log('handleCommand → row:', row, 'command:', command)
   if (command === 'retry') {
-    if ('bvid' in row) {
+    if ('build' in row) {
+      retrySummary(row.id)
+    } else if ('bvid' in row) {
       retryDownload(row.id)
-    } else if ('videoName' in row) {
-      retryExport(row.id)
     } else {
       retrySubtitle(row.id)
     }
-  } else if (command === 'download') {
-    if ('videoName' in row) {
-      downloadExportedVideo(row.id, row.outputFilename)
-    }
   } else {
-    if ('bvid' in row) {
+    if ('build' in row) {
+      deleteSummary(row.id)
+    } else if ('bvid' in row) {
       deleteDownload(row.id)
-    } else if ('videoName' in row) {
-      deleteExport(row.id)
     } else {
       deleteSubtitle(row.id)
     }
@@ -354,16 +312,16 @@ function handleCommand(row: TaskRow | DownloadTaskRow | ExportTaskRow, command: 
 onMounted(() => {
   fetchDownloadTasks()
   fetchSubtitleTasks()
-  fetchExportTasks()
+  fetchSummaryTasks()
   timer_download = window.setInterval(fetchDownloadTasks, POLL_INTERVAL)
   timer_subtitle = window.setInterval(fetchSubtitleTasks, POLL_INTERVAL)
-  timer_export = window.setInterval(fetchExportTasks, POLL_INTERVAL)
+  timer_summary = window.setInterval(fetchSummaryTasks, POLL_INTERVAL)
 })
 
 onBeforeUnmount(() => {
   clearInterval(timer_download)
   clearInterval(timer_subtitle)
-  clearInterval(timer_export)
+  clearInterval(timer_summary)
 })
 </script>
 
@@ -371,10 +329,10 @@ onBeforeUnmount(() => {
   <!-- 文件上传任务 -->
   <div v-if="uploadTasks.length" class="mb-8">
     <div
-      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
+      class="bg-gradient-to-r from-white to-slate-50 dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-200 dark:border-slate-600/50 shadow-2xl"
     >
       <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-white">文件上传</h2>
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white">文件上传</h2>
         <el-button
           type="primary"
           size="small"
@@ -388,17 +346,17 @@ onBeforeUnmount(() => {
       <el-table
         :data="uploadTasks"
         class="dark-table"
-        :header-cell-style="{ background: '#1e293b', color: '#e2e8f0', borderColor: '#475569' }"
-        :cell-style="{ background: '#334155', color: '#e2e8f0', borderColor: '#475569' }"
-        :row-style="{ background: '#334155' }"
-        style="width: 100%; background: #334155"
+        :header-cell-style="headerCellStyle"
+        :cell-style="cellStyle"
+        :row-style="rowStyle"
+        :style="tableStyle"
       >
         <el-table-column prop="name" label="文件名" width="400" />
 
         <el-table-column label="进度" width="200">
           <template #default="{ row }">
             <div class="flex items-center">
-              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
+              <div class="w-28 bg-slate-200 dark:bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
@@ -409,7 +367,7 @@ onBeforeUnmount(() => {
                   :style="{ width: `${row.progress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">
+              <span class="text-xs text-slate-600 dark:text-gray-300 font-semibold whitespace-nowrap">
                 {{ row.status === 'success' ? '完成' : row.status === 'error' ? '失败' : `${row.progress}%` }}
               </span>
             </div>
@@ -440,11 +398,11 @@ onBeforeUnmount(() => {
   <!-- 字幕转译任务 -->
   <div class="mb-8">
     <div
-      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
+      class="bg-gradient-to-r from-white to-slate-50 dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-200 dark:border-slate-600/50 shadow-2xl"
     >
       <!-- 标题栏 -->
       <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-white">{{ t('subtitleTranslation') }}</h2>
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white">{{ t('subtitleTranslation') }}</h2>
         <el-button
           type="primary"
           size="small"
@@ -459,10 +417,10 @@ onBeforeUnmount(() => {
       <el-table
         :data="subtitleTasks"
         class="dark-table"
-        :header-cell-style="{ background: '#1e293b', color: '#e2e8f0', borderColor: '#475569' }"
-        :cell-style="{ background: '#334155', color: '#e2e8f0', borderColor: '#475569' }"
-        :row-style="{ background: '#334155' }"
-        style="width: 100%; background: #334155"
+        :header-cell-style="headerCellStyle"
+        :cell-style="cellStyle"
+        :row-style="rowStyle"
+        :style="tableStyle"
       >
         <!-- 文件名 -->
         <el-table-column prop="fileName" :label="t('filename')" width="400" />
@@ -471,7 +429,7 @@ onBeforeUnmount(() => {
         <el-table-column :label="t('totalProgress')" width="200">
           <template #default="{ row }">
             <div class="flex items-center">
-              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
+              <div class="w-28 bg-slate-200 dark:bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
@@ -481,7 +439,7 @@ onBeforeUnmount(() => {
                   :style="{ width: `${row.totalProgress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.totalProgress.toFixed(1) }}%</span>
+              <span class="text-xs text-slate-600 dark:text-gray-300 font-semibold whitespace-nowrap">{{ row.totalProgress.toFixed(1) }}%</span>
             </div>
           </template>
         </el-table-column>
@@ -555,11 +513,11 @@ onBeforeUnmount(() => {
   <!-- 视频下载任务 -->
   <div class="mb-8">
     <div
-      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
+      class="bg-gradient-to-r from-white to-slate-50 dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-200 dark:border-slate-600/50 shadow-2xl"
     >
       <!-- 标题栏 -->
       <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-white">{{ t('videoDownload') }}</h2>
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white">{{ t('videoDownload') }}</h2>
         <el-button
           type="primary"
           size="small"
@@ -574,10 +532,10 @@ onBeforeUnmount(() => {
       <el-table
         :data="downloadTasks"
         class="dark-table"
-        :header-cell-style="{ background: '#1e293b', color: '#e2e8f0', borderColor: '#475569' }"
-        :cell-style="{ background: '#334155', color: '#e2e8f0', borderColor: '#475569' }"
-        :row-style="{ background: '#334155' }"
-        style="width: 100%; background: #334155"
+        :header-cell-style="headerCellStyle"
+        :cell-style="cellStyle"
+        :row-style="rowStyle"
+        :style="tableStyle"
       >
         <!-- 文件名 -->
         <el-table-column prop="fileName" :label="t('filename')" width="400" />
@@ -586,7 +544,7 @@ onBeforeUnmount(() => {
         <el-table-column :label="t('totalProgress')" width="200">
           <template #default="{ row }">
             <div class="flex items-center">
-              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
+              <div class="w-28 bg-slate-200 dark:bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
@@ -596,7 +554,7 @@ onBeforeUnmount(() => {
                   :style="{ width: `${row.totalProgress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.totalProgress.toFixed(1) }}%</span>
+              <span class="text-xs text-slate-600 dark:text-gray-300 font-semibold whitespace-nowrap">{{ row.totalProgress.toFixed(1) }}%</span>
             </div>
           </template>
         </el-table-column>
@@ -644,7 +602,7 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <!-- 操作 -->
-        <el-table-column label="操作" width="80" align="center" fixed="right">
+        <el-table-column :label="t('operation')" width="80" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-cell">
               <el-dropdown
@@ -667,116 +625,110 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <!-- 视频导出任务 -->
+  <!-- 视频摘要任务 -->
   <div class="mb-8">
     <div
-      class="bg-gradient-to-r from-slate-800/90 to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-600/50 shadow-2xl"
+      class="bg-gradient-to-r from-white to-slate-50 dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-200 dark:border-slate-600/50 shadow-2xl"
     >
-      <!-- 标题栏 -->
       <div class="flex items-center justify-between mb-6">
-        <h2 class="text-xl font-bold text-white">{{ t('videoExport') }}</h2>
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white">{{ t('videoSummary') }}</h2>
         <el-button
-          type="primary"
           size="small"
-          class="bg-blue-600 hover:bg-blue-700 border-blue-600"
-          @click="fetchExportTasks"
+          @click="fetchSummaryTasks"
         >
           <el-icon><Refresh /></el-icon>
         </el-button>
       </div>
 
-      <!-- 深色主题表格 -->
       <el-table
-        :data="exportTasks"
+        :data="summaryTasks"
         class="dark-table"
-        :header-cell-style="{ background: '#1e293b', color: '#e2e8f0', borderColor: '#475569' }"
-        :cell-style="{ background: '#334155', color: '#e2e8f0', borderColor: '#475569' }"
-        :row-style="{ background: '#334155' }"
-        style="width: 100%; background: #334155"
+        :header-cell-style="headerCellStyle"
+        :cell-style="cellStyle"
+        :row-style="rowStyle"
+        :style="tableStyle"
       >
-        <!-- 视频名称 -->
         <el-table-column prop="videoName" :label="t('videoName')" width="400" />
 
-        <!-- 🆕 总进度（第二列） -->
         <el-table-column :label="t('totalProgress')" width="200">
           <template #default="{ row }">
             <div class="flex items-center">
-              <div class="w-28 bg-gray-600 rounded-full h-3 mr-2">
+              <div class="w-28 bg-slate-200 dark:bg-gray-600 rounded-full h-3 mr-2">
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
-                    'bg-blue-500': row.progress < 100,
-                    'bg-green-500': row.progress === 100,
+                    'bg-blue-500': row.totalProgress < 100,
+                    'bg-green-500': row.totalProgress === 100,
                   }"
-                  :style="{ width: `${row.progress}%` }"
+                  :style="{ width: `${row.totalProgress}%` }"
                 ></div>
               </div>
-              <span class="text-xs text-gray-300 font-semibold whitespace-nowrap">{{ row.progress }}%</span>
+              <span class="text-xs text-slate-600 dark:text-gray-300 font-semibold whitespace-nowrap">{{ row.totalProgress.toFixed(1) }}%</span>
             </div>
           </template>
         </el-table-column>
 
-        <!-- 字幕类型 -->
-        <el-table-column
-          prop="subtitleType"
-          :label="t('subtitleType')"
-          min-width="120"
-        />
-
-        <!-- 导出状态 -->
-        <el-table-column :label="t('exportStatus')" min-width="150">
+        <el-table-column label="Caption" min-width="100">
           <template #default="{ row }">
-            <div class="flex items-center">
-              <span
-                class="status-dot"
-                :class="{
-                  waiting: row.status === 'Queued',
-                  progressing: row.status === 'Running',
-                  success: row.status === 'Completed',
-                  error: row.status === 'Failed',
-                }"
-              ></span>
-              <span class="ml-2 text-sm">
-                <span v-if="row.status === 'Failed'" class="text-red-400">任务失败</span>
-                <span v-else-if="row.status === 'Running'" class="text-blue-400">进行中</span>
-                <span v-else-if="row.status === 'Completed'" class="text-green-400">已完成</span>
-                <span v-else>{{ getStatusLabel(row.status) }}</span>
-              </span>
-            </div>
+            <span
+              class="status-dot"
+              :class="{
+                waiting: row.build === 'Queued',
+                progressing: row.build === 'Running',
+                success: row.build === 'Completed',
+                error: row.build === 'Failed',
+              }"
+            ></span>
           </template>
         </el-table-column>
-        <!-- 输出文件 -->
-        <el-table-column :label="t('outputFile')" min-width="180">
+
+        <el-table-column label="OCR" min-width="100">
           <template #default="{ row }">
-            <span v-if="row.outputFilename" class="text-sm text-gray-300">{{
-              row.outputFilename
-            }}</span>
-            <span v-else-if="row.errorMessage" class="text-xs text-red-400">{{
-              row.errorMessage
-            }}</span>
+            <span
+              class="status-dot"
+              :class="{
+                waiting: row.extract === 'Queued',
+                progressing: row.extract === 'Running',
+                success: row.extract === 'Completed',
+                error: row.extract === 'Failed',
+              }"
+            ></span>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('summary')" min-width="100">
+          <template #default="{ row }">
+            <span
+              class="status-dot"
+              :class="{
+                waiting: row.summarize === 'Queued',
+                progressing: row.summarize === 'Running',
+                success: row.summarize === 'Completed',
+                error: row.summarize === 'Failed',
+              }"
+            ></span>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('result')" min-width="200">
+          <template #default="{ row }">
+            <span v-if="row.resultPath" class="text-sm text-green-400">{{ t('completed') }}</span>
+            <span v-else-if="row.errorMessage" class="text-xs text-red-400">{{ row.errorMessage.slice(0, 60) }}</span>
             <span v-else class="text-xs text-gray-500">-</span>
           </template>
         </el-table-column>
-        <!-- 操作 -->
-        <el-table-column label="操作" width="80" align="center" fixed="right">
+
+        <el-table-column :label="t('operation')" width="80" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-cell">
               <el-dropdown
                 trigger="click"
-                @command="(cmd: 'retry' | 'delete' | 'download') => handleCommand(row, cmd)"
+                @command="(cmd: 'retry' | 'delete') => handleCommand(row, cmd)"
               >
-                <!-- More 图标，slot default 用 span 包一下 -->
                 <span class="more-icon">
                   <el-icon><More /></el-icon>
                 </span>
                 <template #dropdown>
-                  <el-dropdown-item
-                    v-if="row.status === 'Completed' && row.outputFilename"
-                    command="download"
-                    class="text-green-400 hover:text-green-300"
-                  >
-                    {{ t('download') }}
-                  </el-dropdown-item>
                   <el-dropdown-item command="retry">{{ t('retry') }}</el-dropdown-item>
                   <el-dropdown-item command="delete">{{ t('deleteTask') }}</el-dropdown-item>
                 </template>
@@ -791,24 +743,23 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* 深色主题表格样式 */
-.dark-table {
+:global(html.dark) .dark-table {
   background: #334155 !important;
 }
 
-.dark-table :deep(.el-table__header-wrapper) {
+:global(html.dark) .dark-table :deep(.el-table__header-wrapper) {
   background: #1e293b !important;
 }
 
-.dark-table :deep(.el-table__body-wrapper) {
+:global(html.dark) .dark-table :deep(.el-table__body-wrapper) {
   background: #334155 !important;
 }
 
-.dark-table :deep(.el-table__row) {
+:global(html.dark) .dark-table :deep(.el-table__row) {
   background: #334155 !important;
 }
 
-.dark-table :deep(.el-table__row:hover > td) {
+:global(html.dark) .dark-table :deep(.el-table__row:hover > td) {
   background: #475569 !important;
 }
 
@@ -855,7 +806,7 @@ onBeforeUnmount(() => {
 
 /* 操作按钮样式 */
 .more-icon {
-  color: #94a3b8;
+  color: #64748b;
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
@@ -863,6 +814,15 @@ onBeforeUnmount(() => {
 }
 
 .more-icon:hover {
+  color: #1e293b;
+  background: #f1f5f9;
+}
+
+:global(html.dark) .more-icon {
+  color: #94a3b8;
+}
+
+:global(html.dark) .more-icon:hover {
   color: #e2e8f0;
   background: #475569;
 }
@@ -883,12 +843,4 @@ onBeforeUnmount(() => {
   visibility: visible;
 }
 
-/* 下载选项样式 */
-:deep(.el-dropdown-item.text-green-400) {
-  color: #22c55e !important;
-}
-:deep(.el-dropdown-item.text-green-400:hover) {
-  color: #16a34a !important;
-  background-color: rgba(34, 197, 94, 0.1) !important;
-}
 </style>

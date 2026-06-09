@@ -27,16 +27,16 @@ const showTranslation = ref(false)
 </script>
 
 <template>
-  <div class="bg-slate-800/30 rounded-2xl backdrop-blur-lg border border-slate-600/30">
+  <div class="bg-white dark:bg-slate-800/30 rounded-2xl backdrop-blur-lg border border-slate-200 dark:border-slate-600/30">
     <!-- Tab Navigation -->
-    <div class="flex border-b border-slate-600/30 p-2">
+    <div class="flex border-b border-slate-200 dark:border-slate-600/30 p-2">
       <button
         @click="activeTab = 'subtitles'"
         class="flex-1 px-6 py-3 text-sm font-medium rounded-xl transition-all duration-300 mx-1"
         :class="
           activeTab === 'subtitles'
             ? 'text-white bg-blue-600/80 shadow-lg border border-blue-500/30'
-            : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-700/50'
         "
       >
         {{ t('subtitles') }}
@@ -47,7 +47,7 @@ const showTranslation = ref(false)
         :class="
           activeTab === 'chapters'
             ? 'text-white bg-blue-600/80 shadow-lg border border-blue-500/30'
-            : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-700/50'
         "
       >
         {{ t('videoChapters') }}
