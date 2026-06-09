@@ -10,7 +10,7 @@ from external_api import (
     call_glm_ocr, _pil_to_base64,
 )
 from srt_utils import search_transcript, transcript_for_timerange
-from config import DEEPSEEK_API_KEY, STEP_API_KEY, N_PREDICT, GGUF_PATH, EXPORT_DIR, N_CTX, N_GPU_LAYERS, N_BATCH, KV_CACHE_TYPE, ONNX_PROVIDER, SUMMARY_SLIDES_PER_CHAPTER
+from config import DEEPSEEK_API_KEY, STEP_API_KEY, N_PREDICT, GGUF_PATH, EXPORT_DIR, N_CTX, N_GPU_LAYERS, N_BATCH, KV_CACHE_TYPE, ONNX_PROVIDER, SUMMARY_SLIDES_PER_CHAPTER, SUMMARY_LANG
 
 
 # ── DeepSeek tool definitions ─────────────────────────────────
@@ -1119,7 +1119,7 @@ class VideoAgent:
         "重要：\n"
         "- 当你已经有足够信息时，**立即停止调用工具并直接给出最终答案**\n"
         "- 最终答案必须包含：具体事实 + 时间戳 + 来源（字幕/视觉）\n"
-        "- 用中文回答"
+        f"- 用{SUMMARY_LANG}回答"
     )
 
     _SUMMARIZE_SYSTEM_PROMPT = (
@@ -1135,7 +1135,7 @@ class VideoAgent:
         "- 每个章节用时间线叙事：按时间顺序描述发生了什么（操作→变化→结果）\n"
         "- 视频中出现的代码和界面操作必须体现（这是区别于纯字幕总结的关键优势）\n"
         "- 最后附上完整的目录（Table of Contents）\n"
-        "- 用中文输出（原始字幕/代码保持原文）\n\n"
+        f"- 用{SUMMARY_LANG}输出（原始字幕/代码保持原文）\n\n"
         "注意：不要跳过任何章节，确保覆盖完整视频内容。"
     )
 
@@ -1506,7 +1506,7 @@ class VideoAgent:
             "你是视频分析助手。以下是来自不同来源的视频相关信息，可靠性从高到低："
             "transcript(原始字幕，最可靠) > visual_caption(AI视觉描述) > keyword_match(关键词匹配)。\n\n"
             f"{ctx_text}\n\n"
-            f"问题：{question}\n\n请用中文详细回答，引用具体时间戳。优先使用transcript中的信息。信息不足请说明。"
+            f"问题：{question}\n\n请用{SUMMARY_LANG}详细回答，引用具体时间戳。优先使用transcript中的信息。信息不足请说明。"
         )
         remote = self._remote_ask(prompt[:15000], max_tokens=512)
         if remote and len(remote) > 30:
@@ -1604,7 +1604,7 @@ class VideoAgent:
                     f"之前的回答：\n{answer[:4000]}\n\n"
                     f"补充视觉验证：\n{new_evidence}\n\n"
                     "请根据所有信息重新给出更准确、更完整的回答。"
-                    "引用具体时间戳。如果之前回答有误，请纠正。用中文回答。"
+                    "引用具体时间戳。如果之前回答有误，请纠正。" f"用{SUMMARY_LANG}回答。"
                 )
                 new_answer = self._remote_ask(react_prompt[:15000], max_tokens=1024)
                 if new_answer and len(new_answer) > 30:
@@ -1841,7 +1841,7 @@ class VideoAgent:
         prompt = (
             f"你是视频分析助手，需要借助外部知识回答一个超出视频内容范围的问题。\n\n"
             f"== 视频中相关上下文 ==\n{ctx[:3000]}\n\n"
-            f"== 需要外部知识的问题 ==\n{question}\n\n请结合外部知识回答，用中文。"
+            f"== 需要外部知识的问题 ==\n{question}\n\n请结合外部知识回答，用{SUMMARY_LANG}。"
         )
         return self._external_ask(prompt)
 

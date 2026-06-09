@@ -1383,6 +1383,7 @@ def generate_summary_for_video(task_id: str) -> None:
 
         os.environ["VIDUNDER_VIDEO_PATH"] = video_path
         os.environ["VIDUNDER_SRT_PATH"] = srt_path
+        os.environ["VIDUNDER_SUMMARY_LANG"] = task.get("language", "中文")
 
         db_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "db")
         os.makedirs(db_dir, exist_ok=True)

@@ -41,6 +41,7 @@ class SummaryAddView(View):
 
         task_id = f"summary_{video_id}_{int(time.time())}"
         min_coverage = payload.get("min_coverage", 0.60)
+        language = payload.get("language", "中文")
 
         summary_task_status[task_id].update({
             "video_id": video_id,
@@ -48,6 +49,7 @@ class SummaryAddView(View):
             "video_path": video_path,
             "srt_path": srt_path,
             "min_coverage": min_coverage,
+            "language": language,
             "status": "Queued",
             "created_at": int(time.time()),
         })
