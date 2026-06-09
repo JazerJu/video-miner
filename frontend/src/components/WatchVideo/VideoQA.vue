@@ -5,7 +5,7 @@ import { markdownToHtml, processMarkdownContent } from '@/composables/ConvertMar
 import { BACKEND } from '@/composables/ConfigAPI'
 import { getCookie } from '@/composables/GetCSRFToken'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const props = defineProps<{
   videoId: number
@@ -127,7 +127,7 @@ async function generateSummary() {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-      body: JSON.stringify({ video_id: props.videoId }),
+      body: JSON.stringify({ video_id: props.videoId, language: locale.value === 'zh' ? '中文' : 'English' }),
     })
     const data = await res.json()
     if (!res.ok) {

@@ -51,6 +51,7 @@ GLM_OCR_GGUF = str(PROJECT_DIR / "models" / "GLM-OCR-Q8_0.gguf")
 
 OPENROUTER_KEY = "REDACTED_OPENROUTER_KEY"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL = "google/gemini-2.5-flash"
 
 DOUBAO_API_KEY = "REDACTED_DOUBAO_KEY"
 DOUBAO_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
@@ -79,3 +80,4 @@ N_PREDICT = 256
 VIDEO_PATH = os.environ.get("VIDUNDER_VIDEO_PATH", "")
 SRT_PATH = os.environ.get("VIDUNDER_SRT_PATH", "")
 SUMMARY_SLIDES_PER_CHAPTER = int(os.environ.get("VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER", "3"))
+SUMMARY_LANG = os.environ.get("VIDUNDER_SUMMARY_LANG", "中文")

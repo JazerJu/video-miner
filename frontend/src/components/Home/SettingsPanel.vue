@@ -1071,8 +1071,9 @@
                 v-model="settings.vuCornerProvider"
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               >
-                <option value="gemini">Gemini (via OpenRouter)</option>
+                <option value="gemini">OpenRouter (Gemini as default)</option>
                 <option value="mimo">MiMo</option>
+                <option value="openai_compatible">OpenAI Compatible</option>
               </select>
             </div>
             <div class="flex items-center">
@@ -1148,6 +1149,39 @@
                 />
               </div>
             </template>
+            <template v-if="settings.vuCornerProvider === 'openai_compatible'">
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                  {{ t('apiKey') }}
+                </label>
+                <el-input
+                  v-model="settings.vuCornerOpenaiApiKey"
+                  type="password"
+                  show-password
+                  :placeholder="t('enterApiKey')"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                  {{ t('baseUrl') }}
+                </label>
+                <input
+                  v-model="settings.vuCornerOpenaiBaseUrl"
+                  type="text"
+                  class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                  Model
+                </label>
+                <input
+                  v-model="settings.vuCornerOpenaiModel"
+                  type="text"
+                  class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+                />
+              </div>
+            </template>
           </div>
         </div>
 
@@ -1216,6 +1250,7 @@
                 <option value="doubao">{{ t('doubao') }}</option>
                 <option value="step">Step</option>
                 <option value="openrouter">OpenRouter</option>
+                <option value="openai_compatible">OpenAI Compatible</option>
               </select>
             </div>
             <div class="flex items-center">
@@ -2167,6 +2202,9 @@ const settings = reactive<FrontendSettings>({
   vuCornerMimoApiKey: '',
   vuCornerMimoBaseUrl: '',
   vuCornerMimoModel: 'mimo-v2.5',
+  vuCornerOpenaiApiKey: '',
+  vuCornerOpenaiBaseUrl: '',
+  vuCornerOpenaiModel: '',
   vuSummaryApiKey: '',
   vuSummaryBaseUrl: 'https://api.deepseek.com',
   vuSummaryModel: 'deepseek-chat',

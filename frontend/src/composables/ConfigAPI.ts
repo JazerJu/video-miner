@@ -235,6 +235,9 @@ export interface ConfigData {
     vu_corner_mimo_api_key: string
     vu_corner_mimo_base_url: string
     vu_corner_mimo_model: string
+    vu_corner_openai_api_key: string
+    vu_corner_openai_base_url: string
+    vu_corner_openai_model: string
     vu_summary_api_key: string
     vu_summary_base_url: string
     vu_summary_model: string
@@ -368,6 +371,9 @@ export interface FrontendSettings {
   vuCornerMimoApiKey: string
   vuCornerMimoBaseUrl: string
   vuCornerMimoModel: string
+  vuCornerOpenaiApiKey: string
+  vuCornerOpenaiBaseUrl: string
+  vuCornerOpenaiModel: string
   vuSummaryApiKey: string
   vuSummaryBaseUrl: string
   vuSummaryModel: string
@@ -546,6 +552,9 @@ export async function loadConfig(): Promise<FrontendSettings> {
       vuCornerMimoApiKey: data['Video Understanding']?.vu_corner_mimo_api_key || '',
       vuCornerMimoBaseUrl: data['Video Understanding']?.vu_corner_mimo_base_url || '',
       vuCornerMimoModel: data['Video Understanding']?.vu_corner_mimo_model || 'mimo-v2.5',
+      vuCornerOpenaiApiKey: data['Video Understanding']?.vu_corner_openai_api_key || '',
+      vuCornerOpenaiBaseUrl: data['Video Understanding']?.vu_corner_openai_base_url || '',
+      vuCornerOpenaiModel: data['Video Understanding']?.vu_corner_openai_model || '',
       vuSummaryApiKey: data['Video Understanding']?.vu_summary_api_key || '',
       vuSummaryBaseUrl:
         data['Video Understanding']?.vu_summary_base_url || 'https://api.deepseek.com',
@@ -695,8 +704,11 @@ split_use_proxy: settings.splitUseProxy.toString(),
         vu_corner_gemini_model: settings.vuCornerGeminiModel,
         vu_corner_mimo_api_key: settings.vuCornerMimoApiKey,
         vu_corner_mimo_base_url: settings.vuCornerMimoBaseUrl,
-        vu_corner_mimo_model: settings.vuCornerMimoModel,
-        vu_summary_api_key: settings.vuSummaryApiKey,
+    vu_corner_mimo_model: settings.vuCornerMimoModel,
+    vu_corner_openai_api_key: settings.vuCornerOpenaiApiKey,
+    vu_corner_openai_base_url: settings.vuCornerOpenaiBaseUrl,
+    vu_corner_openai_model: settings.vuCornerOpenaiModel,
+    vu_summary_api_key: settings.vuSummaryApiKey,
         vu_summary_base_url: settings.vuSummaryBaseUrl,
         vu_summary_model: settings.vuSummaryModel,
         vu_knowledge_provider: settings.vuKnowledgeProvider,
