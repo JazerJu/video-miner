@@ -57,7 +57,7 @@ class SubtitleActionView(View):
         if not self.lang:
             return JsonResponse({"error": "No language code"}, status=400)
         self.lang = self.lang.lower()
-        if self.lang not in {"en", "zh", "jp","system_define"}:
+        if self.lang not in {"en", "zh", "jp", "de", "system_define"}:
             return JsonResponse({"error": "Unsupported language code"}, status=400)
         return super().dispatch(request, *args, **kwargs)
 
@@ -185,7 +185,7 @@ class SubtitleGenerationAddView(View):
             # 在数据库中更新视频的raw_lang字段
             try:
                 video = Video.objects.get(pk=vid)
-                if src_lang in ['en', 'zh', 'jp']:
+                if src_lang in ['en', 'zh', 'jp', 'de']:
                     video.raw_lang = src_lang
                     video.save(update_fields=['raw_lang'])
             except Video.DoesNotExist:
@@ -321,7 +321,7 @@ class SubtitleTranslationAddView(View):
             return JsonResponse({'error': 'Missing "video_id_list" field'}, status=400)
         if not video_name_list:
             return HttpResponseBadRequest('Missing "video_name_list"')
-        if not target_lang or target_lang not in ['zh', 'en', 'jp']:
+        if not target_lang or target_lang not in ['zh', 'en', 'jp', 'de']:
             return JsonResponse({'error': 'Invalid target language'}, status=400)
         
         # 检查所有视频是否存在原始字幕

@@ -103,6 +103,7 @@ class Video(models.Model):
             ("en", "English"),
             ("zh", "Chinese"),
             ("jp", "Japanese"),
+            ("de", "German"),
         ],
         blank=True,
         null=True,

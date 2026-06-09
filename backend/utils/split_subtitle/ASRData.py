@@ -284,5 +284,84 @@ if __name__ == '__main__':
     # print(asr_data.to_json())
 
 
+# Sentence-ending punctuation patterns for merging word/char-level SRT into sentences
+_SENTENCE_END_RE = re.compile(
+    r'[.!?。！？；;…]+$'
+)
+_CLAUSE_END_RE = re.compile(
+    r'[,，、:：]+$'
+)
+
+
+def merge_to_sentences(asr_data: ASRData, max_duration_ms: int = 15000, max_chars: int = 200) -> ASRData:
+    """
+    Merge word/char-level ASRData segments into sentence-level segments
+    by detecting sentence-ending punctuation.
+
+    Args:
+        asr_data: Input ASRData with word/char-level segments
+        max_duration_ms: Max duration for a single sentence segment (ms)
+        max_chars: Max character count for a single sentence segment
+
+    Returns:
+        New ASRData with sentence-level segments
+    """
+    if not asr_data.has_data():
+        return asr_data
+
+    merged_segments = []
+    current_texts = []
+    current_start = None
+    current_end = None
+
+    for seg in asr_data.segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+
+        if current_start is None:
+            current_start = seg.start_time
+
+        current_texts.append(text)
+        current_end = seg.end_time
+
+        # Check if this segment ends a sentence
+        is_sentence_end = bool(_SENTENCE_END_RE.search(text))
+        # Also break if duration or char limit exceeded
+        duration = current_end - current_start
+        total_chars = sum(len(t) for t in current_texts)
+
+        if is_sentence_end or duration >= max_duration_ms or total_chars >= max_chars:
+            merged_text = ''.join(current_texts)
+            merged_segments.append(ASRDataSeg(merged_text, current_start, current_end))
+            current_texts = []
+            current_start = None
+            current_end = None
+
+    # Flush remaining
+    if current_texts:
+        merged_text = ''.join(current_texts)
+        merged_segments.append(ASRDataSeg(merged_text, current_start, current_end))
+
+    return ASRData(merged_segments)
+
+
+def merge_to_sentences_from_srt(srt_str: str, max_duration_ms: int = 15000, max_chars: int = 200) -> str:
+    """
+    Convenience function: parse SRT string, merge to sentences, return SRT string.
+
+    Args:
+        srt_str: Input SRT string (word/char-level)
+        max_duration_ms: Max duration for a single sentence segment (ms)
+        max_chars: Max character count for a single sentence segment
+
+    Returns:
+        SRT string with sentence-level segments
+    """
+    asr_data = from_srt(srt_str)
+    merged = merge_to_sentences(asr_data, max_duration_ms, max_chars)
+    return merged.to_srt()
+
+
 
 

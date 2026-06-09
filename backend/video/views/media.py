@@ -86,6 +86,8 @@ class MediaActionView(View):
             return self.serve_attachments(request, filename)
         elif self.type == 'stream_video':
             return self.serve_stream_video(request, filename)
+        elif self.type == 'vidunder':
+            return self.serve_vidunder(request, filename)
         
         return HttpResponseNotAllowed(['GET'])
     # Memory-efficient chunked streaming for large video files
@@ -404,5 +406,10 @@ class MediaActionView(View):
         if not os.path.exists(file_path):
             from django.http import Http404
             raise Http404("Attachment file not found")
-        # Serve the attachment file
+        return serve(request, os.path.basename(file_path), document_root=os.path.dirname(file_path))
+
+    def serve_vidunder(self, request, filename):
+        file_path = os.path.join(settings.MEDIA_ROOT, "vidunder", filename)
+        if not os.path.exists(file_path):
+            raise Http404("File not found")
         return serve(request, os.path.basename(file_path), document_root=os.path.dirname(file_path))

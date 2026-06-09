@@ -12,7 +12,7 @@ import time
 import threading
 from ..models import Video
 from ..tasks import realtime_subtitle_status
-from utils.wsr.transcription_engine import transcribe_with_engine
+from asr_utils.transcription_engine import transcribe_with_engine
 from .videos import get_transcription_audio_path
 
 
@@ -69,9 +69,9 @@ def generate_realtime_subtitles(task_id: str, video_id: int, language: str = Non
         print(f"[RealtimeSubtitle] Starting transcription for task {task_id}, video {video_id}")
 
         # 🔧 临时方案：使用现有引擎，转录完成后模拟逐句输出
-        # TODO: 修改 whisper_cpp_wsr.py 支持真正的实时回调
+        # TODO: 修改统一转录引擎接口，支持真正的实时回调
         srt_content = transcribe_with_engine(
-            engine_type='whisper_cpp',
+            engine_type='funasr_gguf',
             audio_file_path=audio_path,
             progress_cb=progress_callback,
             language=language

@@ -14,7 +14,7 @@ class VideoConfig(AppConfig):
         if getattr(self, "_worker_started", False):
             return
 
-        from .tasks import process_next_task, process_download_task, process_export_task
+        from .tasks import process_next_task, process_download_task, process_summary_task
 
         # ===== 线程池配置 =====
         # 根据 CPU 核心数动态计算
@@ -28,8 +28,8 @@ class VideoConfig(AppConfig):
         # 注意：受网络带宽限制，不宜过大
         download_pool_size = min(cpu_count * 3, 12)  # 最多 12 个并发
 
-        # 导出任务：CPU 密集（FFmpeg），建议等于 CPU 核心数
-        export_pool_size = cpu_count
+        # vidUnder 总结任务：GPU/LLM 密集，串行执行以避免资源争用
+        summary_pool_size = 1
 
         # 创建线程池
         subtitle_executor = ThreadPoolExecutor(
@@ -42,15 +42,15 @@ class VideoConfig(AppConfig):
             thread_name_prefix="download-worker"
         )
 
-        export_executor = ThreadPoolExecutor(
-            max_workers=export_pool_size,
-            thread_name_prefix="export-worker"
+        summary_executor = ThreadPoolExecutor(
+            max_workers=summary_pool_size,
+            thread_name_prefix="summary-worker"
         )
 
         print(f"[ThreadPool] Subtitle workers: {subtitle_pool_size} (each creates 8 nested threads)")
         print(f"[ThreadPool] Download workers: {download_pool_size}")
-        print(f"[ThreadPool] Export workers: {export_pool_size}")
-        print(f"[ThreadPool] Total estimated threads: ~{subtitle_pool_size * 8 + download_pool_size + export_pool_size + 12}")
+        print(f"[ThreadPool] Summary workers: {summary_pool_size}")
+        print(f"[ThreadPool] Total estimated threads: ~{subtitle_pool_size * 8 + download_pool_size + summary_pool_size + 12}")
 
         # ===== 任务调度器 =====
         def _subtitle_dispatcher():
@@ -96,8 +96,8 @@ class VideoConfig(AppConfig):
                     print(f"Download dispatcher error: {e}")
                     time.sleep(5)
 
-        def _export_dispatcher():
-            """导出任务调度器"""
+        def _summary_dispatcher():
+            """vidUnder 总结任务调度器"""
             while True:
                 try:
                     connection.close_if_unusable_or_obsolete()
@@ -105,20 +105,21 @@ class VideoConfig(AppConfig):
                     def task_wrapper():
                         try:
                             connection.close_if_unusable_or_obsolete()
-                            process_export_task()
+                            process_summary_task()
                         except Exception as e:
-                            print(f"Export task error: {e}")
+                            import traceback
+                            print(f"Summary task error: {e}\n{traceback.format_exc()}")
 
-                    export_executor.submit(task_wrapper)
+                    summary_executor.submit(task_wrapper)
                     time.sleep(0.1 + random.random() * 0.1)
                 except Exception as e:
-                    print(f"Export dispatcher error: {e}")
+                    print(f"Summary dispatcher error: {e}")
                     time.sleep(5)
 
         # 启动调度器线程（守护线程）
         threading.Thread(target=_subtitle_dispatcher, daemon=True, name="subtitle-dispatcher").start()
         threading.Thread(target=_download_dispatcher, daemon=True, name="download-dispatcher").start()
-        threading.Thread(target=_export_dispatcher, daemon=True, name="export-dispatcher").start()
+        threading.Thread(target=_summary_dispatcher, daemon=True, name="summary-dispatcher").start()
 
         self._worker_started = True
         print("[Workers] Background task dispatchers with thread pools started")

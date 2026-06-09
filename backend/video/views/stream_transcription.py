@@ -640,8 +640,11 @@ class StartView(View):
             proxy_url = None
         else:
             proxy_url = _get_download_proxy()
+        source_lang = str(data.get("source_lang") or "en").strip().lower()
+        target_lang = str(data.get("target_lang") or "").strip().lower()
         task_id = str(uuid.uuid4())
-        start_transcription(task_id, audio_url, proxy_url, audio_headers)
+        start_transcription(task_id, audio_url, proxy_url, audio_headers,
+                            source_lang=source_lang, target_lang=target_lang)
         return JsonResponse({"success": True, "task_id": task_id})
 
 

@@ -59,6 +59,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sqlite3 \
     # Node.js 运行时：yt-dlp-ejs 需要 Node 执行 JS 挑战脚本（仅需 node 二进制，无需 npm）
     nodejs \
+    # FunASR-GGUF llama.cpp 依赖（GGUF decoder 通过 ctypes 加载）
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -79,8 +81,16 @@ COPY backend/ .
 COPY --chown=vidgo:vidgo backend/docker/entrypoint.sh /app/entrypoint.sh
 # Create user and directories
 RUN useradd --create-home --uid 1000 vidgo \
-    && mkdir -p /app/media /app/models /app/database \
+    && mkdir -p /app/media /app/models /app/database /app/asr-models/funasr-gguf \
     && chown -R vidgo:vidgo /app
+
+# FunASR-GGUF 模型权重（如构建上下文存在则拷入；不存在则跳过，由运行时挂载）
+# 模型结构：
+#   /app/asr-models/funasr-gguf/Fun-ASR-Nano-Encoder-Adaptor.int4.onnx
+#   /app/asr-models/funasr-gguf/Fun-ASR-Nano-CTC.int4.onnx
+#   /app/asr-models/funasr-gguf/Fun-ASR-Nano-Decoder.q5_k.gguf
+#   /app/asr-models/funasr-gguf/tokens.txt
+COPY --chown=vidgo:vidgo asr-models/funasr-gguf/ /app/asr-models/funasr-gguf/ 2>/dev/null || true
 
 RUN chmod +x /app/entrypoint.sh
 USER vidgo
@@ -95,9 +105,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     APP_CONFIG_DIR=/app/config \
     VIDGO_ALLOWED_HOSTS=* \
     VIDGO_CORS_ALLOWED_ORIGINS=http://localhost:4173,http://127.0.0.1:4173 \
-    VIDGO_CSRF_TRUSTED_ORIGINS=http://localhost:4173,http://127.0.0.1:4173
+    VIDGO_CSRF_TRUSTED_ORIGINS=http://localhost:4173,http://127.0.0.1:4173 \
+    # FunASR-GGUF 路径；用户可改 config.ini 中的 funasr_gguf_dir 覆盖
+    FUNASR_GGUF_DIR=/app/asr-models/funasr-gguf
 
-VOLUME ["/app/config", "/app/database", "/app/media", "/app/models"]
+VOLUME ["/app/config", "/app/database", "/app/media", "/app/models", "/app/asr-models/funasr-gguf"]
 
 # 运行启动脚本
 ENTRYPOINT ["/app/entrypoint.sh"]

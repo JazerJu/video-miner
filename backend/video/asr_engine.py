@@ -3,12 +3,27 @@ import subprocess
 import threading
 from typing import List
 
-from video.views.set_setting import load_all_settings
+from .views.set_setting import load_all_settings
 
 
-DEFAULT_ENGINE_PATH = "/data/fwsr/glm-asr/Infer-engine/glm_asr_infer"
-DEFAULT_MODEL_DIR = "/data/fwsr/glm-asr/GLM-ASR/glm-asr-nvfp4-awq"
-DEFAULT_MEL_FILTERS = "/data/fwsr/glm-asr/output/mel_filters.bin"
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ASR_UTILS = os.path.join(_BACKEND_DIR, "asr_utils", "glm-asr-stack")
+_MODELS_DIR = os.path.join(_BACKEND_DIR, "models", "glm-asr")
+
+DEFAULT_ENGINE_PATH = os.path.join(_ASR_UTILS, "Infer-engine", "glm_asr_infer")
+DEFAULT_MODEL_DIR = os.environ.get(
+    "GLM_ASR_MODEL_DIR",
+    os.path.join(_MODELS_DIR, "glm-asr-nano-2512"),
+)
+DEFAULT_MEL_FILTERS = os.path.join(_ASR_UTILS, "resources", "mel_filters.bin")
+DEFAULT_ENGINE_ENV = {
+    "GLMASR_VRAM_UTIL": "0.9",
+    "GLMASR_MAX_SEQS": "256",
+    "GLMASR_ENCODER_FA_PIPELINED": "1",
+    "GLMASR_ENCODER_FA_VLLM": "1",
+    "GLMASR_ENCODER_FA_LONG_MIN_SEQ": "1",
+    "GLMASR_ENCODER_FA_MIN_SEQ": "1",
+}
 
 
 def _get_engine_config() -> tuple[str, str, str]:
@@ -30,6 +45,8 @@ class ASREngineDaemon:
     def __init__(self):
         self._lock = threading.Lock()
         self._proc = None
+        self._stderr_lines: list[str] = []
+        self._stderr_thread = None
 
     def is_running(self) -> bool:
         with self._lock:
@@ -72,7 +89,16 @@ class ASREngineDaemon:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env={**os.environ, **DEFAULT_ENGINE_ENV},
         )
+        self._stderr_lines = []
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr_locked_proc,
+            args=(self._proc,),
+            daemon=True,
+            name="glm-asr-stderr-drain",
+        )
+        self._stderr_thread.start()
         self._send_line_locked(f"LOAD {model_dir}")
         self._wait_ready_locked("after model load")
         self._send_line_locked(f"MEL {mel_filters}")
@@ -89,7 +115,7 @@ class ASREngineDaemon:
             line = self._read_stdout_line_locked()
             if line == "READY":
                 break
-            if line.startswith("INFER_TIME:"):
+            if line.startswith("INFER_TIME:") or line.startswith("OUTPUT_TOKENS:"):
                 continue
             path, sep, text = line.partition(": ")
             if not sep:
@@ -97,6 +123,17 @@ class ASREngineDaemon:
             if path in outputs:
                 outputs[path] = text
         return [outputs[path] for path in bin_paths]
+
+    def _drain_stderr_locked_proc(self, proc) -> None:
+        if proc.stderr is None:
+            return
+        for line in proc.stderr:
+            line = line.rstrip("\r\n")
+            if not line:
+                continue
+            self._stderr_lines.append(line)
+            if len(self._stderr_lines) > 200:
+                del self._stderr_lines[:100]
 
     def _send_line_locked(self, line: str) -> None:
         if self._proc is None or self._proc.stdin is None:
@@ -127,12 +164,7 @@ class ASREngineDaemon:
         raise RuntimeError(self._build_crash_error("stdout closed"))
 
     def _build_crash_error(self, context: str) -> str:
-        stderr_text = ""
-        if self._proc is not None and self._proc.stderr is not None:
-            try:
-                stderr_text = self._proc.stderr.read().strip()
-            except Exception:
-                stderr_text = ""
+        stderr_text = "\n".join(self._stderr_lines[-30:])
         suffix = f": {stderr_text}" if stderr_text else ""
         return f"ASR daemon crashed ({context}){suffix}"
 

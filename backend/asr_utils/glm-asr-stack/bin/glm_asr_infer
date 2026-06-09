@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+arch="$($ROOT/bin/detect_arch)"
+bin="$ROOT/Infer-engine/glm_asr_infer_${arch}"
+if [[ ! -x "$bin" ]]; then
+  echo "ERROR: missing engine binary $bin" >&2
+  echo "hint: run $ROOT/scripts/build_infer_arch.sh $arch" >&2
+  exit 1
+fi
+export LD_LIBRARY_PATH="$ROOT/lib:/usr/local/cuda-12.8/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"
+export GLMASR_VRAM_UTIL="${GLMASR_VRAM_UTIL:-0.9}"
+export GLMASR_MAX_SEQS="${GLMASR_MAX_SEQS:-256}"
+export GLMASR_MAX_BATCHED_TOKENS="${GLMASR_MAX_BATCHED_TOKENS:-10000}"
+export GLMASR_MAX_NEW_TOKENS="${GLMASR_MAX_NEW_TOKENS:-256}"
+export GLMASR_ENCODER_FA_PIPELINED="${GLMASR_ENCODER_FA_PIPELINED:-1}"
+export GLMASR_ENCODER_FA_VLLM="${GLMASR_ENCODER_FA_VLLM:-1}"
+export GLMASR_ENCODER_FA_LONG_MIN_SEQ="${GLMASR_ENCODER_FA_LONG_MIN_SEQ:-1}"
+export GLMASR_ENCODER_FA_MIN_SEQ="${GLMASR_ENCODER_FA_MIN_SEQ:-1}"
+"$ROOT/bin/select_fa2_bridge"
+exec "$bin" "$@"

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+arch="$($ROOT/bin/detect_arch)"
+bridge="fa2_bridge_${arch}.so"
+if [[ ! -f "$ROOT/cutedsl_fa/$bridge" ]]; then
+  echo "ERROR: missing $ROOT/cutedsl_fa/$bridge" >&2
+  exit 1
+fi
+ln -sfn "$bridge" "$ROOT/cutedsl_fa/fa2_bridge.so"
+echo "FA2 bridge selected: $bridge" >&2

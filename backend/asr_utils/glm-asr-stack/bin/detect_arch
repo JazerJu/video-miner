@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cap="${GLMASR_GPU_COMPUTE_CAP:-}"
+if [[ -z "$cap" ]]; then
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    cap="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')"
+  fi
+fi
+case "$cap" in
+  8.6|86) echo sm86 ;;
+  8.9|89) echo sm89 ;;
+  12.0|120) echo sm120 ;;
+  *) echo "ERROR: unsupported or unknown GPU compute capability '$cap'" >&2; exit 1 ;;
+esac

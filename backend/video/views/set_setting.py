@@ -1,12 +1,13 @@
 import os
 import configparser
+from typing import Any
 from django.conf import settings as dj_settings
 from django.views import View
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
-from utils.wsr.transcription_engine import TranscriptionEngineFactory
+from asr_utils.transcription_engine import TranscriptionEngineFactory
 
 
 SETTINGS_FILE = os.path.join(dj_settings.BASE_DIR, "./config/config.ini")
@@ -24,9 +25,6 @@ def _ensure_ini():
             "openai_api_key": "",
             "openai_base_url": "https://api.openai.com/v1",
             "openai_model": "gpt-4o",
-            "glm_api_key": "",
-            "glm_base_url": "https://open.bigmodel.cn/api/paas/v4",
-            "glm_model": "glm-4",
             "qwen_api_key": "",
             "qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "qwen_model": "qwen-plus",
@@ -39,9 +37,12 @@ def _ensure_ini():
             "moonshot_api_key": "",
             "moonshot_base_url": "https://api.moonshot.cn/v1",
             "moonshot_model": "moonshot-v1-8k",
-            "zhipu_api_key": "",
-            "zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4",
-            "zhipu_model": "glm-4-plus",
+            "volcano_api_key": "",
+            "volcano_base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "volcano_model": "doubao-seed-2-0-lite-260428",
+            "openrouter_api_key": "",
+            "openrouter_base_url": "https://openrouter.ai/api/v1",
+            "openrouter_model": "google/gemini-3-flash",
             "cerebras_api_key": "",
             "cerebras_base_url": "https://api.cerebras.ai/v1",
             "cerebras_model": "llama3.1-8b",
@@ -49,6 +50,9 @@ def _ensure_ini():
             "local_base_url": "http://localhost:1234/v1",
             "local_model": "",
             "split_use_proxy": "false",
+            "split_num_threads": "8",
+            "enable_split": "true",
+            "enable_split": "true",
             "translate_selected_model_provider": "deepseek",
             "translate_deepseek_api_key": "",
             "translate_deepseek_base_url": "https://api.deepseek.com/v1",
@@ -56,9 +60,6 @@ def _ensure_ini():
             "translate_openai_api_key": "",
             "translate_openai_base_url": "https://api.openai.com/v1",
             "translate_openai_model": "gpt-4o",
-            "translate_glm_api_key": "",
-            "translate_glm_base_url": "https://open.bigmodel.cn/api/paas/v4",
-            "translate_glm_model": "glm-4",
             "translate_qwen_api_key": "",
             "translate_qwen_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "translate_qwen_model": "qwen-plus",
@@ -71,9 +72,12 @@ def _ensure_ini():
             "translate_moonshot_api_key": "",
             "translate_moonshot_base_url": "https://api.moonshot.cn/v1",
             "translate_moonshot_model": "moonshot-v1-8k",
-            "translate_zhipu_api_key": "",
-            "translate_zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4",
-            "translate_zhipu_model": "glm-4-plus",
+            "translate_volcano_api_key": "",
+            "translate_volcano_base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "translate_volcano_model": "doubao-seed-2-0-lite-260428",
+            "translate_openrouter_api_key": "",
+            "translate_openrouter_base_url": "https://openrouter.ai/api/v1",
+            "translate_openrouter_model": "google/gemini-3-flash",
             "translate_cerebras_api_key": "",
             "translate_cerebras_base_url": "https://api.cerebras.ai/v1",
             "translate_cerebras_model": "llama3.1-8b",
@@ -81,7 +85,10 @@ def _ensure_ini():
             "translate_local_base_url": "http://localhost:1234/v1",
             "translate_local_model": "",
             "translate_use_proxy": "false",
+            "translate_num_threads": "8",
+            "enable_translate": "true",
             "plain_translate": "false",
+            "hotwords": "",
         }
         cfg["Video watch"] = {"raw_language": "zh", "default_translate_lang": "zh"}
         cfg["Subtitle settings"] = {
@@ -120,20 +127,39 @@ def _ensure_ini():
             "download_use_proxy": "false",
         }
         cfg["Transcription Engine"] = {
-            "primary_engine": "faster_whisper",
+            "primary_engine": "funasr_gguf",
             "fallback_engine": "",
             "transcription_mode": "local",
-            "fwsr_model": "large-v3",
-            "use_gpu": "false",
             "elevenlabs_api_key": "",
             "elevenlabs_model": "scribe_v1",
             "include_punctuation": "true",
-            "alibaba_api_key": "",
-            "alibaba_model": "paraformer-realtime-v2",
-            "openai_api_key": "",
-            "openai_base_url": "https://api.openai.com/v1",
         }
-        cfg["Remote VidGo Service"] = {"host": "", "port": "8000", "use_ssl": "false"}
+        cfg["Video Understanding"] = {
+            "vu_thinking_budget": "low",
+            "vu_n_gpu_layers": "36",
+            "vu_glm_ocr_n_gpu_layers": "17",
+            "vu_corner_provider": "gemini",
+            "vu_corner_gemini_api_key": "",
+            "vu_corner_gemini_base_url": "https://openrouter.ai/api/v1",
+            "vu_corner_gemini_model": "google/gemini-2.5-flash",
+            "vu_corner_mimo_api_key": "",
+            "vu_corner_mimo_base_url": "",
+            "vu_corner_mimo_model": "mimo-v2.5",
+            "vu_summary_api_key": "",
+            "vu_summary_base_url": "https://api.deepseek.com",
+        "vu_summary_model": "deepseek-chat",
+        "vu_corner_use_proxy": "false",
+        "vu_summary_use_proxy": "false",
+        "vu_knowledge_use_proxy": "false",
+            "vu_corner_use_proxy": "false",
+            "vu_summary_use_proxy": "false",
+            "vu_knowledge_use_proxy": "false",
+            "vu_use_proxy": "false",
+            "vu_knowledge_provider": "doubao",
+            "vu_knowledge_api_key": "",
+            "vu_knowledge_base_url": "",
+            "vu_knowledge_model": "",
+        }
         with open(SETTINGS_FILE, "w") as fp:
             cfg.write(fp)
 
@@ -208,6 +234,38 @@ def load_all_settings():
         cfg.set("Video watch", "default_translate_lang", "zh")
         modified = True
 
+    # Auto-migrate: ensure [Video Understanding] section exists
+    vu_defaults = {
+        "vu_thinking_budget": "low",
+        "vu_n_gpu_layers": "36",
+        "vu_glm_ocr_n_gpu_layers": "17",
+        "vu_corner_provider": "gemini",
+        "vu_corner_gemini_api_key": "",
+        "vu_corner_gemini_base_url": "https://openrouter.ai/api/v1",
+        "vu_corner_gemini_model": "google/gemini-2.5-flash",
+        "vu_corner_mimo_api_key": "",
+        "vu_corner_mimo_base_url": "",
+        "vu_corner_mimo_model": "mimo-v2.5",
+        "vu_summary_api_key": "",
+        "vu_summary_base_url": "https://api.deepseek.com",
+        "vu_summary_model": "deepseek-chat",
+        "vu_knowledge_provider": "doubao",
+        "vu_knowledge_api_key": "",
+        "vu_knowledge_base_url": "",
+        "vu_knowledge_model": "",
+    }
+    if not cfg.has_section("Video Understanding"):
+        cfg.add_section("Video Understanding")
+        for k, v in vu_defaults.items():
+            cfg.set("Video Understanding", k, v)
+        modified = True
+    else:
+        # Ensure all keys exist even if section exists
+        for k, v in vu_defaults.items():
+            if not cfg.has_option("Video Understanding", k):
+                cfg.set("Video Understanding", k, v)
+                modified = True
+
     # Save config if sections were added
     if modified:
         with open(SETTINGS_FILE, "w") as fp:
@@ -223,7 +281,7 @@ def load_all_settings():
     return result
 
 
-def save_all_settings(settings_dict: dict):
+def save_all_settings(settings_dict: dict[str, Any]):
     """Save all settings to config.ini."""
     cfg = configparser.ConfigParser(interpolation=None)
 
@@ -237,7 +295,7 @@ def save_all_settings(settings_dict: dict):
         cfg.write(fp)
 
 
-client = None
+client: Any | None = None
 
 
 def _init_client(
@@ -366,7 +424,7 @@ class LLMTestAPIView(View):
     http_method_names = ["get"]
 
     def _resolve_provider_config(
-        self, cfg: dict, prefix: str
+        self, cfg: dict[str, str], prefix: str
     ) -> tuple[str, str, str, str]:
         if prefix:
             selected_provider = cfg.get(f"{prefix}_selected_model_provider", "deepseek")
@@ -394,12 +452,13 @@ class LLMTestAPIView(View):
             "translate_use_proxy" if llm_type == "translate" else "split_use_proxy"
         )
 
+        original_proxy: dict[str, str] = {}
+
         try:
             settings_data = load_all_settings()
             cfg = settings_data.get("DEFAULT", {})
 
             use_proxy = cfg.get(proxy_key, "false").lower() == "true"
-            original_proxy = {}
             if not use_proxy:
                 for key in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"]:
                     if key in os.environ:
@@ -447,6 +506,9 @@ class LLMTestAPIView(View):
                     os.environ[key] = value
                 return JsonResponse(result, status=400)
 
+            if client is None:
+                raise RuntimeError("LLM client initialization failed")
+
             # Send test prompt
             prompt = 'Hello, please respond with "Connection successful!"'
             print(
@@ -493,177 +555,12 @@ class WhisperModelAPIView(View):
             # Get current engine to determine which models to show
             settings_data = load_all_settings()
             current_engine = settings_data.get("Transcription Engine", {}).get(
-                "primary_engine", "faster_whisper"
+                "primary_engine", "funasr_gguf"
             )
-            current_model = settings_data.get("Transcription Engine", {}).get(
-                "fwsr_model", "large-v3"
-            )
+            current_model = ""
 
-            models_dir = os.path.join(dj_settings.BASE_DIR, "models")
-
-            faster_whisper_models = [
-                {
-                    "name": "tiny",
-                    "size": "~39 MB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-tiny",
-                },
-                {
-                    "name": "tiny.en",
-                    "size": "~39 MB",
-                    "languages": "English only",
-                    "filename": "models--Systran--faster-whisper-tiny.en",
-                },
-                {
-                    "name": "base",
-                    "size": "~74 MB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-base",
-                },
-                {
-                    "name": "base.en",
-                    "size": "~74 MB",
-                    "languages": "English only",
-                    "filename": "models--Systran--faster-whisper-base.en",
-                },
-                {
-                    "name": "small",
-                    "size": "~244 MB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-small",
-                },
-                {
-                    "name": "small.en",
-                    "size": "~244 MB",
-                    "languages": "English only",
-                    "filename": "models--Systran--faster-whisper-small.en",
-                },
-                {
-                    "name": "medium",
-                    "size": "~769 MB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-medium",
-                },
-                {
-                    "name": "medium.en",
-                    "size": "~769 MB",
-                    "languages": "English only",
-                    "filename": "models--Systran--faster-whisper-medium.en",
-                },
-                {
-                    "name": "large-v1",
-                    "size": "~1.5 GB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-large-v1",
-                },
-                {
-                    "name": "large-v2",
-                    "size": "~1.5 GB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-large-v2",
-                },
-                {
-                    "name": "large-v3",
-                    "size": "~1.5 GB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-large-v3",
-                },
-                {
-                    "name": "large-v3-turbo",
-                    "size": "~1.6 GB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--faster-whisper-large-v3-turbo",
-                },
-                {
-                    "name": "distil-large-v2",
-                    "size": "~1.5 GB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--distil-whisper-large-v2",
-                },
-                {
-                    "name": "distil-large-v3",
-                    "size": "~1.5 GB",
-                    "languages": "multilingual",
-                    "filename": "models--Systran--distil-whisper-large-v3",
-                },
-            ]
-
-            whisper_cpp_models = [
-                {
-                    "name": "tiny",
-                    "size": "~75 MB",
-                    "languages": "multilingual",
-                    "filename": "ggml-tiny.bin",
-                },
-                {
-                    "name": "base",
-                    "size": "~142 MB",
-                    "languages": "multilingual",
-                    "filename": "ggml-base.bin",
-                },
-                {
-                    "name": "small",
-                    "size": "~466 MB",
-                    "languages": "multilingual",
-                    "filename": "ggml-small.bin",
-                },
-                {
-                    "name": "medium",
-                    "size": "~1.5 GB",
-                    "languages": "multilingual",
-                    "filename": "ggml-medium.bin",
-                },
-                {
-                    "name": "medium-q5",
-                    "size": "~600 MB",
-                    "languages": "multilingual (quantized)",
-                    "filename": "ggml-medium-q5_0.bin",
-                },
-                {
-                    "name": "large-v2",
-                    "size": "~3.1 GB",
-                    "languages": "multilingual",
-                    "filename": "ggml-large-v2.bin",
-                },
-                {
-                    "name": "large-v3",
-                    "size": "~3.1 GB",
-                    "languages": "multilingual",
-                    "filename": "ggml-large-v3.bin",
-                },
-                {
-                    "name": "large-v3-q5",
-                    "size": "~1.3 GB",
-                    "languages": "multilingual (quantized)",
-                    "filename": "ggml-large-v3-q5_0.bin",
-                },
-                {
-                    "name": "large-v3-turbo",
-                    "size": "~1.6 GB",
-                    "languages": "multilingual",
-                    "filename": "ggml-large-v3-turbo.bin",
-                },
-            ]
-
-            if current_engine == "faster_whisper":
-                available_models = faster_whisper_models
-                engine_name = "faster_whisper"
-            else:
-                available_models = whisper_cpp_models
-                engine_name = "whisper_cpp"
-
-            for model in available_models:
-                model_path = os.path.join(models_dir, model["filename"])
-                if engine_name == "faster_whisper":
-                    model["downloaded"] = os.path.exists(model_path) and os.path.isfile(
-                        os.path.join(model_path, "model.bin")
-                    )
-                else:
-                    model["downloaded"] = os.path.exists(model_path)
-                model["downloading"] = model["name"] in download_progress
-                model["engine"] = engine_name
-                if model["downloading"]:
-                    model["progress"] = download_progress[model["name"]]
+            available_models = []
+            engine_name = current_engine
 
             return JsonResponse(
                 {

@@ -75,3 +75,50 @@ reset_migrations.sh
 start-docker.sh
 红黑树.py
 GEMINI.md
+
+# vid_under large files
+backend/vid_under/models/
+backend/vid_under/bin/
+backend/vid_under/onnx/*.data
+backend/vid_under/db/
+backend/vid_under/output/
+
+# glm-asr-stack runtime cache, models, and binaries
+backend/asr_utils/glm-asr-stack/runtime/
+backend/asr_utils/glm-asr-stack/models/glm-asr-bf16
+backend/asr_utils/glm-asr-stack/models/qwen3-forcealigner-0.6b
+backend/asr_utils/glm-asr-stack/Infer-engine/glm_asr_infer_sm*
+backend/asr_utils/glm-asr-stack/forcealigner-engine/force_aligner_sm*
+backend/asr_utils/glm-asr-stack/forcealigner-engine/mel_filterbank.bin
+backend/asr_utils/glm-asr-stack/cutedsl_fa/fa2_bridge_sm*.so
+backend/asr_utils/glm-asr-stack/lib/
+
+# fun-asr-stack binaries and logs
+backend/asr_utils/fun-asr-stack/fun_asr_gguf/inference/bin/
+backend/asr_utils/fun-asr-stack/logs/
+
+# silero-vad model binaries
+backend/third_party/silero-vad/src/silero_vad/data/*.jit
+backend/third_party/silero-vad/src/silero_vad/data/*.onnx
+backend/third_party/silero-vad/src/silero_vad/data/*.safetensors
+
+# tool configs (not project code)
+.claude/
+.codex/
+.opencode/
+.playwright-mcp/
+.sisyphus/
+.vscode/
+
+# test/misc files
+backend/video/migrations/*.old
+frontend/public/test_audio.mp3
+frontend/public/favicon.ico.bak*
+frontend/.env.production
+scripts/
+cuda-keyring_*.deb
+database/
+Skills.md
+AGENTS.md
+docker/Docker容器构建.md
+*.webm

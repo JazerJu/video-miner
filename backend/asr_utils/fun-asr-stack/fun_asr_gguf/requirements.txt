@@ -1,0 +1,38 @@
+# ==================== 推理依赖====================
+
+onnx 
+onnxruntime 
+scipy
+numpy 
+pydub 
+gguf
+
+rich
+watchdog
+pypinyin
+srt
+
+# ==================== 模型导出依赖 ====================
+
+torch 
+torchaudio 
+transformers 
+onnxruntime 
+onnxscript
+sentencepiece
+modelscope
+
+# ==================== 注意事项 ====================
+#
+# 1. 使用 pydub 处理音频需要系统安装 ffmpeg:
+#    - Windows: https://ffmpeg.org/download.html#build-windows
+#    - macOS: brew install ffmpeg
+#    - Linux: sudo apt install ffmpeg
+#
+# 2. llama.cpp 预编译二进制文件需要手动下载:
+#    - 下载地址: https://github.com/ggml-org/llama.cpp/releases
+#    - 解压后将 llama.dll (Windows) 放入 fun_asr_gguf/ 文件夹中
+#
+
+
+

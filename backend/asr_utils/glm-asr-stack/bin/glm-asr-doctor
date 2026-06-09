@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODEL="${GLM_ASR_MODEL:-$ROOT/models/glm-asr-bf16}"
+FA_MODEL="${GLM_ASR_FA_MODEL:-$ROOT/models/qwen3-forcealigner-0.6b}"
+export LD_LIBRARY_PATH="$ROOT/lib:/usr/local/cuda-12.8/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"
+
+echo "glm-asr-stack root: $ROOT"
+echo ""
+echo "[gpu]"
+if command -v nvidia-smi >/dev/null 2>&1; then
+  nvidia-smi --query-gpu=name,compute_cap,driver_version,memory.total,memory.free --format=csv,noheader || nvidia-smi
+else
+  echo "ERROR: nvidia-smi not found"
+fi
+
+echo ""
+echo "[cuda libs]"
+ldd "$ROOT/Infer-engine/glm_asr_infer" | grep -E 'not found|libcuda|libcudart|libcublas|libcufft' || true
+
+echo ""
+echo "[fa2 bridges]"
+ls -lh "$ROOT"/cutedsl_fa/fa2_bridge*.so 2>/dev/null || true
+python3 - <<PY
+import ctypes, os, pathlib, subprocess
+root = pathlib.Path("$ROOT")
+for so in sorted((root / "cutedsl_fa").glob("fa2_bridge*.so")):
+    print(f"checking {so.name} ...", end=" ")
+    try:
+        lib = ctypes.CDLL(str(so), mode=os.RTLD_LOCAL | os.RTLD_LAZY)
+        lib.flash_fwd_vllm_available.restype = ctypes.c_int
+        print("load ok, enc_avail=", lib.flash_fwd_vllm_available())
+    except OSError as e:
+        print("ERROR", e)
+PY
+
+echo ""
+echo "[models]"
+for d in "$MODEL" "$FA_MODEL"; do
+  echo "$d"
+  test -f "$d/config.json" && echo "  config.json ok" || echo "  missing config.json"
+  test -f "$d/model.safetensors" && ls -lh "$d/model.safetensors" || echo "  missing model.safetensors"
+done
+
+echo ""
+echo "[ffmpeg]"
+if command -v ffmpeg >/dev/null 2>&1; then
+  ffmpeg -version | head -1
+else
+  echo "WARN: ffmpeg not found; mp3/mp4 inputs will fail"
+fi

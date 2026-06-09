@@ -9,7 +9,6 @@ from utils.split_subtitle.main import optimise_srt
 from django.conf import settings  # 确保这个在顶部
 import hashlib
 from .views.set_setting import load_all_settings
-from utils.wsr.transcription_engine import transcribe_with_engine
 
 """
 该文件用于定义和 存储项目的 所有task，
@@ -105,6 +104,17 @@ subtitle_task_status = defaultdict(
     }
 )
 FIXED_NUM_THREADS = 8
+
+
+def _get_thread_count(purpose: str) -> int:
+    """Read thread count from config, fallback to FIXED_NUM_THREADS."""
+    try:
+        settings_data = load_all_settings()
+        key = f"{purpose}_num_threads"
+        val = settings_data.get("DEFAULT", {}).get(key, str(FIXED_NUM_THREADS))
+        return max(1, min(32, int(val)))
+    except Exception:
+        return FIXED_NUM_THREADS
 
 # subtitle_task_status[20000]={
 #     "filename": "A default subtitle task",
@@ -253,7 +263,7 @@ def handle_translation_only(
 
         if not os.path.exists(original_srt_path):
             # 如果找不到指定语言的字幕，尝试查找任何已有的字幕文件
-            for lang in ["en", "zh", "jp"]:
+            for lang in ["en", "zh", "jp", "de"]:
                 alt_srt_name = f"{video_id}_{lang}.srt"
                 alt_srt_path = os.path.join(SAVE_DIR, alt_srt_name)
                 if os.path.exists(alt_srt_path):
@@ -281,7 +291,7 @@ def handle_translation_only(
             raw_lang=original_lang,
             target_lang=trans_lang,
             use_translation_cache=True,
-            num_threads=FIXED_NUM_THREADS,
+            num_threads=_get_thread_count("translate"),
             progress_cb=lambda status: _update(video_id, "translate", status),
             terms_to_note=emphasize_dst,
         )
@@ -312,16 +322,29 @@ def generate_external_transcription(task_id: str) -> None:
 
         print(f"Starting external transcription for task {task_id}: {task['filename']}")
 
-        # 外部转录任务强制使用本地faster_whisper引擎，避免递归调用
-        from utils.wsr.fast_wsr import transcribe_audio
+        from asr_utils.transcription_engine import (
+            transcribe_with_engine,
+            load_transcription_settings,
+        )
 
-        # 状态更新回调
+        settings = load_transcription_settings()
+        transcription_settings = settings.get("Transcription Engine", {})
+        primary_engine = transcription_settings.get("primary_engine", "funasr_gguf")
+        fallback_engine = transcription_settings.get("fallback_engine", "")
+
         def progress_cb(status):
             print(f"External task {task_id} progress: {status}")
 
-        # 直接使用本地faster_whisper引擎执行转录
-        print(f"Using local faster_whisper engine for external task {task_id}")
-        srt_content = transcribe_audio(audio_file_path, progress_cb)
+        print(
+            f"Using primary '{primary_engine}' (fallback: '{fallback_engine}') "
+            f"for external task {task_id}"
+        )
+        srt_content = transcribe_with_engine(
+            engine_type=primary_engine,
+            audio_file_path=audio_file_path,
+            progress_cb=progress_cb,
+            fallback_engine=fallback_engine,
+        )
 
         # 保存结果文件
         external_result_dir = "work_dir/external_results"
@@ -418,7 +441,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
         print(f"Transcribing preprocessed audio file: {preprocessed_audio_path}")
 
         # 使用统一的转录引擎接口
-        from utils.wsr.transcription_engine import (
+        from asr_utils.transcription_engine import (
             transcribe_with_engine,
             load_transcription_settings,
         )
@@ -426,13 +449,18 @@ def generate_subtitles_for_video(video_id: int) -> None:
         # 加载转录引擎配置
         settings = load_transcription_settings()
         transcription_settings = settings.get("Transcription Engine", {})
+        default_settings = settings.get("DEFAULT", {})
 
-        primary_engine = transcription_settings.get("primary_engine", "faster_whisper")
+        primary_engine = transcription_settings.get("primary_engine", "funasr_gguf")
         fallback_engine = transcription_settings.get("fallback_engine", "")
+        enable_split = default_settings.get("enable_split", "true").lower() == "true"
 
         print(f"Using primary transcription engine: {primary_engine}")
         if fallback_engine and fallback_engine != primary_engine:
             print(f"Fallback engine configured: {fallback_engine}")
+
+        subtitle_mode = "word" if enable_split else "sentence"
+        print(f"Subtitle mode: {subtitle_mode} (enable_split={enable_split})")
 
         # 执行转录（包含自动fallback机制）
         srt_content = transcribe_with_engine(
@@ -440,7 +468,8 @@ def generate_subtitles_for_video(video_id: int) -> None:
             audio_file_path=preprocessed_audio_path,
             progress_cb=transcribe_cb,
             fallback_engine=fallback_engine,
-            language=src_lang,  # 传递用户指定的源语言
+            language=src_lang,
+            subtitle_mode=subtitle_mode,
         )
         timestamp = int(time.time() * 1000)
         os.makedirs("work_dir/temp", exist_ok=True)
@@ -458,8 +487,11 @@ def generate_subtitles_for_video(video_id: int) -> None:
             f"Transcription completed for video {video_id}, SRT content length: {len(srt_content)}"
         )
     except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
         print(f"Transcription failed for video {video_id}: {exc}")
-        _update(video_id, "transcribe", "Failed")
+        print(f"TRACEBACK:\n{tb}")
+        _update(video_id, "transcribe", "Failed", detail=str(exc)[:200])
         return
 
     # 2. 优化字幕阶段（包含翻译）
@@ -482,11 +514,9 @@ def generate_subtitles_for_video(video_id: int) -> None:
     #     _update(video_id, "optimize", state)
 
     try:
-        # 🆕 定义优化进度回调（支持整数百分比）
         def optimize_progress_cb(value):
             """处理优化阶段进度：整数0-100 或 字符串状态"""
             if isinstance(value, (int, float)):
-                # 整数进度 -> 直接传递
                 _update(video_id, "optimize", "Running", progress=int(value))
             elif value == "Completed":
                 _update(video_id, "optimize", "Completed", progress=100)
@@ -495,15 +525,20 @@ def generate_subtitles_for_video(video_id: int) -> None:
             else:
                 _update(video_id, "optimize", value)
 
-        # 第一步：优化字幕
-        _update(video_id, "optimize", "Running")
-        optimise_srt(
-            srt_path=work_srt_path,
-            save_path=original_srt_path,  # 保存优化后的原文字幕
-            num_threads=FIXED_NUM_THREADS,
-            progress_cb=optimize_progress_cb,  # 🆕 使用支持进度的回调
-        )
-        _update(video_id, "optimize", "Completed")
+        if enable_split:
+            _update(video_id, "optimize", "Running")
+            optimise_srt(
+                srt_path=work_srt_path,
+                save_path=original_srt_path,
+                num_threads=_get_thread_count("split"),
+                progress_cb=optimize_progress_cb,
+            )
+            _update(video_id, "optimize", "Completed")
+        else:
+            import shutil
+            shutil.copy2(work_srt_path, original_srt_path)
+            _update(video_id, "optimize", "Skipped")
+            print(f"[tasks.py] LLM split disabled, using ASR sentence-level output directly")
 
         # 第二步：翻译字幕（如果需要）
         if enable_translation and translated_srt_path:
@@ -528,7 +563,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
                 raw_lang=src_lang,
                 target_lang=trans_lang,
                 use_translation_cache=True,
-                num_threads=FIXED_NUM_THREADS,  # 使用多线程翻译
+                num_threads=_get_thread_count("translate"),  # 使用多线程翻译
                 progress_cb=translate_progress_cb,  # 🆕 使用支持进度的回调
             )
             _update(video_id, "translate", "Completed")
@@ -620,28 +655,6 @@ download_status = defaultdict(
         "url": "",
         "cid": "",
         "bvid": "",
-    }
-)
-
-
-"""
-视频导出（字幕硬嵌入）流程：
-
-使用 ffmpeg 将字幕（ASS格式）硬嵌入到视频中
-生成的视频保存到 work_dir/export_videos/
-文件名格式：原视频名_burn.mp4
-"""
-
-export_queue: Queue[str] = Queue()
-export_task_status = defaultdict(
-    lambda: {
-        "video_id": 0,
-        "video_name": "",
-        "subtitle_type": "raw",  # raw, translated, both
-        "status": "Queued",  # Queued, Running, Completed, Failed
-        "progress": 0,  # 进度百分比
-        "output_filename": "",
-        "error_message": "",
     }
 )
 
@@ -1282,474 +1295,166 @@ def process_download_task() -> None:
         download_queue.task_done()
 
 
-def export_update_status(
-    task_id: str, status: str, progress: int = 0, error_message: str = ""
-):
-    """更新导出任务状态"""
-    if task_id not in export_task_status:
+
+# ── vidUnder Summary Task ──────────────────────────────────────
+
+summary_task_queue: Queue[str] = Queue()
+
+summary_task_status = defaultdict(
+    lambda: {
+        "video_id": 0,
+        "video_name": "",
+        "video_path": "",
+        "srt_path": "",
+        "stages": {
+            "build": "Queued",
+            "extract": "Queued",
+            "summarize": "Queued",
+        },
+        "stage_progress": {
+            "build": 0,
+            "extract": 0,
+            "summarize": 0,
+        },
+        "stage_detail": {
+            "build": "",
+            "extract": "",
+            "summarize": "",
+        },
+        "stage_weights": {
+            "build": 0.40,
+            "extract": 0.30,
+            "summarize": 0.30,
+        },
+        "total_progress": 0,
+        "status": "Queued",
+        "result_path": "",
+        "error_message": "",
+        "created_at": 0,
+    }
+)
+
+
+def _summary_update(task_id: str, stage: str, status: str, progress: int = None, detail: str = None):
+    task = summary_task_status.get(task_id)
+    if task is None:
         return
-    export_task_status[task_id]["status"] = status
-    export_task_status[task_id]["progress"] = progress
-    if error_message:
-        export_task_status[task_id]["error_message"] = error_message
+    if stage not in task["stages"]:
+        return
+    task["stages"][stage] = status
+    if detail is not None:
+        task["stage_detail"][stage] = detail
+    if progress is not None:
+        clamped = min(100, max(0, progress))
+        if status == "Running":
+            task["stage_progress"][stage] = max(task["stage_progress"][stage], clamped)
+        else:
+            task["stage_progress"][stage] = clamped
+    elif status == "Completed":
+        task["stage_progress"][stage] = 100
+    elif status == "Running" and task["stage_progress"][stage] == 0:
+        task["stage_progress"][stage] = 2.5
+    total = sum(
+        task["stage_weights"][s] * task["stage_progress"][s]
+        for s in task["stage_progress"]
+    )
+    task["total_progress"] = round(total, 1)
+    # Update overall status
+    if all(s == "Completed" for s in task["stages"].values()):
+        task["status"] = "Completed"
+    elif any(s == "Failed" for s in task["stages"].values()):
+        task["status"] = "Failed"
+    elif any(s == "Running" for s in task["stages"].values()):
+        task["status"] = "Running"
 
 
-def get_video_bitrate(video_path: str) -> str:
-    """使用 ffprobe 获取视频比特率"""
-    import subprocess
-    import json
-
+def generate_summary_for_video(task_id: str) -> None:
+    """Run the 3-step vidUnder pipeline: build → extract → summarize."""
+    task = summary_task_status[task_id]
     try:
-        cmd = [
-            "ffprobe",
-            "-v",
-            "quiet",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=bit_rate",
-            "-of",
-            "json",
-            video_path,
-        ]
+        task["status"] = "Running"
+        import sys, os
+        vid_under_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "vid_under")
+        if vid_under_dir not in sys.path:
+            sys.path.insert(0, vid_under_dir)
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            if "streams" in data and len(data["streams"]) > 0:
-                bit_rate = data["streams"][0].get("bit_rate")
-                if bit_rate:
-                    # Convert to k format (e.g., 1339k)
-                    bit_rate_k = int(int(bit_rate) / 1000)
-                    return f"{bit_rate_k}k"
+        video_path = task["video_path"]
+        srt_path = task["srt_path"]
 
-        # Fallback: try to get format bitrate
-        cmd_format = [
-            "ffprobe",
-            "-v",
-            "quiet",
-            "-show_entries",
-            "format=bit_rate",
-            "-of",
-            "json",
-            video_path,
-        ]
+        os.environ["VIDUNDER_VIDEO_PATH"] = video_path
+        os.environ["VIDUNDER_SRT_PATH"] = srt_path
 
-        result = subprocess.run(cmd_format, capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            if "format" in data:
-                bit_rate = data["format"].get("bit_rate")
-                if bit_rate:
-                    bit_rate_k = int(int(bit_rate) / 1000)
-                    return f"{bit_rate_k}k"
+        db_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "db")
+        os.makedirs(db_dir, exist_ok=True)
 
-        return "2000k"  # Default fallback bitrate
+        # Step 1: build
+        _summary_update(task_id, "build", "Running", detail="Starting MiniCPM-V caption...")
+        from video_db import build_database
+        import time as _time
+        db_name = _time.strftime("%Y%m%d_%H%M%S") + "_" + str(task.get("video_id", 0))
+        build_database(video_path, srt_path, db_name=db_name)
+        _summary_update(task_id, "build", "Completed")
 
-    except Exception as e:
-        print(f"Error getting video bitrate: {e}")
-        return "2000k"  # Default fallback bitrate
+        # Step 2: extract
+        _summary_update(task_id, "extract", "Running", detail="Running GLM-OCR extraction...")
+        import tempfile
+        extract_output = os.path.join(tempfile.gettempdir(), db_name)
+        os.makedirs(extract_output, exist_ok=True)
+        from content_extractor import extract_unique_slides, ocr_slides
+        from layout_detector import detect_layout, crop_content, get_vision_bbox
+        from main import cmd_extract
+        cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output)
+        _summary_update(task_id, "extract", "Completed")
 
+        # Step 3: summarize
+        _summary_update(task_id, "summarize", "Running", detail="Generating summary via DeepSeek...")
+        from agent import VideoAgent
+        from srt_utils import parse_srt
+        import json as _json
 
-def export_video_with_subtitles(task_id: str):
-    """导出带硬嵌入字幕的视频"""
-    task = export_task_status[task_id]
-    video_id = task["video_id"]
-    subtitle_type = task["subtitle_type"]
+        db_path = os.path.join(db_dir, f"{db_name}.json")
+        with open(db_path, encoding="utf-8") as f:
+            db = _json.load(f)
+        srt = parse_srt(srt_path)
+        agent = VideoAgent(db, srt)
+        summary = agent.summarize(min_coverage=task.get("min_coverage", 0.60))
 
-    try:
-        export_update_status(task_id, "Running", 5)
+        # Save result
+        result_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "output")
+        os.makedirs(result_dir, exist_ok=True)
+        result_path = os.path.join(result_dir, f"{db_name}_summary.md")
+        with open(result_path, "w", encoding="utf-8") as f:
+            f.write(summary)
 
-        # 获取视频信息
-        video = Video.objects.get(pk=video_id)
-        if not video:
-            raise Exception("Video not found")
+        import shutil
+        src_slides = os.path.join(extract_output, "slides")
+        dst_slides = os.path.join(result_dir, f"{db_name}_slides")
+        if os.path.isdir(src_slides) and not os.path.isdir(dst_slides):
+            shutil.copytree(src_slides, dst_slides)
 
-        video_path = os.path.join(settings.MEDIA_ROOT, "saved_video", video.url)
-        if not os.path.exists(video_path):
-            raise Exception(f"Video file not found: {video_path}")
-
-        # 检查字幕文件
-        srt_dir = os.path.join("media", "saved_srt")
-        raw_srt_path = None
-        trans_srt_path = None
-
-        if video.srt_path:
-            raw_srt_path = os.path.join(srt_dir, video.srt_path)
-        if video.translated_srt_path:
-            trans_srt_path = os.path.join(srt_dir, video.translated_srt_path)
-
-        export_update_status(task_id, "Running", 10)
-
-        # 根据字幕类型生成ASS文件
-        temp_dir = "work_dir/temp"
-        os.makedirs(temp_dir, exist_ok=True)
-        ass_filename = f"{task_id}.ass"
-        ass_path = os.path.join(temp_dir, ass_filename)
-
-        # 生成ASS字幕内容
-        ass_content = generate_ass_content(
-            video_id, subtitle_type, raw_srt_path, trans_srt_path
-        )
-
-        with open(ass_path, "w", encoding="utf-8") as f:
-            f.write(ass_content)
-
-        export_update_status(task_id, "Running", 30)
-
-        # 获取视频比特率
-        video_bitrate = get_video_bitrate(video_path)
-        print(f"Video bitrate: {video_bitrate}")
-
-        # 创建输出目录
-        export_dir = "work_dir/export_videos"
-        os.makedirs(export_dir, exist_ok=True)
-
-        # 生成输出文件名
-        base_name = os.path.splitext(video.url)[0]  # 去掉扩展名
-        output_filename = f"{base_name}_burn.mp4"
-        output_path = os.path.join(export_dir, output_filename)
-
-        export_update_status(task_id, "Running", 40)
-
-        # FFmpeg 命令
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-i",
-            video_path,
-            "-vf",
-            f"ass={ass_path}",
-            "-c:a",
-            "copy",  # 保持音频不变
-            "-b:v",
-            video_bitrate,  # 使用原视频的比特率
-            "-y",  # 覆盖输出文件
-            output_path,
-        ]
-
-        print(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
-
-        # 执行FFmpeg命令
-        import subprocess
-
-        process = subprocess.Popen(
-            ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
-
-        # 模拟进度更新（实际情况下可以解析FFmpeg输出获取真实进度）
-        import threading
-        import time
-
-        def update_progress():
-            progress = 40
-            while process.poll() is None and progress < 90:
-                time.sleep(2)
-                progress += 5
-                export_update_status(task_id, "Running", min(progress, 90))
-
-        progress_thread = threading.Thread(target=update_progress)
-        progress_thread.start()
-
-        # 等待FFmpeg完成
-        stdout, stderr = process.communicate(timeout=1800)  # 30分钟超时
-        progress_thread.join()
-
-        if process.returncode != 0:
-            raise Exception(f"FFmpeg failed: {stderr}")
-
-        # 检查输出文件是否存在
-        if not os.path.exists(output_path):
-            raise Exception("Output video file was not created")
-
-        # 更新任务状态
-        export_task_status[task_id]["output_filename"] = output_filename
-        export_update_status(task_id, "Completed", 100)
-
-        print(f"Video export completed: {output_path}")
+        task["result_path"] = result_path
+        _summary_update(task_id, "summarize", "Completed")
+        task["status"] = "Completed"
 
     except Exception as exc:
-        error_msg = str(exc)
-        print(f"视频导出失败: {error_msg}")
-        export_update_status(task_id, "Failed", 0, error_msg)
-    finally:
-        # 清理临时ASS文件
-        try:
-            if "ass_path" in locals() and os.path.exists(ass_path):
-                os.remove(ass_path)
-        except:
-            pass
+        import traceback
+        tb = traceback.format_exc()
+        print(f"Summary task {task_id} failed: {exc}\n{tb}")
+        task["error_message"] = str(exc)[:500]
+        for stage in ["build", "extract", "summarize"]:
+            if task["stages"][stage] == "Running":
+                _summary_update(task_id, stage, "Failed", detail=str(exc)[:200])
+                break
+        task["status"] = "Failed"
 
 
-def generate_ass_content(
-    video_id: int,
-    subtitle_type: str,
-    raw_srt_path: str = None,
-    trans_srt_path: str = None,
-) -> str:
-    """生成ASS字幕内容"""
-    from utils.split_subtitle.ASRData import from_srt
-    from .views.set_setting import load_all_settings
-
-    # 加载字幕设置
+def process_summary_task() -> None:
+    """Background worker: process one summary task from queue."""
     try:
-        settings_data = load_all_settings()
-        raw_settings = settings_data.get("Subtitle settings", {})
-        foreign_settings = settings_data.get("Foreign Subtitle settings", {})
-
-        # 合并设置，使用snake_case命名
-        subtitle_settings = {
-            # Raw subtitle settings
-            "font_family": raw_settings.get("font_family", "宋体"),
-            "font_size": int(raw_settings.get("font_size", 18)),
-            "font_color": raw_settings.get("font_color", "#ea9749"),
-            "font_weight": raw_settings.get("font_weight", "400"),
-            "background_color": raw_settings.get("background_color", "#000000"),
-            "background_style": raw_settings.get(
-                "background_style", "semi-transparent"
-            ),
-            "border_radius": int(raw_settings.get("border_radius", 4)),
-            "text_shadow": raw_settings.get("text_shadow", "false").lower() == "true",
-            "text_stroke": raw_settings.get("text_stroke", "false").lower() == "true",
-            "text_stroke_color": raw_settings.get("text_stroke_color", "#000000"),
-            "text_stroke_width": int(raw_settings.get("text_stroke_width", 2)),
-            "bottom_distance": int(raw_settings.get("bottom_distance", 80)),
-            # Foreign subtitle settings
-            "foreign_font_family": foreign_settings.get("foreign_font_family", "Arial"),
-            "foreign_font_size": int(foreign_settings.get("foreign_font_size", 16)),
-            "foreign_font_color": foreign_settings.get("foreign_font_color", "#ffffff"),
-            "foreign_font_weight": foreign_settings.get("foreign_font_weight", "400"),
-            "foreign_background_color": foreign_settings.get(
-                "foreign_background_color", "#000000"
-            ),
-            "foreign_background_style": foreign_settings.get(
-                "foreign_background_style", "semi-transparent"
-            ),
-            "foreign_border_radius": int(
-                foreign_settings.get("foreign_border_radius", 4)
-            ),
-            "foreign_text_shadow": foreign_settings.get(
-                "foreign_text_shadow", "false"
-            ).lower()
-            == "true",
-            "foreign_text_stroke": foreign_settings.get(
-                "foreign_text_stroke", "false"
-            ).lower()
-            == "true",
-            "foreign_text_stroke_color": foreign_settings.get(
-                "foreign_text_stroke_color", "#000000"
-            ),
-            "foreign_text_stroke_width": int(
-                foreign_settings.get("foreign_text_stroke_width", 2)
-            ),
-            "foreign_bottom_distance": int(
-                foreign_settings.get("foreign_bottom_distance", 120)
-            ),
-        }
-    except:
-        # 默认设置使用snake_case
-        subtitle_settings = {
-            "font_family": "宋体",
-            "font_size": 18,
-            "font_color": "#ea9749",
-            "font_weight": "400",
-            "background_color": "#000000",
-            "background_style": "semi-transparent",
-            "border_radius": 4,
-            "text_shadow": False,
-            "text_stroke": False,
-            "text_stroke_color": "#000000",
-            "text_stroke_width": 2,
-            "bottom_distance": 80,
-            "foreign_font_family": "Arial",
-            "foreign_font_size": 16,
-            "foreign_font_color": "#ffffff",
-            "foreign_font_weight": "400",
-            "foreign_background_color": "#000000",
-            "foreign_background_style": "semi-transparent",
-            "foreign_border_radius": 4,
-            "foreign_text_shadow": False,
-            "foreign_text_stroke": False,
-            "foreign_text_stroke_color": "#000000",
-            "foreign_text_stroke_width": 2,
-            "foreign_bottom_distance": 120,
-        }
-
-    # 转换颜色格式（从hex到ASS格式）
-    def hex_to_ass_color(hex_color: str) -> str:
-        r = int(hex_color[1:3], 16)
-        g = int(hex_color[3:5], 16)
-        b = int(hex_color[5:7], 16)
-        return f"&H00{b:02X}{g:02X}{r:02X}"
-
-    # 格式化时间为ASS格式
-    def format_ass_time(seconds: float) -> str:
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        centisecs = int((seconds % 1) * 100)
-        return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
-
-    # ASS文件头部（获取实际视频分辨率信息以确保正确缩放）
-    video = Video.objects.get(pk=video_id)
-
-    # 获取视频实际分辨率
-    width, height = 1920, 1080  # 默认分辨率
-    try:
-        from .views.videos import get_media_path_info, is_audio_file
-        import subprocess
-        import json as json_lib
-
-        # 对于音频文件使用默认分辨率
-        if not is_audio_file(video.url):
-            directory_name, _ = get_media_path_info(video.url)
-            video_path = os.path.join(settings.MEDIA_ROOT, directory_name, video.url)
-
-            if os.path.exists(video_path):
-                # 使用 ffprobe 获取视频分辨率
-                cmd = [
-                    "ffprobe",
-                    "-v",
-                    "quiet",
-                    "-select_streams",
-                    "v:0",
-                    "-show_entries",
-                    "stream=width,height",
-                    "-of",
-                    "json",
-                    video_path,
-                ]
-
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-
-                if result.returncode == 0:
-                    data = json_lib.loads(result.stdout)
-                    if "streams" in data and len(data["streams"]) > 0:
-                        stream = data["streams"][0]
-                        width = stream.get("width", 1920)
-                        height = stream.get("height", 1080)
-                        print(f"Got video dimensions: {width}x{height}")
-    except Exception as e:
-        print(f"Failed to get video dimensions: {e}, using default 1920x1080")
-
-    ass_content = f"""[Script Info]
-Title: {video.name}
-ScriptType: v4.00+
-PlayResX: {width}
-PlayResY: {height}
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-"""
-
-    # 添加样式
-    if subtitle_type in ["raw", "both"]:
-        raw_color = hex_to_ass_color(subtitle_settings.get("font_color", "#ea9749"))
-        raw_bg_color = hex_to_ass_color(
-            subtitle_settings.get("background_color", "#000000")
-        )
-        raw_font_size = subtitle_settings.get("font_size", 18)
-        raw_bold = -1 if int(subtitle_settings.get("font_weight", 400)) > 500 else 0
-        raw_shadow = 2 if subtitle_settings.get("text_shadow", False) else 0
-        raw_margin_v = subtitle_settings.get("bottom_distance", 80)
-
-        # Add text stroke (outline) support for raw subtitles
-        raw_outline = (
-            subtitle_settings.get("text_stroke_width", 2)
-            if subtitle_settings.get("text_stroke", False)
-            else 0
-        )
-        raw_outline_color = (
-            hex_to_ass_color(subtitle_settings.get("text_stroke_color", "#000000"))
-            if subtitle_settings.get("text_stroke", False)
-            else "&H00000000"
-        )
-
-        ass_content += f"Style: Raw,{subtitle_settings.get('font_family', '宋体')},{raw_font_size},{raw_color},{raw_color},{raw_outline_color},{raw_bg_color},{raw_bold},0,0,0,100,100,0,0,1,{raw_outline},{raw_shadow},2,0,0,{raw_margin_v},1\n"
-
-    if subtitle_type in ["translated", "both"]:
-        trans_color = hex_to_ass_color(
-            subtitle_settings.get("foreign_font_color", "#ffffff")
-        )
-        trans_bg_color = hex_to_ass_color(
-            subtitle_settings.get("foreign_background_color", "#000000")
-        )
-        trans_font_size = subtitle_settings.get("foreign_font_size", 16)
-        trans_bold = (
-            -1 if int(subtitle_settings.get("foreign_font_weight", 400)) > 500 else 0
-        )
-        trans_shadow = 2 if subtitle_settings.get("foreign_text_shadow", False) else 0
-        trans_margin_v = subtitle_settings.get("foreign_bottom_distance", 120)
-
-        # Add text stroke (outline) support for foreign subtitles
-        trans_outline = (
-            subtitle_settings.get("foreign_text_stroke_width", 2)
-            if subtitle_settings.get("foreign_text_stroke", False)
-            else 0
-        )
-        trans_outline_color = (
-            hex_to_ass_color(
-                subtitle_settings.get("foreign_text_stroke_color", "#000000")
-            )
-            if subtitle_settings.get("foreign_text_stroke", False)
-            else "&H00000000"
-        )
-
-        ass_content += f"Style: Foreign,{subtitle_settings.get('foreign_font_family', 'Arial')},{trans_font_size},{trans_color},{trans_color},{trans_outline_color},{trans_bg_color},{trans_bold},0,0,0,100,100,0,0,1,{trans_outline},{trans_shadow},2,0,0,{trans_margin_v},1\n"
-
-    ass_content += """
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-
-    # 加载字幕文件并生成对话行
-    raw_asr_data = None
-    trans_asr_data = None
-
-    if raw_srt_path and os.path.exists(raw_srt_path):
-        with open(raw_srt_path, "r", encoding="utf-8") as f:
-            raw_asr_data = from_srt(f.read())
-
-    if trans_srt_path and os.path.exists(trans_srt_path):
-        with open(trans_srt_path, "r", encoding="utf-8") as f:
-            trans_asr_data = from_srt(f.read())
-
-    # 合并字幕（使用原文字幕的时间戳）
-    if raw_asr_data and raw_asr_data.has_data():
-        for i, raw_seg in enumerate(raw_asr_data.segments):
-            # 转换时间戳（从毫秒到秒）
-            start_time = format_ass_time(raw_seg.start_time / 1000.0)
-            end_time = format_ass_time(raw_seg.end_time / 1000.0)
-
-            if subtitle_type == "raw":
-                ass_content += (
-                    f"Dialogue: 0,{start_time},{end_time},Raw,,0,0,0,,{raw_seg.text}\n"
-                )
-            elif subtitle_type == "translated":
-                if trans_asr_data and i < len(trans_asr_data.segments):
-                    trans_text = trans_asr_data.segments[i].text
-                else:
-                    trans_text = raw_seg.text
-                ass_content += f"Dialogue: 0,{start_time},{end_time},Foreign,,0,0,0,,{trans_text}\n"
-            elif subtitle_type == "both":
-                ass_content += (
-                    f"Dialogue: 0,{start_time},{end_time},Raw,,0,0,0,,{raw_seg.text}\n"
-                )
-                if trans_asr_data and i < len(trans_asr_data.segments):
-                    ass_content += f"Dialogue: 0,{start_time},{end_time},Foreign,,0,0,0,,{trans_asr_data.segments[i].text}\n"
-
-    return ass_content
-
-
-def process_export_task() -> None:
-    """被后台线程循环调用处理导出任务"""
-    try:
-        task_id = export_queue.get_nowait()
+        task_id = summary_task_queue.get_nowait()
     except Empty:
         return
-
     try:
-        export_video_with_subtitles(task_id)
+        generate_summary_for_video(task_id)
     finally:
-        export_queue.task_done()
-
+        summary_task_queue.task_done()

@@ -6,11 +6,92 @@ import tempfile
 import threading
 import time
 import uuid
+import logging
+from dataclasses import dataclass
+from typing import Callable
 from urllib.parse import urlparse
 
 import numpy as np
 
 from video.asr_engine import asr_engine_daemon
+
+logger = logging.getLogger("stream_translate")
+
+
+# ---------------------------------------------------------------------------
+# Fast single-step translation (used for live stream transcription)
+# ---------------------------------------------------------------------------
+_translate_lock = threading.Lock()
+_translate_settings_cache: dict = {}
+_translate_settings_ts: float = 0.0
+_TRANSLATE_SETTINGS_TTL = 60.0  # refresh settings every 60 s
+
+
+def _get_translate_client():
+    """Return an LLM client configured from the translate settings."""
+    global _translate_settings_cache, _translate_settings_ts
+    now = time.time()
+    with _translate_lock:
+        if now - _translate_settings_ts > _TRANSLATE_SETTINGS_TTL:
+            from video.views.set_setting import load_all_settings
+            _translate_settings_cache = load_all_settings()
+            _translate_settings_ts = now
+
+    cfg = _translate_settings_cache
+    default_cfg = cfg.get("DEFAULT", {})
+    provider = default_cfg.get("translate_selected_model_provider", "deepseek")
+    api_key = default_cfg.get(f"translate_{provider}_api_key", "")
+    base_url = default_cfg.get(f"translate_{provider}_base_url", "")
+    model = default_cfg.get(f"translate_{provider}_model", "")
+    use_proxy = default_cfg.get("translate_use_proxy", "false").lower() == "true"
+    proxy_url = default_cfg.get("proxy_url", "")
+
+    if not api_key or not base_url or not model:
+        return None, None
+
+    from utils.llm_client import ClientPool
+    client = ClientPool.get_client(
+        provider="local",
+        api_key=api_key,
+        base_url=base_url,
+        use_proxy=use_proxy,
+        proxy_url=proxy_url,
+    )
+    return client, model
+
+
+def translate_segment(text: str, source_lang: str = "en", target_lang: str = "zh") -> str | None:
+    """
+    Fast single-step direct translation. Returns translated text or None on failure.
+    Designed for low latency in live-stream scenarios.
+    """
+    if not text or not text.strip():
+        return None
+
+    lang_names = {"en": "English", "zh": "简体中文", "jp": "日本語"}
+    src = lang_names.get(source_lang, source_lang)
+    tgt = lang_names.get(target_lang, target_lang)
+
+    prompt = (
+        f"Translate the following {src} text to {tgt}. "
+        f"Output ONLY the translation, nothing else.\n\n{text}"
+    )
+
+    try:
+        client, model = _get_translate_client()
+        if client is None or model is None:
+            return None
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=512,
+        )
+        result = response.choices[0].message.content
+        return result.strip() if result else None
+    except Exception as exc:
+        logger.warning("translate_segment failed: %s", exc)
+        return None
 
 
 PCM_CHUNK_BYTES = 1024
@@ -22,11 +103,87 @@ OVERLAP_SAMPLES = int(SAMPLE_RATE * OVERLAP_SECONDS)
 MIN_VAD_CHUNK_BYTES = PCM_CHUNK_BYTES
 VAD_MIN_SILENCE_MS = 300
 DEFAULT_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+LIVE_ASR_BATCH_SIZE = 32
+LIVE_ASR_BATCH_WAIT_SEC = 0.08
 
 _transcription_tasks = {}
 _transcription_status = {}
 _transcription_events = {}
 _transcription_lock = threading.RLock()
+
+
+@dataclass
+class LiveASRItem:
+    bin_path: str
+    start_sample: int
+    end_sample: int
+    cancel_event: threading.Event
+    on_result: Callable[["LiveASRItem", str, Exception | None], None]
+
+
+class LiveASRBatcher:
+    def __init__(
+        self,
+        max_batch: int = LIVE_ASR_BATCH_SIZE,
+        max_wait_sec: float = LIVE_ASR_BATCH_WAIT_SEC,
+    ):
+        self.max_batch = max(1, max_batch)
+        self.max_wait_sec = max(0.0, max_wait_sec)
+        self._queue: queue.Queue[LiveASRItem] = queue.Queue()
+        self._lock = threading.Lock()
+        self._thread = None
+
+    def submit(self, item: LiveASRItem) -> None:
+        self._ensure_started()
+        self._queue.put(item)
+
+    def _ensure_started(self) -> None:
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._thread = threading.Thread(
+                target=self._run,
+                daemon=True,
+                name="vidgo-live-asr-batcher",
+            )
+            self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            first = self._queue.get()
+            batch = [first]
+            deadline = time.monotonic() + self.max_wait_sec
+            while len(batch) < self.max_batch:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    break
+                try:
+                    batch.append(self._queue.get(timeout=timeout))
+                except queue.Empty:
+                    break
+            self._process_batch(batch)
+
+    def _process_batch(self, batch: list[LiveASRItem]) -> None:
+        live_items = [item for item in batch if not item.cancel_event.is_set()]
+        for item in batch:
+            if item.cancel_event.is_set():
+                item.on_result(item, "", None)
+        if not live_items:
+            return
+
+        try:
+            texts = asr_engine_daemon.transcribe([item.bin_path for item in live_items])
+        except Exception as exc:
+            for item in live_items:
+                item.on_result(item, "", exc)
+            return
+
+        for idx, item in enumerate(live_items):
+            text = texts[idx] if idx < len(texts) else ""
+            item.on_result(item, text or "", None)
+
+
+live_asr_batcher = LiveASRBatcher()
 
 
 def _should_use_browser_user_agent(target_url: str, current_user_agent: str = "") -> bool:
@@ -196,6 +353,9 @@ class StreamTranscriber:
         self._total_audio_seconds = None
         self._tmp_dir = tempfile.mkdtemp(prefix="vidgo_stream_asr_")
         self._pcm_byte_buffer = bytearray()
+        self._pending_asr = 0
+        self._pending_asr_cond = threading.Condition()
+        self._asr_error = None
 
     def cancel(self) -> None:
         self.cancel_event.set()
@@ -209,6 +369,9 @@ class StreamTranscriber:
     def run(self) -> None:
         try:
             self._run_pipeline()
+            self._wait_for_pending_asr()
+            if self._asr_error is not None:
+                raise self._asr_error
             if not self.cancel_event.is_set():
                 self.on_progress(100.0)
                 self.on_done()
@@ -361,27 +524,50 @@ class StreamTranscriber:
             return
         pcm_float = pcm_int16.astype(np.float32) / 32768.0
         bin_path = os.path.join(self._tmp_dir, f"{uuid.uuid4().hex}.bin")
+        pcm_float.tofile(bin_path)
+        with self._pending_asr_cond:
+            self._pending_asr += 1
+        live_asr_batcher.submit(
+            LiveASRItem(
+                bin_path=bin_path,
+                start_sample=start_sample,
+                end_sample=end_sample,
+                cancel_event=self.cancel_event,
+                on_result=self._on_asr_result,
+            )
+        )
+
+    def _on_asr_result(self, item: LiveASRItem, text: str, error: Exception | None) -> None:
         try:
-            pcm_float.tofile(bin_path)
-            texts = asr_engine_daemon.transcribe([bin_path])
+            if error is not None:
+                self._asr_error = error
+                return
             if self.cancel_event.is_set():
                 return
-            text = texts[0].strip() if texts and texts[0] and texts[0].strip() else ""
+            text = text.strip() if text else ""
             if not text:
                 return
             segment = {
                 "index": self._segment_index,
                 "text": text,
-                "start": round(start_sample / SAMPLE_RATE, 3),
-                "end": round(end_sample / SAMPLE_RATE, 3),
+                "start": round(item.start_sample / SAMPLE_RATE, 3),
+                "end": round(item.end_sample / SAMPLE_RATE, 3),
             }
             self._segment_index += 1
             self.on_segment(segment)
         finally:
             try:
-                os.remove(bin_path)
+                os.remove(item.bin_path)
             except FileNotFoundError:
                 pass
+            with self._pending_asr_cond:
+                self._pending_asr -= 1
+                self._pending_asr_cond.notify_all()
+
+    def _wait_for_pending_asr(self) -> None:
+        with self._pending_asr_cond:
+            while self._pending_asr > 0:
+                self._pending_asr_cond.wait(timeout=0.5)
 
     def _report_progress(self, processed_samples: int) -> None:
         if not self._total_audio_seconds or self._total_audio_seconds <= 0:
@@ -460,12 +646,19 @@ class StreamTranscriber:
             pass
 
 
-def start_transcription(task_id, audio_url, proxy_url, headers):
+def start_transcription(task_id, audio_url, proxy_url, headers,
+                        source_lang="en", target_lang=""):
     with _transcription_lock:
         _transcription_status[task_id] = _new_status(task_id, audio_url)
         _transcription_events[task_id] = queue.Queue()
 
+    do_translate = bool(target_lang) and target_lang != source_lang
+
     def on_segment(segment):
+        if do_translate:
+            translated = translate_segment(segment["text"], source_lang, target_lang)
+            if translated:
+                segment["translation"] = translated
         _append_segment(task_id, segment)
 
     def on_progress(percent):

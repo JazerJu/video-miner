@@ -26,6 +26,7 @@ LANG_NAMES = {
     "en": "English",
     "zh": "Chinese",
     "jp": "Japanese",
+    "de": "German",
 }
 
 PAUSE_THRESHOLD_MS = 600  # gap >= 600ms between segments → sentence boundary

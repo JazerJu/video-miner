@@ -1,0 +1,136 @@
+[DEFAULT]
+selected_model_provider = deepseek
+deepseek_api_key = 
+deepseek_base_url = https://api.deepseek.com/v1
+deepseek_model = deepseek-chat
+openai_api_key = 
+openai_base_url = https://api.openai.com/v1
+openai_model = gpt-4o
+glm_api_key = 
+glm_base_url = https://open.bigmodel.cn/api/paas/v4
+glm_model = glm-4
+qwen_api_key = 
+qwen_base_url = https://dashscope.aliyuncs.com/compatible-mode/v1
+qwen_model = qwen-plus
+ollama_api_key = 
+ollama_base_url = http://127.0.0.1:11434
+ollama_model = llama3
+lmstudio_api_key = 
+lmstudio_base_url = http://127.0.0.1:1234/v1
+lmstudio_model = 
+moonshot_api_key = 
+moonshot_base_url = https://api.moonshot.cn/v1
+moonshot_model = moonshot-v1-8k
+zhipu_api_key = 
+zhipu_base_url = https://open.bigmodel.cn/api/paas/v4
+zhipu_model = glm-4-plus
+cerebras_api_key = 
+cerebras_base_url = https://api.cerebras.ai/v1
+cerebras_model = llama3.1-8b
+local_api_key = 
+local_base_url = http://localhost:1234/v1
+local_model = 
+split_use_proxy = false
+translate_selected_model_provider = deepseek
+translate_deepseek_api_key = 
+translate_deepseek_base_url = https://api.deepseek.com/v1
+translate_deepseek_model = deepseek-chat
+translate_openai_api_key = 
+translate_openai_base_url = https://api.openai.com/v1
+translate_openai_model = gpt-4o
+translate_glm_api_key = 
+translate_glm_base_url = https://open.bigmodel.cn/api/paas/v4
+translate_glm_model = glm-4
+translate_qwen_api_key = 
+translate_qwen_base_url = https://dashscope.aliyuncs.com/compatible-mode/v1
+translate_qwen_model = qwen-plus
+translate_ollama_api_key = 
+translate_ollama_base_url = http://127.0.0.1:11434
+translate_ollama_model = llama3
+translate_lmstudio_api_key = 
+translate_lmstudio_base_url = http://127.0.0.1:1234/v1
+translate_lmstudio_model = 
+translate_moonshot_api_key = 
+translate_moonshot_base_url = https://api.moonshot.cn/v1
+translate_moonshot_model = moonshot-v1-8k
+translate_zhipu_api_key = 
+translate_zhipu_base_url = https://open.bigmodel.cn/api/paas/v4
+translate_zhipu_model = glm-4-plus
+translate_cerebras_api_key = 
+translate_cerebras_base_url = https://api.cerebras.ai/v1
+translate_cerebras_model = llama3.1-8b
+translate_local_api_key = 
+translate_local_base_url = http://localhost:1234/v1
+translate_local_model = 
+translate_use_proxy = false
+plain_translate = false
+
+[Video watch]
+raw_language = zh
+default_translate_lang = zh
+
+[Subtitle settings]
+font_family = 宋体
+preview_text = 这是字幕预设文本
+font_color = #ea9749
+font_size = 18
+font_weight = 400
+background_color = #000000
+border_radius = 4
+text_shadow = false
+text_stroke = false
+text_stroke_color = #000000
+text_stroke_width = 2
+background_style = semi-transparent
+bottom_distance = 80
+
+[Foreign Subtitle settings]
+foreign_font_family = Arial
+foreign_preview_text = This is foreign subtitle preview
+foreign_font_color = #ffffff
+foreign_font_size = 16
+foreign_font_weight = 400
+foreign_background_color = #000000
+foreign_border_radius = 4
+foreign_text_shadow = false
+foreign_text_stroke = false
+foreign_text_stroke_color = #000000
+foreign_text_stroke_width = 2
+foreign_background_style = semi-transparent
+foreign_bottom_distance = 120
+
+[Media Credentials]
+bilibili_sessdata = 
+stream_download_proxy = 
+
+[Transcription Engine]
+primary_engine = faster_whisper
+fallback_engine =
+fwsr_model = large-v3
+use_gpu = false
+elevenlabs_api_key = 
+elevenlabs_model = scribe_v1
+include_punctuation = false
+alibaba_api_key = 
+alibaba_model = paraformer-realtime-v2
+; FunASR-GGUF local engine: set primary_engine = funasr_gguf to enable.
+; Models must be present at $FUNASR_GGUF_DIR/model/ (default: /data/推理框架/asr-onnx/Fun-ASR-GGUF/model/).
+funasr_gguf_dir = /data/推理框架/asr-onnx/Fun-ASR-GGUF
+openai_api_key = 
+openai_base_url = https://api.openai.com/v1
+
+[Remote VidGo Service]
+host = 
+port = 8000
+use_ssl = false
+
+[OSS Service]
+oss_access_key_id = 
+oss_access_key_secret = 
+oss_endpoint = oss-cn-beijing.aliyuncs.com
+oss_bucket = vidgo-test
+oss_region = cn-beijing
+
+[TTS settings]
+tts_engine_chosen = glm_asr_local
+dashscope_api_key = 

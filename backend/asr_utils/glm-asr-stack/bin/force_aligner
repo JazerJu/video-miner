@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+arch="$($ROOT/bin/detect_arch)"
+bin="$ROOT/forcealigner-engine/force_aligner_${arch}"
+if [[ ! -x "$bin" ]]; then
+  echo "ERROR: missing forcealigner binary $bin" >&2
+  echo "hint: run $ROOT/scripts/build_forcealigner_arch.sh $arch" >&2
+  exit 1
+fi
+export LD_LIBRARY_PATH="$ROOT/lib:/usr/local/cuda-12.8/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"
+cd "$ROOT/forcealigner-engine"
+exec "$bin" "$@"

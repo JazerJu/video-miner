@@ -19,7 +19,7 @@ def get_faithful_prompt(
     """生成直译阶段的提示模板"""
 
     # 语言名称映射
-    lang_names = {"en": "English", "zh": "简体中文", "jp": "日本語"}
+    lang_names = {"en": "English", "zh": "简体中文", "jp": "日本語", "de": "German"}
 
     source_name = lang_names.get(source_lang, source_lang)
     target_name = lang_names.get(target_lang, target_lang)
@@ -78,7 +78,7 @@ def get_free_prompt(
     """生成意译阶段的提示模板"""
 
     # 语言名称映射
-    lang_names = {"en": "English", "zh": "简体中文", "jp": "日本語"}
+    lang_names = {"en": "English", "zh": "简体中文", "jp": "日本語", "de": "German"}
 
     source_name = lang_names.get(source_lang, source_lang)
     target_name = lang_names.get(target_lang, target_lang)

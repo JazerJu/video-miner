@@ -1,4 +1,6 @@
 # views/videos.py
+import time
+
 from django.http import (
     JsonResponse,
     HttpResponse,
@@ -502,20 +504,71 @@ class VideoSearchView(JsonView):
 
     http_method_names = ["get", "post"]
 
-    def get_search_results(self, query, mode="title_content", limit=2000):
+    def get_search_results(self, query, mode="title_content", limit=2000, timeout=10):
         """
-        Search videos by title, subtitles, and notes
-        Returns list of results with matched content
+        Search videos by title, subtitles, and notes.
+        Title uses DB icontains; subtitle/notes use file/field scan with timeout protection.
+        Returns (results, total_matches, truncated).
         """
         if not query.strip():
-            return []
+            return [], 0, False
 
-        # Get all videos
+        query_lower = query.lower()
+        search_title = mode in ["title", "title_content"]
+        search_subtitle = mode in ["subtitle", "title_content"]
+        search_notes = mode == "title_content"
+
+        # --- Phase 1: Title search via DB query (fast) ---
+        title_matched_ids = set()
+        if search_title:
+            title_matched_ids = set(
+                Video.objects.filter(name__icontains=query).values_list("id", flat=True)
+            )
+
+        # If mode is title-only, return immediately
+        if mode == "title":
+            results = list(
+                Video.objects.filter(id__in=title_matched_ids).values(
+                    "id", "url", "name"
+                )
+            )
+            formatted = [
+                {
+                    "id": r["id"],
+                    "url": r["url"],
+                    "title": r["name"],
+                    "subtitle_matched": [],
+                    "notes_matched": [],
+                    "total_matched_nums": 1,
+                }
+                for r in results
+            ]
+            return formatted, len(formatted), False
+
+        # --- Phase 2: Subtitle/notes scan with timeout ---
+        # Build candidate set: title matches + all videos (for subtitle/notes scan)
+        if search_title:
+            candidate_ids = title_matched_ids
+        else:
+            candidate_ids = None  # scan all
+
         videos = Video.objects.all().select_related("category")
+        if candidate_ids is not None:
+            videos = videos.filter(id__in=candidate_ids)
+
         results = []
         total_matches = 0
+        truncated = False
+        start_time = time.time()
+        srt_dir = os.path.join(settings.MEDIA_ROOT, "saved_srt")
+        languages = ["zh", "en", "jp", "de", "kr"]
 
         for video in videos:
+            # Timeout check at each iteration
+            if time.time() - start_time >= timeout:
+                truncated = True
+                break
+
             video_result = {
                 "id": video.id,
                 "url": video.url,
@@ -525,96 +578,116 @@ class VideoSearchView(JsonView):
                 "total_matched_nums": 0,
             }
 
-            query_lower = query.lower()
-            search_title = mode in ["title", "title_content"]
-            search_subtitle = mode in ["subtitle", "title_content"]
-            search_notes = mode == "title_content"
-
-            # Search in title
-            if search_title and query_lower in video.name.lower():
+            # Title match (already in candidate set but count it)
+            if video.id in title_matched_ids:
                 video_result["total_matched_nums"] += 1
 
-            # Search in subtitle files - check {videoId}_{lang}.srt pattern
-            srt_dir = os.path.join(settings.MEDIA_ROOT, "saved_srt")
-            languages = ["zh", "en", "jp", "kr"]
-
-            # Also check the main srt_path if it exists
+            # Search in main subtitle file
             if search_subtitle and video.srt_path:
                 full_subtitle_path = os.path.join(srt_dir, video.srt_path)
                 if os.path.exists(full_subtitle_path):
                     try:
                         with open(full_subtitle_path, "r", encoding="utf-8") as f:
-                            content = f.read()
-                            lines = content.split("\n")
-                            for line in lines:
+                            for line in f:
                                 line = line.strip()
-                                # Skip SRT metadata lines (numbers, timestamps, empty lines)
-                                if line and not line.isdigit() and "-->" not in line:
-                                    if query_lower in line.lower():
-                                        video_result["subtitle_matched"].append(line)
-                                        video_result["total_matched_nums"] += 1
+                                if (
+                                    line
+                                    and not line.isdigit()
+                                    and "-->" not in line
+                                    and query_lower in line.lower()
+                                ):
+                                    video_result["subtitle_matched"].append(line)
+                                    video_result["total_matched_nums"] += 1
                     except (IOError, UnicodeDecodeError):
                         pass
 
             # Check language-specific subtitle files
             if search_subtitle:
                 for lang in languages:
+                    if time.time() - start_time >= timeout:
+                        truncated = True
+                        break
                     subtitle_filename = f"{video.id}_{lang}.srt"
                     full_subtitle_path = os.path.join(srt_dir, subtitle_filename)
                     if os.path.exists(full_subtitle_path):
                         try:
                             with open(full_subtitle_path, "r", encoding="utf-8") as f:
-                                content = f.read()
-                                lines = content.split("\n")
-                                for line in lines:
+                                for line in f:
                                     line = line.strip()
-                                    # Skip SRT metadata lines (numbers, timestamps, empty lines)
-                                    if line and not line.isdigit() and "-->" not in line:
-                                        if query_lower in line.lower():
-                                            video_result["subtitle_matched"].append(line)
-                                            video_result["total_matched_nums"] += 1
+                                    if (
+                                        line
+                                        and not line.isdigit()
+                                        and "-->" not in line
+                                        and query_lower in line.lower()
+                                    ):
+                                        video_result["subtitle_matched"].append(line)
+                                        video_result["total_matched_nums"] += 1
                         except (IOError, UnicodeDecodeError):
                             continue
+                if truncated:
+                    # Still include this partial result
+                    if video_result["total_matched_nums"] > 0:
+                        results.append(video_result)
+                        total_matches += video_result["total_matched_nums"]
+                    break
 
             # Search in notes
             if search_notes and video.notes:
-                note_lines = video.notes.split("\n")
-                for line in note_lines:
+                for line in video.notes.split("\n"):
                     line = line.strip()
                     if line and query_lower in line.lower():
                         video_result["notes_matched"].append(line)
                         video_result["total_matched_nums"] += 1
 
-            # Only include videos with matches
             if video_result["total_matched_nums"] > 0:
                 results.append(video_result)
                 total_matches += video_result["total_matched_nums"]
 
-                # Check if we've exceeded the limit
                 if total_matches >= limit:
+                    truncated = True
                     break
 
-        return results, total_matches
+        # If we have title matches that weren't scanned for subtitles yet,
+        # include them as title-only results
+        if not truncated and search_title:
+            scanned_ids = {r["id"] for r in results}
+            missing_ids = title_matched_ids - scanned_ids
+            if missing_ids:
+                missing_videos = Video.objects.filter(id__in=missing_ids).values(
+                    "id", "url", "name"
+                )
+                for r in missing_videos:
+                    results.append(
+                        {
+                            "id": r["id"],
+                            "url": r["url"],
+                            "title": r["name"],
+                            "subtitle_matched": [],
+                            "notes_matched": [],
+                            "total_matched_nums": 1,
+                        }
+                    )
+                    total_matches += 1
+
+        return results, total_matches, truncated
 
     def get(self, request):
-        """Handle GET requests for search"""
         query = request.GET.get("q", "").strip()
         mode = request.GET.get("mode", "title_content").strip()
         if not query:
             return JsonResponse({"results": [], "total_matches": 0, "truncated": False})
 
-        results, total_matches = self.get_search_results(query, mode=mode)
+        results, total_matches, truncated = self.get_search_results(query, mode=mode)
 
         return JsonResponse(
             {
                 "results": results,
                 "total_matches": total_matches,
-                "truncated": total_matches >= 2000,
+                "truncated": truncated or total_matches >= 2000,
             }
         )
 
     def post(self, request):
-        """Handle POST requests for search"""
         try:
             data = json.loads(request.body)
             query = data.get("query", "").strip()
@@ -626,13 +699,13 @@ class VideoSearchView(JsonView):
         if not query:
             return JsonResponse({"results": [], "total_matches": 0, "truncated": False})
 
-        results, total_matches = self.get_search_results(query, mode=mode)
+        results, total_matches, truncated = self.get_search_results(query, mode=mode)
 
         return JsonResponse(
             {
                 "results": results,
                 "total_matches": total_matches,
-                "truncated": total_matches >= 2000,
+                "truncated": truncated or total_matches >= 2000,
             }
         )
 
@@ -646,7 +719,7 @@ class VideoLanguageView(View):
             data = json.loads(request.body)
             raw_lang = data.get("raw_lang")
 
-            if raw_lang not in ["zh", "en", "jp"]:
+            if raw_lang not in ["zh", "en", "jp", "de"]:
                 return JsonResponse({"error": "Invalid language code"}, status=400)
 
             video = get_object_or_404(Video, pk=video_id)
@@ -670,7 +743,7 @@ class VideoLanguageView(View):
 
 @method_decorator(csrf_exempt, name="dispatch")
 class VideoPropsView(View):
-    VALID_LANGS = {"zh", "en", "jp", ""}
+    VALID_LANGS = {"zh", "en", "jp", "de", ""}
     VALID_SOURCES = {"bilibili", "youtube", "podcast", "upload", "ar_glass", ""}
 
     def post(self, request, video_id):

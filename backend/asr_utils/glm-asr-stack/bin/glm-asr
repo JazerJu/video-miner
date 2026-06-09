@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${GLM_ASR_STACK_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cmd="${1:-help}"
+if [[ $# -gt 0 ]]; then shift; fi
+case "$cmd" in
+  doctor)
+    exec "$ROOT/bin/glm-asr-doctor" "$@"
+    ;;
+  download-model)
+    what="${1:-all}"
+    cache="${GLM_ASR_MODEL_CACHE:-$ROOT/models}"
+    mkdir -p "$cache"
+    python3 - "$what" "$cache" <<'PY'
+import sys
+from pathlib import Path
+from huggingface_hub import snapshot_download
+what = sys.argv[1]
+cache = Path(sys.argv[2])
+items = []
+if what in ("all", "glm-asr", "asr"):
+    items.append(("zai-org/GLM-ASR-Nano-2512", cache / "glm-asr-bf16"))
+if what in ("all", "forcealigner", "fa"):
+    items.append(("Qwen/Qwen3-ForcedAligner-0.6B", cache / "qwen3-forcealigner-0.6b"))
+if not items:
+    raise SystemExit(f"unknown model selector: {what}")
+for repo, dst in items:
+    print(f"downloading {repo} -> {dst}", flush=True)
+    snapshot_download(repo_id=repo, local_dir=str(dst))
+PY
+    ;;
+  transcribe)
+    audio="${1:-}"
+    if [[ -z "$audio" ]]; then
+      echo "Usage: glm-asr transcribe AUDIO [orchestrator options]" >&2
+      exit 2
+    fi
+    shift || true
+    model="${GLM_ASR_MODEL:-$ROOT/models/glm-asr-bf16}"
+    fa_model="${GLM_ASR_FA_MODEL:-$ROOT/models/qwen3-forcealigner-0.6b}"
+    exec python3 "$ROOT/bin/orchestrator.py" \
+      --audio "$audio" \
+      --model "$model" \
+      --mel "$ROOT/resources/mel_filters.bin" \
+      --fa-model "$fa_model" \
+      "$@"
+    ;;
+  asr-only)
+    audio="${1:-}"
+    if [[ -z "$audio" ]]; then
+      echo "Usage: glm-asr asr-only AUDIO [orchestrator options]" >&2
+      exit 2
+    fi
+    shift || true
+    model="${GLM_ASR_MODEL:-$ROOT/models/glm-asr-bf16}"
+    exec python3 "$ROOT/bin/orchestrator.py" \
+      --audio "$audio" \
+      --model "$model" \
+      --mel "$ROOT/resources/mel_filters.bin" \
+      --asr-only \
+      "$@"
+    ;;
+  help|-h|--help)
+    cat <<USAGE
+Usage:
+  glm-asr doctor
+  glm-asr download-model [all|glm-asr|forcealigner]
+  glm-asr transcribe AUDIO --subtitle-mode sentence --output out.srt [--prompt "..."]
+  glm-asr asr-only AUDIO [--prompt "..."]
+
+Environment:
+  GLM_ASR_MODEL_CACHE   default: \$ROOT/models
+  GLM_ASR_MODEL         default: \$ROOT/models/glm-asr-bf16
+  GLM_ASR_FA_MODEL      default: \$ROOT/models/qwen3-forcealigner-0.6b
+USAGE
+    ;;
+  *)
+    echo "ERROR: unknown command '$cmd'" >&2
+    exec "$0" help
+    ;;
+esac

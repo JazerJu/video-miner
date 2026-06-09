@@ -16,10 +16,6 @@ import os
 import ffmpeg
 from pydub import AudioSegment
 
-# Import Hypothesis buffer for smooth transcription
-from utils.wsr.transcription_engine import transcribe_with_engine
-
-
 class HypothesisBuffer:
     """
     Hypothesis buffer implementation for smooth real-time transcription
@@ -356,13 +352,18 @@ class RealtimeTranscriptionConsumer(AsyncWebsocketConsumer):
             # Force Chinese language for better results
             transcription_language = 'zh' if self.language == 'zh' else 'en'
 
-            # 使用简化的whisper.cpp转录，避免VAD过度分割
-            from utils.wsr.whisper_cpp_realtime_vad import transcribe_audio_simple_chunks
+            from asr_utils.transcription_engine import transcribe_with_engine
+            from asr_utils.transcription_engine import load_transcription_settings
 
-            srt_content = transcribe_audio_simple_chunks(
+            transcription_settings = load_transcription_settings()
+            engine_settings = transcription_settings.get("Transcription Engine", {})
+            primary_engine = engine_settings.get("primary_engine", "funasr_gguf")
+
+            srt_content = transcribe_with_engine(
+                engine_type=primary_engine,
                 audio_file_path=wav_file_path,
                 progress_cb=real_progress_callback,
-                language=transcription_language
+                language=transcription_language,
             )
 
             if srt_content:
@@ -723,11 +724,9 @@ class RealtimeTranscriptionConsumer(AsyncWebsocketConsumer):
         print(f"[WebSocket] Audio file size: {os.path.getsize(audio_file_path)} bytes")
 
         try:
-            # Import the new real-time transcription function
-            from utils.wsr.whisper_cpp_realtime import transcribe_audio_realtime
-            print(f"[WebSocket] Imported transcribe_audio_realtime successfully")
+            from asr_utils.transcription_engine import transcribe_with_engine
+            from asr_utils.transcription_engine import load_transcription_settings
 
-            # Use the real-time transcription with sentence segmentation
             def real_progress_callback(message):
                 print(f"[WebSocket] Transcription progress: {message}")
 
@@ -735,13 +734,19 @@ class RealtimeTranscriptionConsumer(AsyncWebsocketConsumer):
             transcription_language = 'zh' if self.language == 'zh' else 'en'
             print(f"[WebSocket] Using language: {transcription_language}")
 
+            transcription_settings = load_transcription_settings()
+            engine_settings = transcription_settings.get("Transcription Engine", {})
+            primary_engine = engine_settings.get("primary_engine", "funasr_gguf")
+            print(f"[WebSocket] Using transcription engine: {primary_engine}")
+
             print(f"[WebSocket] Starting transcription...")
-            srt_content = transcribe_audio_realtime(
+            srt_content = transcribe_with_engine(
+                engine_type=primary_engine,
                 audio_file_path=audio_file_path,
                 progress_cb=real_progress_callback,
-                language=transcription_language
+                language=transcription_language,
             )
-            print(f"[WebSocket] transcribe_audio_realtime returned, length: {len(srt_content) if srt_content else 0}")
+            print(f"[WebSocket] transcribe_with_engine returned, length: {len(srt_content) if srt_content else 0}")
 
             if srt_content:
                 print(f"[WebSocket] Transcription successful, {len(srt_content)} characters")

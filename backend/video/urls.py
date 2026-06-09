@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false, reportImplicitRelativeImport=false
 import os
 from django.urls import path
 from django.conf import settings
@@ -32,14 +33,6 @@ from .views.media import MediaActionView
 from .views.media_optimized import OptimizedMediaView
 from .views.subtitles import SubtitleActionView
 from .views.waveform import WaveformAPIView, WaveformListView
-from .views.export import (
-    ExportTaskAddView,
-    AllExportStatusView,
-    ExportStatusView,
-    DeleteExportTaskView,
-    RetryExportTaskView,
-    ExportedVideoDownloadView,
-)
 from .views.external_transcription import (
     ExternalTranscriptionSubmitView,
     ExternalTranscriptionStatusView,
@@ -47,6 +40,7 @@ from .views.external_transcription import (
     ExternalTranscriptionListView,
     ExternalTranscriptionDeleteView,
 )
+from .views.summary import SummaryAddView, SummaryStatusView, SummaryDeleteView, SummaryRetryView, VideoSummaryView, VideoAskView
 from .views.realtime_subtitles import RealtimeSubtitleView, RealtimeSubtitleStreamView
 from .views.language_tracks import VideoLanguageTracksView
 from .views.extract_insights import extract_insights
@@ -57,7 +51,11 @@ from .views import subtitles
 from .views import cookies
 from .views import yt_dlp
 from .views import stream_transcription
-import django
+from vid_under.views_download import (
+    VidUnderModelAPIView,
+    VidUnderModelDownloadAPIView,
+    VidUnderModelProgressAPIView,
+)
 from urllib.parse import urlparse
 from django.views.decorators.http import require_GET
 from django.http import JsonResponse
@@ -67,7 +65,8 @@ app_name = "video"
 
 @ensure_csrf_cookie
 def get_csrf_token(request):
-    token = django.middleware.csrf.get_token(request)
+    from django.middleware.csrf import get_token
+    token = get_token(request)
     return JsonResponse({"csrf_token": token})
 
 
@@ -185,6 +184,21 @@ urlpatterns = [
         WhisperModelSizeAPIView.as_view(),
         name="whisper_models_size_api",
     ),
+    path(
+        "api/vidunder-models/",
+        VidUnderModelAPIView.as_view(),
+        name="vidunder_models_api",
+    ),
+    path(
+        "api/vidunder-models/download/",
+        VidUnderModelDownloadAPIView.as_view(),
+        name="vidunder_models_download_api",
+    ),
+    path(
+        "api/vidunder-models/progress/",
+        VidUnderModelProgressAPIView.as_view(),
+        name="vidunder_models_progress_api",
+    ),
     path("api/get_csrf_token/", get_csrf_token, name="get_csrf_token"),
     # 视频相关
     path("api/videos/", VideoDataView.as_view(), name="video_data"),
@@ -199,6 +213,11 @@ urlpatterns = [
         "api/videos/<int:video_id>/language",
         VideoLanguageView.as_view(),
         name="set_video_language",
+    ),
+    path(
+        "api/videos/<int:video_id>/update_raw_lang",
+        VideoLanguageView.as_view(),
+        name="update_raw_lang",
     ),
     path(
         "api/videos/<int:video_id>/props",
@@ -310,29 +329,6 @@ urlpatterns = [
     path(
         "api/waveform/<path:filename>", WaveformAPIView.as_view(), name="waveform_api"
     ),
-    # 导出功能
-    path("api/export/add", ExportTaskAddView.as_view(), name="export_add"),
-    path("api/export/status", AllExportStatusView.as_view(), name="export_status"),
-    path(
-        "api/export/<str:task_id>/status",
-        ExportStatusView.as_view(),
-        name="export_status_single",
-    ),
-    path(
-        "api/export/<str:task_id>/delete",
-        DeleteExportTaskView.as_view(),
-        name="export_delete",
-    ),
-    path(
-        "api/export/<str:task_id>/retry",
-        RetryExportTaskView.as_view(),
-        name="export_retry",
-    ),
-    path(
-        "api/export/<str:task_id>/download",
-        ExportedVideoDownloadView.as_view(),
-        name="export_download",
-    ),
     # 外部转录服务
     path(
         "api/external_transcription/submit",
@@ -400,6 +396,14 @@ urlpatterns = [
     ),
     # 🆕 智能内容提取（待办事项和关键要点）
     path("api/extract_insights", extract_insights, name="extract_insights"),
+    # vidUnder Summary
+    path("api/summary/add", SummaryAddView.as_view(), name="summary_add"),
+    path("api/summary/<str:task_id>/status", SummaryStatusView.as_view(), name="summary_status"),
+    path("api/summary/<str:task_id>/delete", SummaryDeleteView.as_view(), name="summary_delete"),
+    path("api/summary/<str:task_id>/retry", SummaryRetryView.as_view(), name="summary_retry"),
+    path("api/summary/status", SummaryStatusView.as_view(), name="summary_all_status"),
+    path("api/video-summary/<str:filename>", VideoSummaryView.as_view(), name="video_summary"),
+    path("api/video-ask/<str:filename>", VideoAskView.as_view(), name="video_ask"),
     # 标签管理
     path("api/tags/", TagListView.as_view(), name="tag_list"),
     path("api/tags/create", TagCreateView.as_view(), name="tag_create"),

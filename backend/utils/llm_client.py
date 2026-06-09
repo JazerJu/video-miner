@@ -51,18 +51,20 @@ PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
 }
 
 DEFAULT_TIMEOUTS: Dict[str, float] = {
-    'ollama': 20.0,
-    'lmstudio': 20.0,
-    'openai': 10.0,
-    'deepseek': 10.0,
-    'moonshot': 10.0,
-    'zhipu': 10.0,
-    'qwen': 10.0,
-    'cerebras': 10.0,
-    'local': 20.0,
+    'ollama': 60.0,
+    'lmstudio': 60.0,
+    'openai': 30.0,
+    'deepseek': 30.0,
+    'moonshot': 30.0,
+    'zhipu': 30.0,
+    'qwen': 30.0,
+    'cerebras': 30.0,
+    'volcano': 30.0,
+    'openrouter': 30.0,
+    'local': 60.0,
 }
 
-DEFAULT_TIMEOUT = 10.0
+DEFAULT_TIMEOUT = 30.0
 
 
 class ClientPool:
