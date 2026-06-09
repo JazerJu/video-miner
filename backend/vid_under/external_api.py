@@ -8,7 +8,7 @@ import numpy as np
 from config import (GEMINI_API_URL, EMBED_MODEL_PATH, STEP_API_KEY, STEP_BASE_URL,
                               STEP_MODEL,
                               DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
-                              OPENROUTER_KEY, OPENROUTER_BASE_URL,
+                              OPENROUTER_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL,
                               DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
                               MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL,
                               GLM_OCR_GGUF, GLM_OCR_N_GPU_LAYERS)
@@ -238,8 +238,9 @@ def ocr_parallel(images_prompts, num_workers=2):
     return results
 
 
-def call_openrouter(prompt: str, model: str = "google/gemini-2.5-flash",
+def call_openrouter(prompt: str, model: str = None,
                     system: str = "You are a helpful assistant.", max_tokens: int = 4096) -> str:
+    model = model or OPENROUTER_MODEL
     url = f"{OPENROUTER_BASE_URL}/chat/completions"
     payload = {
         "model": model,
@@ -342,7 +343,7 @@ def call_vision_for_corners(image_b64: str, img_width: int, img_height: int,
 
     if provider == "gemini":
         text = _call_openai_compat(
-            OPENROUTER_BASE_URL, OPENROUTER_KEY, "google/gemini-2.5-flash",
+            OPENROUTER_BASE_URL, OPENROUTER_KEY, OPENROUTER_MODEL,
             prompt, "You detect corners in images. Return JSON only.",
             max_tokens=500, images=[image_b64],
         )
@@ -395,7 +396,7 @@ def call_knowledge_llm(prompt: str, max_tokens: int = 4096) -> str:
     r = call_doubao(prompt, max_tokens=max_tokens)
     if r and len(r) > 50:
         return r
-    r = call_openrouter(prompt, model="google/gemini-2.5-flash", max_tokens=max_tokens)
+    r = call_openrouter(prompt, model=OPENROUTER_MODEL, max_tokens=max_tokens)
     if r and len(r) > 50:
         return r
     return ""

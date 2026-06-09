@@ -319,7 +319,7 @@ _SUMMARIZE_TOOL_DEFS = [
 
 class VideoAgent:
     def __init__(self, db, srt_entries, model=None, ctx=None, sampler=None,
-                 siglip_sess=None, resampler_sess=None, video_path=None):
+                 siglip_sess=None, resampler_sess=None, video_path=None, lang=None):
         self.db = db
         self.srt = srt_entries
         self._model = model
@@ -331,6 +331,10 @@ class VideoAgent:
         self._clip_embeds = None
         self._srt_embeds = None
         self._summary_text = None
+        self._lang = lang or SUMMARY_LANG
+        if self._lang != "中文":
+            self._SYSTEM_PROMPT = self._SYSTEM_PROMPT.replace("用中文回答", f"用{self._lang}回答")
+            self._SUMMARIZE_SYSTEM_PROMPT = self._SUMMARIZE_SYSTEM_PROMPT.replace("用中文输出（原始字幕/代码保持原文）", f"用{self._lang}输出（原始字幕/代码保持原文）")
         caps = [c["caption"] for c in db["clips"]]
         if caps:
             print(f"  计算 {len(caps)} 条 caption 的 embedding...")
@@ -349,6 +353,23 @@ class VideoAgent:
             from main import _load_models
             self._model, self._ctx, self._sampler, self._siglip, self._resampler = _load_models()
         print("  [lazy] models loaded")
+
+    def unload_models(self):
+        if self._model is None:
+            return
+        del self._model
+        self._model = None
+        self._ctx = None
+        self._sampler = None
+        if self._siglip is not None:
+            del self._siglip
+            self._siglip = None
+        if self._resampler is not None:
+            del self._resampler
+            self._resampler = None
+        import gc
+        gc.collect()
+        print("  [unload] models released")
 
     def _extract_json_path(self):
         import glob as _glob
@@ -1119,7 +1140,7 @@ class VideoAgent:
         "重要：\n"
         "- 当你已经有足够信息时，**立即停止调用工具并直接给出最终答案**\n"
         "- 最终答案必须包含：具体事实 + 时间戳 + 来源（字幕/视觉）\n"
-        f"- 用{SUMMARY_LANG}回答"
+        "- 用中文回答"
     )
 
     _SUMMARIZE_SYSTEM_PROMPT = (
@@ -1135,7 +1156,7 @@ class VideoAgent:
         "- 每个章节用时间线叙事：按时间顺序描述发生了什么（操作→变化→结果）\n"
         "- 视频中出现的代码和界面操作必须体现（这是区别于纯字幕总结的关键优势）\n"
         "- 最后附上完整的目录（Table of Contents）\n"
-        f"- 用{SUMMARY_LANG}输出（原始字幕/代码保持原文）\n\n"
+        "- 用中文输出（原始字幕/代码保持原文）\n\n"
         "注意：不要跳过任何章节，确保覆盖完整视频内容。"
     )
 
@@ -1506,7 +1527,7 @@ class VideoAgent:
             "你是视频分析助手。以下是来自不同来源的视频相关信息，可靠性从高到低："
             "transcript(原始字幕，最可靠) > visual_caption(AI视觉描述) > keyword_match(关键词匹配)。\n\n"
             f"{ctx_text}\n\n"
-            f"问题：{question}\n\n请用{SUMMARY_LANG}详细回答，引用具体时间戳。优先使用transcript中的信息。信息不足请说明。"
+            f"问题：{question}\n\n请用{self._lang}详细回答，引用具体时间戳。优先使用transcript中的信息。信息不足请说明。"
         )
         remote = self._remote_ask(prompt[:15000], max_tokens=512)
         if remote and len(remote) > 30:
@@ -1604,7 +1625,7 @@ class VideoAgent:
                     f"之前的回答：\n{answer[:4000]}\n\n"
                     f"补充视觉验证：\n{new_evidence}\n\n"
                     "请根据所有信息重新给出更准确、更完整的回答。"
-                    "引用具体时间戳。如果之前回答有误，请纠正。" f"用{SUMMARY_LANG}回答。"
+                    "引用具体时间戳。如果之前回答有误，请纠正。" f"用{self._lang}回答。"
                 )
                 new_answer = self._remote_ask(react_prompt[:15000], max_tokens=1024)
                 if new_answer and len(new_answer) > 30:
@@ -1841,7 +1862,7 @@ class VideoAgent:
         prompt = (
             f"你是视频分析助手，需要借助外部知识回答一个超出视频内容范围的问题。\n\n"
             f"== 视频中相关上下文 ==\n{ctx[:3000]}\n\n"
-            f"== 需要外部知识的问题 ==\n{question}\n\n请结合外部知识回答，用{SUMMARY_LANG}。"
+            f"== 需要外部知识的问题 ==\n{question}\n\n请结合外部知识回答，用{self._lang}。"
         )
         return self._external_ask(prompt)
 

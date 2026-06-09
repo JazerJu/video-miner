@@ -1,4 +1,4 @@
-import json, time, os, re
+import json, time, os, re, threading, logging
 from typing import Any, cast
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -7,7 +7,42 @@ from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse, Http
 from django.conf import settings
 from ..tasks import summary_task_status, summary_task_queue
 
+logger = logging.getLogger("video.summary")
+
 _agent_cache = {}
+_agent_cache_order = []
+_agent_cache_max = 2
+_unload_timer = None
+
+
+def _unload_oldest_agent():
+    if not _agent_cache_order:
+        return
+    oldest_key = _agent_cache_order.pop(0)
+    agent = _agent_cache.pop(oldest_key, None)
+    if agent and hasattr(agent, "unload_models"):
+        agent.unload_models()
+        logger.info("Unloaded oldest agent: %s", oldest_key)
+
+
+def _unload_all_agents():
+    global _unload_timer
+    _unload_timer = None
+    for key, agent in list(_agent_cache.items()):
+        if hasattr(agent, "unload_models"):
+            agent.unload_models()
+            logger.info("Timer unload agent: %s", key)
+    _agent_cache.clear()
+    _agent_cache_order.clear()
+
+
+def _reset_unload_timer():
+    global _unload_timer
+    if _unload_timer is not None:
+        _unload_timer.cancel()
+    _unload_timer = threading.Timer(300, _unload_all_agents)
+    _unload_timer.daemon = True
+    _unload_timer.start()
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -231,6 +266,10 @@ class VideoAskView(View):
             vid_under_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vid_under")
             if vid_under_dir not in _sys.path:
                 _sys.path.insert(0, vid_under_dir)
+
+            from ..tasks import _inject_vidunder_config
+            _inject_vidunder_config()
+
             from agent import VideoAgent
             from srt_utils import parse_srt
 
@@ -239,6 +278,15 @@ class VideoAskView(View):
             srt = parse_srt(srt_path)
             agent = VideoAgent(db, srt)
             _agent_cache[db_path] = agent
+            _agent_cache_order.append(db_path)
+            logger.info("Created agent for %s, cache size: %d", db_path, len(_agent_cache))
+            while len(_agent_cache) > _agent_cache_max:
+                _unload_oldest_agent()
+        else:
+            if db_path in _agent_cache_order:
+                _agent_cache_order.remove(db_path)
+            _agent_cache_order.append(db_path)
 
+        _reset_unload_timer()
         result = agent.ask(question)
         return JsonResponse({"answer": result})
