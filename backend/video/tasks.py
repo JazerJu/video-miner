@@ -1,5 +1,5 @@
 from django.views import View
-import os, time
+import os, time, configparser
 from queue import Queue, Empty
 from collections import defaultdict
 from django.http import JsonResponse
@@ -9,6 +9,8 @@ from utils.split_subtitle.main import optimise_srt
 from django.conf import settings  # 确保这个在顶部
 import hashlib
 from .views.set_setting import load_all_settings
+import logging
+logger = logging.getLogger("video.tasks")
 
 """
 该文件用于定义和 存储项目的 所有task，
@@ -199,10 +201,10 @@ def preprocess_audio_for_transcription(video_id):
 
     # 检查是否已经存在预处理后的文件
     if os.path.exists(preprocessed_audio_path):
-        print(f"Preprocessed audio already exists: {preprocessed_audio_path}")
+        logger.info("Preprocessed audio already exists: %s", preprocessed_audio_path)
         return preprocessed_audio_path
 
-    print(f"Preprocessing audio: {original_audio_path} -> {preprocessed_audio_path}")
+    logger.info("Preprocessing audio: %s -> %s", original_audio_path, preprocessed_audio_path)
 
     # 使用FFmpeg转换为单声道MP3格式
     ffmpeg_cmd = [
@@ -222,7 +224,7 @@ def preprocess_audio_for_transcription(video_id):
     ]
 
     try:
-        print(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
+        logger.debug("FFmpeg command: %s", ' '.join(ffmpeg_cmd))
         result = subprocess.run(
             ffmpeg_cmd,
             capture_output=True,
@@ -232,12 +234,12 @@ def preprocess_audio_for_transcription(video_id):
 
         if result.returncode == 0 and os.path.exists(preprocessed_audio_path):
             audio_size = os.path.getsize(preprocessed_audio_path)
-            print(
-                f"Audio preprocessing successful: {preprocessed_audio_path} ({audio_size} bytes)"
+            logger.info(
+                "Audio preprocessing successful: %s (%s bytes)", preprocessed_audio_path, audio_size
             )
             return preprocessed_audio_path
         else:
-            print(f"FFmpeg preprocessing failed: {result.stderr}")
+            logger.error("FFmpeg preprocessing failed: %s", result.stderr)
             raise Exception(f"Audio preprocessing failed: {result.stderr}")
 
     except subprocess.TimeoutExpired:
@@ -275,7 +277,7 @@ def handle_translation_only(
                     f"Original subtitle file not found for video {video_id}. Please generate original subtitles first."
                 )
 
-        print(f"Using original subtitle file: {original_srt_path}")
+        logger.info("Using original subtitle file: %s", original_srt_path)
 
         # 设置翻译字幕路径
         translated_srt_name = f"{video_id}_{trans_lang}.srt"
@@ -302,12 +304,12 @@ def handle_translation_only(
             video.translated_srt_path = translated_srt_name
             video.save(update_fields=["translated_srt_path"])
 
-        print(
-            f"Translation completed for video {video_id}: {original_lang} -> {trans_lang}"
+        logger.info(
+            "Translation completed for video %s: %s -> %s", video_id, original_lang, trans_lang
         )
 
     except Exception as exc:
-        print(f"Translation-only failed for video {video_id}: {exc}")
+        logger.error("Translation-only failed for video %s: %s", video_id, exc)
         _update(video_id, "translate", "Failed")
         raise exc
 
@@ -320,7 +322,7 @@ def generate_external_transcription(task_id: str) -> None:
         task["status"] = "Running"
         audio_file_path = task["audio_file_path"]
 
-        print(f"Starting external transcription for task {task_id}: {task['filename']}")
+        logger.info("Starting external transcription for task %s: %s", task_id, task['filename'])
 
         from asr_utils.transcription_engine import (
             transcribe_with_engine,
@@ -333,11 +335,11 @@ def generate_external_transcription(task_id: str) -> None:
         fallback_engine = transcription_settings.get("fallback_engine", "")
 
         def progress_cb(status):
-            print(f"External task {task_id} progress: {status}")
+            logger.debug("External task %s progress: %s", task_id, status)
 
-        print(
-            f"Using primary '{primary_engine}' (fallback: '{fallback_engine}') "
-            f"for external task {task_id}"
+        logger.info(
+            "Using primary '%s' (fallback: '%s') for external task %s",
+            primary_engine, fallback_engine, task_id
         )
         srt_content = transcribe_with_engine(
             engine_type=primary_engine,
@@ -358,10 +360,10 @@ def generate_external_transcription(task_id: str) -> None:
         task["status"] = "Completed"
         task["result_file"] = result_file
 
-        print(f"External transcription completed for task {task_id}")
+        logger.info("External transcription completed for task %s", task_id)
 
     except Exception as exc:
-        print(f"External transcription failed for task {task_id}: {exc}")
+        logger.error("External transcription failed for task %s: %s", task_id, exc)
         task["status"] = "Failed"
         task["error_message"] = str(exc)
 
@@ -376,7 +378,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
         task["src_lang"],
         task["trans_lang"],
     )
-    print(filename, src_lang, trans_lang)
+    logger.info("filename=%s, src_lang=%s, trans_lang=%s", filename, src_lang, trans_lang)
     emphasize_dst = task.get("emphasize_dst", "")  # 获取术语信息
     translation_only = task.get("translation_only", False)  # 检查是否为仅翻译模式
 
@@ -386,7 +388,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
 
     # 检查是否为仅翻译模式
     if translation_only:
-        print(f"Translation-only mode for video {video_id}")
+        logger.info("Translation-only mode for video %s", video_id)
         # 跳过转录和优化阶段，直接处理翻译
         _update(video_id, "transcribe", "Skipped")
         _update(video_id, "optimize", "Skipped")
@@ -431,14 +433,14 @@ def generate_subtitles_for_video(video_id: int) -> None:
                 # 普通状态字符串
                 _update(video_id, "transcribe", status)
 
-    print("start transcribing:", video_path)
+    logger.info("start transcribing: %s", video_path)
 
     try:
         _update(video_id, "transcribe", "Running")
 
         # 预处理音频文件：转换为单声道MP3格式
         preprocessed_audio_path = preprocess_audio_for_transcription(video_id)
-        print(f"Transcribing preprocessed audio file: {preprocessed_audio_path}")
+        logger.info("Transcribing preprocessed audio file: %s", preprocessed_audio_path)
 
         # 使用统一的转录引擎接口
         from asr_utils.transcription_engine import (
@@ -455,12 +457,12 @@ def generate_subtitles_for_video(video_id: int) -> None:
         fallback_engine = transcription_settings.get("fallback_engine", "")
         enable_split = default_settings.get("enable_split", "true").lower() == "true"
 
-        print(f"Using primary transcription engine: {primary_engine}")
+        logger.info("Using primary transcription engine: %s", primary_engine)
         if fallback_engine and fallback_engine != primary_engine:
-            print(f"Fallback engine configured: {fallback_engine}")
+            logger.info("Fallback engine configured: %s", fallback_engine)
 
         subtitle_mode = "word" if enable_split else "sentence"
-        print(f"Subtitle mode: {subtitle_mode} (enable_split={enable_split})")
+        logger.info("Subtitle mode: %s (enable_split=%s)", subtitle_mode, enable_split)
 
         # 执行转录（包含自动fallback机制）
         srt_content = transcribe_with_engine(
@@ -474,23 +476,23 @@ def generate_subtitles_for_video(video_id: int) -> None:
         timestamp = int(time.time() * 1000)
         os.makedirs("work_dir/temp", exist_ok=True)
         # Debug: Check SRT content encoding before writing
-        print(
-            f"[tasks.py] DEBUG: SRT content first 200 chars before writing: {repr(srt_content[:200])}"
+        logger.debug(
+            "[tasks.py] DEBUG: SRT content first 200 chars before writing: %s", repr(srt_content[:200])
         )
         with open(f"work_dir/temp/{timestamp}.srt", "w", encoding="utf-8") as f:
             f.write(srt_content)
-        print(
-            f"[tasks.py] SRT file saved to work_dir/temp/{timestamp}.srt with UTF-8 encoding"
+        logger.info(
+            "[tasks.py] SRT file saved to work_dir/temp/%s.srt with UTF-8 encoding", timestamp
         )
         _update(video_id, "transcribe", "Completed")
-        print(
-            f"Transcription completed for video {video_id}, SRT content length: {len(srt_content)}"
+        logger.info(
+            "Transcription completed for video %s, SRT content length: %s", video_id, len(srt_content)
         )
     except Exception as exc:
         import traceback
         tb = traceback.format_exc()
-        print(f"Transcription failed for video {video_id}: {exc}")
-        print(f"TRACEBACK:\n{tb}")
+        logger.error("Transcription failed for video %s: %s", video_id, exc)
+        logger.error("TRACEBACK:\n%s", tb)
         _update(video_id, "transcribe", "Failed", detail=str(exc)[:200])
         return
 
@@ -538,7 +540,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
             import shutil
             shutil.copy2(work_srt_path, original_srt_path)
             _update(video_id, "optimize", "Skipped")
-            print(f"[tasks.py] LLM split disabled, using ASR sentence-level output directly")
+            logger.info("[tasks.py] LLM split disabled, using ASR sentence-level output directly")
 
         # 第二步：翻译字幕（如果需要）
         if enable_translation and translated_srt_path:
@@ -571,7 +573,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
             _update(video_id, "translate", "Completed")
 
     except Exception as exc:
-        print(f"字幕处理失败: {exc}")
+        logger.error("字幕处理失败: %s", exc)
         _update(video_id, "optimize", "Failed")
         _update(video_id, "translate", "Failed")
         return
@@ -617,7 +619,7 @@ class SubtitleTaskStatusView(View):
     http_method_names = ["get"]
 
     def get(self, request, *args, **kwargs):
-        print(subtitle_task_status)
+        logger.debug("%s", subtitle_task_status)
         return JsonResponse(subtitle_task_status, safe=False)
 
 
@@ -761,11 +763,11 @@ def download_thumbnail(thumbnail_url: str, md5_value: str) -> str:
             for chunk in resp.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-        print(f"Thumbnail downloaded: {thumbnail_filename}")
+        logger.info("Thumbnail downloaded: %s", thumbnail_filename)
         return thumbnail_filename
 
     except Exception as e:
-        print(f"Failed to download thumbnail: {e}")
+        logger.error("Failed to download thumbnail: %s", e)
         return ""
 
 
@@ -786,11 +788,11 @@ def download_youtube_video(task_id: str):
 
         thumbnail_url = video_info.get("thumbnail", "")
         duration_seconds = video_info.get("duration", 0)
-        print(
-            f"YouTube video info - Thumbnail: {thumbnail_url}, Duration: {duration_seconds}s"
+        logger.info(
+            "YouTube video info - Thumbnail: %s, Duration: %ss", thumbnail_url, duration_seconds
         )
     except Exception as e:
-        print(f"Failed to get YouTube video info: {e}")
+        logger.error("Failed to get YouTube video info: %s", e)
         dl_set(task_id, "video", "Failed")
         return
 
@@ -834,7 +836,7 @@ def download_youtube_video(task_id: str):
         existing_files = os.listdir(save_dir)
         file_exists = any(md5_value in fname for fname in existing_files)
         if file_exists:
-            print("Download the same YouTube video, so skip.")
+            logger.info("Download the same YouTube video, so skip.")
             return
 
         import shutil
@@ -866,12 +868,12 @@ def download_youtube_video(task_id: str):
 
         update_video_file_info(video, save=True)
 
-        print(
-            f"YouTube video created with thumbnail: {thumbnail_filename}, duration: {formatted_duration}"
+        logger.info(
+            "YouTube video created with thumbnail: %s, duration: %s", thumbnail_filename, formatted_duration
         )
 
     except Exception as e:
-        print(f"YouTube download error: {e}")
+        logger.error("YouTube download error: %s", e)
         dl_set(task_id, "video", "Failed")
         dl_set(task_id, "audio", "Failed")
         dl_set(task_id, "merge", "Failed")
@@ -883,7 +885,7 @@ def download_youtube_video(task_id: str):
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir)
         except Exception as e:
-            print(f"Error cleaning up work directory: {e}")
+            logger.error("Error cleaning up work directory: %s", e)
 
 
 def download_bilibili_video(task_id: str):
@@ -899,9 +901,9 @@ def download_bilibili_video(task_id: str):
         sessdata = settings_data.get("Media Credentials", {}).get(
             "bilibili_sessdata", ""
         )
-        print("sessdata:", sessdata)
+        logger.debug("sessdata: %s", sessdata)
     except Exception as e:
-        print(f"Error loading settings: {e}")
+        logger.error("Error loading settings: %s", e)
         sessdata = ""  # fallback to empty string if there's an error
 
     # 获取视频基本信息（缩略图）
@@ -928,27 +930,27 @@ def download_bilibili_video(task_id: str):
         if duration_seconds is None:
             from utils.stream_downloader.bili_download import get_cid
 
-            print(
-                f"[Fallback] Duration not provided, fetching via cid matching for cid={cid}"
+            logger.info(
+                "[Fallback] Duration not provided, fetching via cid matching for cid=%s", cid
             )
             cids, data = get_cid(bvid=bvid)
             # 通过cid匹配找到对应的分P数据
             for item in data:
                 if item["cid"] == cid:
                     duration_seconds = item.get("duration", 0)
-                    print(f"[Fallback] Matched cid={cid}, duration={duration_seconds}s")
+                    logger.info("[Fallback] Matched cid=%s, duration=%ss", cid, duration_seconds)
                     break
             else:
-                print(f"[Warning] cid={cid} not found in pagelist, using 0")
+                logger.warning("[Warning] cid=%s not found in pagelist, using 0", cid)
                 duration_seconds = 0
 
         # 获取缩略图URL（仍需调用video_info，但不使用其duration字段）
         video_info = get_video_info(bvid=bvid)
         thumbnail_url = video_info.get("pic_url", "")
-        print(f"Thumbnail URL: {thumbnail_url}")
-        print(f"Video duration (single part): {duration_seconds}s")
+        logger.info("Thumbnail URL: %s", thumbnail_url)
+        logger.info("Video duration (single part): %ss", duration_seconds)
     except Exception as e:
-        print(f"Failed to get video info: {e}")
+        logger.error("Failed to get video info: %s", e)
         thumbnail_url = ""
         if duration_seconds is None:
             duration_seconds = 0
@@ -1043,18 +1045,18 @@ def download_bilibili_video(task_id: str):
             md5_hash.update(chunk)
     md5_value = md5_hash.hexdigest()
     file_path = os.path.join(save_dir, f"{md5_value}.mp4")
-    print("To be downloaded:", file_path)
+    logger.info("To be downloaded: %s", file_path)
 
     # 检查是否已经存在相同的文件
     existing_files = os.listdir(save_dir)
     file_exists = any(md5_value in fname for fname in existing_files)
     if file_exists:
-        print("Download the same file from bilibili,so raise error.")
+        logger.error("Download the same file from bilibili,so raise error.")
         return
     import shutil
 
     # 移动单个文件
-    print("To be moved:", file_path)
+    logger.info("To be moved: %s", file_path)
     shutil.move(output_file, file_path)
 
     # 下载并保存缩略图
@@ -1064,7 +1066,7 @@ def download_bilibili_video(task_id: str):
     formatted_duration = (
         format_duration(duration_seconds) if duration_seconds > 0 else None
     )
-    print(f"formatted_duration:{formatted_duration} seconds")
+    logger.info("formatted_duration: %s seconds", formatted_duration)
     # 处理流程完成后不需要再次设置merge状态
     # 保存到Video数据库中
     video = Video.objects.create(
@@ -1082,8 +1084,8 @@ def download_bilibili_video(task_id: str):
 
     update_video_file_info(video, save=True)
 
-    print(
-        f"Video created with thumbnail: {thumbnail_filename}, duration: {formatted_duration}"
+    logger.info(
+        "Video created with thumbnail: %s, duration: %s", thumbnail_filename, formatted_duration
     )
 
 
@@ -1146,7 +1148,7 @@ def download_podcast_audio(task_id: str):
             if proxy:
                 ydl_opts["proxy"] = proxy
         except Exception as e:
-            print(f"Error checking proxy settings for podcast: {e}")
+            logger.error("Error checking proxy settings for podcast: %s", e)
 
         # 加载 cookies（仅 YouTube 链接需要）
         if "youtube.com" in url or "youtu.be" in url:
@@ -1214,7 +1216,7 @@ def download_podcast_audio(task_id: str):
 
         # 检查是否已经存在相同的文件
         if os.path.exists(file_path):
-            print("Download the same podcast audio, so skip.")
+            logger.info("Download the same podcast audio, so skip.")
             return
 
         # 移动文件到最终位置
@@ -1246,12 +1248,12 @@ def download_podcast_audio(task_id: str):
 
         update_video_file_info(video, save=True)
 
-        print(
-            f"Podcast audio created with thumbnail: {thumbnail_filename}, duration: {formatted_duration}, ext: {file_ext}"
+        logger.info(
+            "Podcast audio created with thumbnail: %s, duration: %s, ext: %s", thumbnail_filename, formatted_duration, file_ext
         )
 
     except Exception as e:
-        print(f"Apple Podcast download error: {e}")
+        logger.error("Apple Podcast download error: %s", e)
         dl_set(task_id, "video", "Failed")
         dl_set(task_id, "audio", "Failed")
         dl_set(task_id, "merge", "Failed")
@@ -1263,7 +1265,7 @@ def download_podcast_audio(task_id: str):
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir)
         except Exception as e:
-            print(f"Error cleaning up work directory: {e}")
+            logger.error("Error cleaning up work directory: %s", e)
 
 
 def download_stream_media(task_id: str):
@@ -1272,7 +1274,7 @@ def download_stream_media(task_id: str):
         task = download_status[task_id]
         platform = task.get("platform", "bilibili")  # 默认为bilibili以保持向后兼容
 
-    print(f"Starting download for task {task_id}, platform: {platform}")
+    logger.info("Starting download for task %s, platform: %s", task_id, platform)
 
     if platform == "youtube":
         download_youtube_video(task_id)
@@ -1368,6 +1370,106 @@ def _summary_update(task_id: str, stage: str, status: str, progress: int = None,
         task["status"] = "Running"
 
 
+def _inject_vidunder_config():
+    """Read Video Understanding settings from config.ini and patch vid_under config module."""
+    settings_file = os.path.join(settings.BASE_DIR, "./config/config.ini")
+    if not os.path.exists(settings_file):
+        return
+    cfg = configparser.ConfigParser(interpolation=None)
+    cfg.read(settings_file)
+
+    def g(key, fallback=""):
+        return cfg.get("Video Understanding", key, fallback=fallback)
+
+    import config as vu_config
+    import external_api as vu_ext
+
+    # Corner Detection
+    provider = g("vu_corner_provider", "gemini")
+    if provider == "gemini":
+        vu_config.OPENROUTER_KEY = g("vu_corner_gemini_api_key") or vu_config.OPENROUTER_KEY
+        vu_config.OPENROUTER_BASE_URL = g("vu_corner_gemini_base_url") or vu_config.OPENROUTER_BASE_URL
+        if g("vu_corner_gemini_model"):
+            vu_config.OPENROUTER_MODEL = g("vu_corner_gemini_model")
+    elif provider == "mimo":
+        if g("vu_corner_mimo_api_key"):
+            vu_config.MIMO_API_KEY = g("vu_corner_mimo_api_key")
+        if g("vu_corner_mimo_base_url"):
+            vu_config.MIMO_BASE_URL = g("vu_corner_mimo_base_url")
+        if g("vu_corner_mimo_model"):
+            vu_config.MIMO_MODEL = g("vu_corner_mimo_model")
+    elif provider == "openai_compatible":
+        key = g("vu_corner_openai_api_key")
+        base = g("vu_corner_openai_base_url")
+        model = g("vu_corner_openai_model")
+        if key:
+            vu_config.OPENROUTER_KEY = key
+        if base:
+            vu_config.OPENROUTER_BASE_URL = base
+        if model:
+            vu_config.OPENROUTER_MODEL = model
+
+    # Summary Orchestration (DeepSeek)
+    if g("vu_summary_api_key"):
+        vu_config.DEEPSEEK_API_KEY = g("vu_summary_api_key")
+    if g("vu_summary_base_url"):
+        vu_config.DEEPSEEK_BASE_URL = g("vu_summary_base_url")
+    if g("vu_summary_model"):
+        vu_config.DEEPSEEK_MODEL = g("vu_summary_model")
+
+    # Knowledge LLM
+    kn_provider = g("vu_knowledge_provider", "doubao")
+    if kn_provider == "doubao":
+        if g("vu_knowledge_api_key"):
+            vu_config.DOUBAO_API_KEY = g("vu_knowledge_api_key")
+        if g("vu_knowledge_base_url"):
+            vu_config.DOUBAO_BASE_URL = g("vu_knowledge_base_url")
+        if g("vu_knowledge_model"):
+            vu_config.DOUBAO_MODEL = g("vu_knowledge_model")
+    elif kn_provider == "step":
+        if g("vu_knowledge_api_key"):
+            vu_config.STEP_API_KEY = g("vu_knowledge_api_key")
+        if g("vu_knowledge_base_url"):
+            vu_config.STEP_BASE_URL = g("vu_knowledge_base_url")
+        if g("vu_knowledge_model"):
+            vu_config.STEP_MODEL = g("vu_knowledge_model")
+    elif kn_provider == "openrouter":
+        if g("vu_knowledge_api_key"):
+            vu_config.OPENROUTER_KEY = g("vu_knowledge_api_key")
+        if g("vu_knowledge_base_url"):
+            vu_config.OPENROUTER_BASE_URL = g("vu_knowledge_base_url")
+        if g("vu_knowledge_model"):
+            vu_config.OPENROUTER_MODEL = g("vu_knowledge_model")
+    elif kn_provider == "openai_compatible":
+        key = g("vu_knowledge_api_key")
+        base = g("vu_knowledge_base_url")
+        model = g("vu_knowledge_model")
+        if key:
+            vu_config.DOUBAO_API_KEY = key
+            vu_config.OPENROUTER_KEY = key
+        if base:
+            vu_config.DOUBAO_BASE_URL = base
+            vu_config.OPENROUTER_BASE_URL = base
+        if model:
+            vu_config.DOUBAO_MODEL = model
+
+    # Sync to external_api module-level imports
+    vu_ext.OPENROUTER_KEY = vu_config.OPENROUTER_KEY
+    vu_ext.OPENROUTER_BASE_URL = vu_config.OPENROUTER_BASE_URL
+    vu_ext.OPENROUTER_MODEL = vu_config.OPENROUTER_MODEL
+    vu_ext.DOUBAO_API_KEY = vu_config.DOUBAO_API_KEY
+    vu_ext.DOUBAO_BASE_URL = vu_config.DOUBAO_BASE_URL
+    vu_ext.DOUBAO_MODEL = vu_config.DOUBAO_MODEL
+    vu_ext.DEEPSEEK_API_KEY = vu_config.DEEPSEEK_API_KEY
+    vu_ext.DEEPSEEK_BASE_URL = vu_config.DEEPSEEK_BASE_URL
+    vu_ext.STEP_API_KEY = vu_config.STEP_API_KEY
+    vu_ext.STEP_BASE_URL = vu_config.STEP_BASE_URL
+    vu_ext.STEP_MODEL = vu_config.STEP_MODEL
+    vu_ext.MIMO_API_KEY = vu_config.MIMO_API_KEY
+    vu_ext.MIMO_BASE_URL = vu_config.MIMO_BASE_URL
+    vu_ext.MIMO_MODEL = vu_config.MIMO_MODEL
+
+
 def generate_summary_for_video(task_id: str) -> None:
     """Run the 3-step vidUnder pipeline: build → extract → summarize."""
     task = summary_task_status[task_id]
@@ -1383,7 +1485,8 @@ def generate_summary_for_video(task_id: str) -> None:
 
         os.environ["VIDUNDER_VIDEO_PATH"] = video_path
         os.environ["VIDUNDER_SRT_PATH"] = srt_path
-        os.environ["VIDUNDER_SUMMARY_LANG"] = task.get("language", "中文")
+
+        _inject_vidunder_config()
 
         db_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "db")
         os.makedirs(db_dir, exist_ok=True)
@@ -1417,7 +1520,7 @@ def generate_summary_for_video(task_id: str) -> None:
         with open(db_path, encoding="utf-8") as f:
             db = _json.load(f)
         srt = parse_srt(srt_path)
-        agent = VideoAgent(db, srt)
+        agent = VideoAgent(db, srt, lang=task.get("language", "中文"))
         summary = agent.summarize(min_coverage=task.get("min_coverage", 0.60))
 
         # Save result
@@ -1440,7 +1543,7 @@ def generate_summary_for_video(task_id: str) -> None:
     except Exception as exc:
         import traceback
         tb = traceback.format_exc()
-        print(f"Summary task {task_id} failed: {exc}\n{tb}")
+        logger.error("Summary task %s failed: %s\n%s", task_id, exc, tb)
         task["error_message"] = str(exc)[:500]
         for stage in ["build", "extract", "summarize"]:
             if task["stages"][stage] == "Running":

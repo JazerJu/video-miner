@@ -253,3 +253,78 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "1632114593@qq.com")
 PASSWORD_RESET_TIMEOUT = int(
     os.getenv("PASSWORD_RESET_TIMEOUT", 3600)
 )  # 1 hour default
+
+LOGGING_DIR = os.path.join(BASE_DIR, "logs")
+os.makedirs(LOGGING_DIR, exist_ok=True)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+            "level": "INFO",
+        },
+        "tasks_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "tasks.log"),
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 5,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
+        "summary_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "summary.log"),
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 5,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
+        "translate_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": os.path.join(LOGGING_DIR, "translate.log"),
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 5,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
+    },
+    "loggers": {
+        "video.tasks": {
+            "handlers": ["console", "tasks_file"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "video.summary": {
+            "handlers": ["console", "summary_file"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "subtitle_split": {
+            "handlers": ["console", "tasks_file"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "subtitle_translate": {
+            "handlers": ["console", "translate_file"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "fun_asr_gguf": {
+            "handlers": ["console", "tasks_file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}
