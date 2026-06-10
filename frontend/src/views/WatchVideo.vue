@@ -229,13 +229,13 @@ async function loadVideoData(filename: string, expectedNavId?: number) {
 
     // Update browser tab title - check if name is not the default
     if (videoData.value.name && videoData.value.name !== t('unnamedVideo')) {
-      document.title = `${videoData.value.name} - VidGo`
+      document.title = `${videoData.value.name} - VideoMiner`
       console.log('Browser title updated to:', document.title)
     } else {
       console.warn('Video name is empty or default, not updating title')
       // Fallback to filename without extension
       const nameFromFile = filename.replace(/\.[^/.]+$/, '')
-      document.title = `${nameFromFile} - VidGo`
+      document.title = `${nameFromFile} - VideoMiner`
     }
   } catch (error) {
     console.error('Failed to load video info:', error)
@@ -244,7 +244,7 @@ async function loadVideoData(filename: string, expectedNavId?: number) {
       videoData.value = { ...defaultVideoInfo }
       // Fallback to filename without extension
       const nameFromFile = filename.replace(/\.[^/.]+$/, '')
-      document.title = `${nameFromFile} - VidGo`
+      document.title = `${nameFromFile} - VideoMiner`
     }
   }
 }

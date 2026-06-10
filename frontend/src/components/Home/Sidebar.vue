@@ -180,22 +180,19 @@ const emit = defineEmits<{
           <div class="flex min-w-0 items-center">
             <img
               class="h-10 w-10 p-0.5 border border-slate-200/80 dark:border-white/30 hover:border-teal-400/70 dark:hover:border-white/50 rounded-xl transition-all shadow-sm"
-              src="@/assets/flute_icon.png"
-              alt="VidGo"
+              src="@/assets/miner.png"
+              alt="VideoMiner"
             />
-            <div class="ml-3 min-w-0 flex flex-col">
-              <div class="flex items-center gap-2">
-                <span class="text-base font-semibold text-slate-950 dark:text-white">{{
-                  t('brand')
-                }}</span>
-                <span
-                  class="rounded-full border border-teal-500/20 bg-teal-500/10 px-2 py-0.5 text-[10px] font-semibold text-teal-700 dark:text-teal-200"
-                >
-                  v1.0
-                </span>
-              </div>
-              <span class="text-xs text-slate-500 dark:text-white/55">{{ t('tagline') }}</span>
-            </div>
+                <div class="ml-3 min-w-0 flex flex-col">
+                  <span class="text-base font-semibold text-slate-950 dark:text-white">{{
+                    t('brand')
+                  }}</span>
+                  <span
+                    class="mt-0.5 w-fit rounded-full border border-teal-500/20 bg-teal-500/10 px-2 py-0.5 text-[10px] font-semibold text-teal-700 dark:text-teal-200"
+                  >
+                    v1.0
+                  </span>
+                </div>
           </div>
           <div class="ml-auto flex flex-none items-center gap-2">
             <el-tooltip

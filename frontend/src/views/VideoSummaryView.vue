@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { markdownToHtml, processMarkdownContent } from '@/composables/ConvertMarkdown'
 import { BACKEND } from '@/composables/ConfigAPI'
 
 const route = useRoute()
+const router = useRouter()
 const pathSegments = route.path.replace('/summary/', '').split('.')
 const filename = pathSegments.length > 1 ? `${pathSegments.slice(0, -1).join('.')}.${pathSegments[pathSegments.length - 1]}` : route.path.replace('/summary/', '')
 
@@ -30,7 +31,7 @@ onMounted(async () => {
     })
     if (!res.ok) {
       if (res.status === 404) {
-        error.value = 'Summary not available yet.'
+        await checkPrerequisitesAndShowError()
       } else {
         error.value = `Failed to load summary (${res.status})`
       }
@@ -39,7 +40,7 @@ onMounted(async () => {
     const data = await res.json()
     const mdContent = data.summary || data.content || ''
     if (!mdContent) {
-      error.value = 'Summary is empty.'
+      await checkPrerequisitesAndShowError()
       return
     }
     rawMarkdown.value = mdContent
@@ -50,6 +51,26 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+async function checkPrerequisitesAndShowError() {
+  try {
+    const preRes = await fetch(`${BACKEND}/api/video-summary/${encodeURIComponent(filename)}/prerequisites`, {
+      credentials: 'include',
+    })
+    if (preRes.ok) {
+      const pre = await preRes.json()
+      if (pre.status === 'no_subtitles') {
+        error.value = 'Subtitles required. Please generate subtitles for this video first.'
+        return
+      }
+      if (pre.status === 'raw_lang_not_set') {
+        error.value = 'Subtitles exist but video language is not bound. Please set the video language in settings.'
+        return
+      }
+    }
+  } catch {}
+  error.value = 'Summary not available yet.'
+}
 
 function startEdit() {
   editContent.value = rawMarkdown.value

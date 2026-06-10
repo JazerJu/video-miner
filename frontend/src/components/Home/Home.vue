@@ -646,7 +646,7 @@ const handleUserAreaClick = async () => {
 
 onMounted(() => {
   // Reset browser tab title to default
-  document.title = 'VidGo'
+  document.title = 'VideoMiner'
   checkAuthAndFetch()
   window.addEventListener('keydown', handleGlobalKeydown)
 })
@@ -702,7 +702,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
         </div>
 
         <!-- Title -->
-        <h1 class="mb-1 text-3xl font-bold tracking-tight text-slate-900">VidGo</h1>
+        <h1 class="mb-1 text-3xl font-bold tracking-tight text-slate-900">VideoMiner</h1>
         <p class="mb-10 text-sm text-slate-500 dark:text-slate-400">视频管理系统</p>
 
         <!-- Progress bar -->

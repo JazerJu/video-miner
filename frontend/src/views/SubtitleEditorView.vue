@@ -225,13 +225,13 @@ async function loadVideoData(filename: string) {
 
     // 更新浏览器标签标题，若名称不是默认
     if (videoData.value.name && videoData.value.name !== '（未命名视频）') {
-      document.title = `${videoData.value.name} - VidGo 字幕编辑器`
+      document.title = `${videoData.value.name} - VideoMiner 字幕编辑器`
       console.log('Browser title updated to:', document.title)
     } else {
       console.warn('Video name is empty or default, not updating title')
       // 回退到无扩展名的文件名
       const nameFromFile = filename.replace(/\.[^/.]+$/, '')
-      document.title = `${nameFromFile} - VidGo 字幕编辑器`
+      document.title = `${nameFromFile} - VideoMiner 字幕编辑器`
     }
   } catch (error) {
     console.error('Failed to load video info:', error)
@@ -239,7 +239,7 @@ async function loadVideoData(filename: string) {
     videoData.value = { ...defaultVideoInfo }
     // 回退到无扩展名的文件名
     const nameFromFile = filename.replace(/\.[^/.]+$/, '')
-    document.title = `${nameFromFile} - VidGo 字幕编辑器`
+    document.title = `${nameFromFile} - VideoMiner 字幕编辑器`
     ElMessage.error('加载视频信息失败')
   }
 }

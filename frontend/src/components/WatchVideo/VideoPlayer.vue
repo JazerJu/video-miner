@@ -942,7 +942,7 @@ function setupBackgroundPlay() {
       // Set media metadata
       navigator.mediaSession.metadata = new MediaMetadata({
         title: props.videoId ? `Video ${props.videoId}` : 'Video Player',
-        artist: 'VidGo',
+        artist: 'VideoMiner',
         artwork: [
           { 
             src: '/favicon.ico', 
