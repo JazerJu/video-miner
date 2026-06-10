@@ -539,7 +539,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
         else:
             import shutil
             shutil.copy2(work_srt_path, original_srt_path)
-            _update(video_id, "optimize", "Skipped")
+            _update(video_id, "optimize", "Skipped", progress=100)
             logger.info("[tasks.py] LLM split disabled, using ASR sentence-level output directly")
 
         # 第二步：翻译字幕（如果需要）
@@ -1391,6 +1391,16 @@ def _inject_vidunder_config():
         vu_config.OPENROUTER_BASE_URL = g("vu_corner_gemini_base_url") or vu_config.OPENROUTER_BASE_URL
         if g("vu_corner_gemini_model"):
             vu_config.OPENROUTER_MODEL = g("vu_corner_gemini_model")
+    elif provider == "gemini_official":
+        key = g("vu_corner_gemini_official_api_key")
+        base = g("vu_corner_gemini_official_base_url") or "https://generativelanguage.googleapis.com/v1beta/openai"
+        model = g("vu_corner_gemini_official_model") or "gemini-2.5-flash"
+        if key:
+            vu_config.OPENROUTER_KEY = key
+        if base:
+            vu_config.OPENROUTER_BASE_URL = base
+        if model:
+            vu_config.OPENROUTER_MODEL = model
     elif provider == "mimo":
         if g("vu_corner_mimo_api_key"):
             vu_config.MIMO_API_KEY = g("vu_corner_mimo_api_key")
@@ -1409,13 +1419,25 @@ def _inject_vidunder_config():
         if model:
             vu_config.OPENROUTER_MODEL = model
 
-    # Summary Orchestration (DeepSeek)
-    if g("vu_summary_api_key"):
-        vu_config.DEEPSEEK_API_KEY = g("vu_summary_api_key")
-    if g("vu_summary_base_url"):
-        vu_config.DEEPSEEK_BASE_URL = g("vu_summary_base_url")
-    if g("vu_summary_model"):
-        vu_config.DEEPSEEK_MODEL = g("vu_summary_model")
+    # Summary Orchestration
+    summary_provider = g("vu_summary_provider", "deepseek")
+    if summary_provider == "deepseek":
+        if g("vu_summary_api_key"):
+            vu_config.DEEPSEEK_API_KEY = g("vu_summary_api_key")
+        if g("vu_summary_base_url"):
+            vu_config.DEEPSEEK_BASE_URL = g("vu_summary_base_url")
+        if g("vu_summary_model"):
+            vu_config.DEEPSEEK_MODEL = g("vu_summary_model")
+    elif summary_provider == "openai_compatible":
+        key = g("vu_summary_api_key")
+        base = g("vu_summary_base_url")
+        model = g("vu_summary_model")
+        if key:
+            vu_config.DEEPSEEK_API_KEY = key
+        if base:
+            vu_config.DEEPSEEK_BASE_URL = base
+        if model:
+            vu_config.DEEPSEEK_MODEL = model
 
     # Knowledge LLM
     kn_provider = g("vu_knowledge_provider", "doubao")
@@ -1469,6 +1491,22 @@ def _inject_vidunder_config():
     vu_ext.MIMO_BASE_URL = vu_config.MIMO_BASE_URL
     vu_ext.MIMO_MODEL = vu_config.MIMO_MODEL
 
+    # Proxy: if any VU proxy toggle is on, set env vars for urllib
+    vu_use_proxy = (
+        g("vu_corner_use_proxy", "false") == "true"
+        or g("vu_summary_use_proxy", "false") == "true"
+        or g("vu_knowledge_use_proxy", "false") == "true"
+    )
+    if vu_use_proxy:
+        from video.proxy import get_effective_proxy
+        vu_proxy = get_effective_proxy(True)
+        if vu_proxy:
+            os.environ["HTTP_PROXY"] = vu_proxy
+            os.environ["HTTPS_PROXY"] = vu_proxy
+    else:
+        os.environ.pop("HTTP_PROXY", None)
+        os.environ.pop("HTTPS_PROXY", None)
+
 
 def generate_summary_for_video(task_id: str) -> None:
     """Run the 3-step vidUnder pipeline: build → extract → summarize."""
@@ -1496,7 +1534,12 @@ def generate_summary_for_video(task_id: str) -> None:
         from video_db import build_database
         import time as _time
         db_name = _time.strftime("%Y%m%d_%H%M%S") + "_" + str(task.get("video_id", 0))
-        build_database(video_path, srt_path, db_name=db_name)
+
+        def _build_progress(stage, current, total):
+            pct = int(current / total * 100) if total > 0 else 0
+            _summary_update(task_id, "build", "Running", progress=pct)
+
+        build_database(video_path, srt_path, db_name=db_name, progress_cb=_build_progress)
         _summary_update(task_id, "build", "Completed")
 
         # Step 2: extract
@@ -1507,7 +1550,19 @@ def generate_summary_for_video(task_id: str) -> None:
         from content_extractor import extract_unique_slides, ocr_slides
         from layout_detector import detect_layout, crop_content, get_vision_bbox
         from main import cmd_extract
-        cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output)
+
+        def _extract_progress(stage, current, total):
+            layout_weight = 0.5  # Phase 1 = 50% of extract
+            ocr_weight = 0.5     # Phase 2 = 50% of extract
+            if stage == "layout":
+                pct = int(current / total * 100 * layout_weight)
+            elif stage == "ocr":
+                pct = int((layout_weight + current / total * ocr_weight) * 100)
+            else:
+                pct = 75
+            _summary_update(task_id, "extract", "Running", progress=pct)
+
+        cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress)
         _summary_update(task_id, "extract", "Completed")
 
         # Step 3: summarize
@@ -1521,7 +1576,13 @@ def generate_summary_for_video(task_id: str) -> None:
             db = _json.load(f)
         srt = parse_srt(srt_path)
         agent = VideoAgent(db, srt, lang=task.get("language", "中文"))
-        summary = agent.summarize(min_coverage=task.get("min_coverage", 0.60))
+
+        def _summarize_progress(done, total):
+            pct = 75 + int(done / total * 25) if total > 0 else 75
+            _summary_update(task_id, "summarize", "Running", progress=pct)
+
+        summary = agent.summarize(min_coverage=task.get("min_coverage", 0.60),
+                                   progress_cb=_summarize_progress)
 
         # Save result
         result_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "output")
@@ -1533,8 +1594,13 @@ def generate_summary_for_video(task_id: str) -> None:
         import shutil
         src_slides = os.path.join(extract_output, "slides")
         dst_slides = os.path.join(result_dir, f"{db_name}_slides")
-        if os.path.isdir(src_slides) and not os.path.isdir(dst_slides):
-            shutil.copytree(src_slides, dst_slides)
+        if os.path.isdir(src_slides):
+            os.makedirs(dst_slides, exist_ok=True)
+            for f in os.listdir(src_slides):
+                src = os.path.join(src_slides, f)
+                dst = os.path.join(dst_slides, f)
+                if not os.path.exists(dst):
+                    shutil.copy2(src, dst)
 
         task["result_path"] = result_path
         _summary_update(task_id, "summarize", "Completed")

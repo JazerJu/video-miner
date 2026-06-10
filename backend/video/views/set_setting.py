@@ -11,6 +11,14 @@ from asr_utils.transcription_engine import TranscriptionEngineFactory
 
 
 SETTINGS_FILE = os.path.join(dj_settings.BASE_DIR, "./config/config.ini")
+HOTWORD_FILE = os.path.join(dj_settings.BASE_DIR, "./config/hotword.txt")
+
+
+def _read_default_hotwords() -> str:
+    if os.path.exists(HOTWORD_FILE):
+        with open(HOTWORD_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    return ""
 
 
 def _ensure_ini():
@@ -88,7 +96,7 @@ def _ensure_ini():
             "translate_num_threads": "8",
             "enable_translate": "true",
             "plain_translate": "false",
-            "hotwords": "",
+            "hotwords": _read_default_hotwords(),
         }
         cfg["Video watch"] = {"raw_language": "zh", "default_translate_lang": "zh"}
         cfg["Subtitle settings"] = {
@@ -125,6 +133,7 @@ def _ensure_ini():
             "bilibili_sessdata": "",
             "proxy_url": "",
             "download_use_proxy": "false",
+            "bili_download_use_proxy": "false",
         }
         cfg["Transcription Engine"] = {
             "primary_engine": "funasr_gguf",
@@ -133,6 +142,7 @@ def _ensure_ini():
             "elevenlabs_api_key": "",
             "elevenlabs_model": "scribe_v1",
             "include_punctuation": "true",
+            "vad_backend": "silero",
         }
         cfg["Video Understanding"] = {
             "vu_thinking_budget": "low",
@@ -196,6 +206,14 @@ def load_all_settings():
         cfg.set("DEFAULT", "plain_translate", "false")
         modified = True
 
+    # Auto-migrate: fill hotwords from hotword.txt if empty
+    hotwords_val = cfg.get("DEFAULT", "hotwords", fallback="").strip()
+    if not hotwords_val:
+        default = _read_default_hotwords()
+        if default:
+            cfg.set("DEFAULT", "hotwords", default)
+            modified = True
+
     # Auto-migrate: add translate LLM fields if missing
     if not cfg.has_option("DEFAULT", "translate_selected_model_provider"):
         # Copy from split LLM as defaults
@@ -228,6 +246,9 @@ def load_all_settings():
             modified = True
         if not cfg.has_option("Media Credentials", "download_use_proxy"):
             cfg.set("Media Credentials", "download_use_proxy", "false")
+            modified = True
+        if not cfg.has_option("Media Credentials", "bili_download_use_proxy"):
+            cfg.set("Media Credentials", "bili_download_use_proxy", "false")
             modified = True
 
     # Auto-migrate: add default_translate_lang to Video watch
@@ -271,6 +292,13 @@ def load_all_settings():
             if not cfg.has_option("Video Understanding", k):
                 cfg.set("Video Understanding", k, v)
                 modified = True
+
+    # Auto-migrate: add vad_backend to Transcription Engine if missing
+    if cfg.has_section("Transcription Engine") and not cfg.has_option(
+        "Transcription Engine", "vad_backend"
+    ):
+        cfg.set("Transcription Engine", "vad_backend", "silero")
+        modified = True
 
     # Save config if sections were added
     if modified:
