@@ -46,22 +46,22 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
         "files": [
             {
                 "repo_path": "minicpmv/MiniCPM-V-4_5-Q4_K_M.gguf",
-                "local_path": "models/MiniCPM-V-4_5-Q4_K_M.gguf",
+                "local_path": "minicpm-v4.5/MiniCPM-V-4_5-Q4_K_M.gguf",
                 "size": 5026714304,
             },
             {
                 "repo_path": "minicpmv/minicpmv_v45_siglip.fp32.onnx",
-                "local_path": "onnx/minicpmv_v45_siglip.fp32.onnx",
+                "local_path": "minicpm-v4.5/onnx/minicpmv_v45_siglip.fp32.onnx",
                 "size": 1671404498,
             },
             {
                 "repo_path": "minicpmv/minicpmv_v45_resampler_temporal.fp16.onnx",
-                "local_path": "onnx/minicpmv_v45_resampler_temporal.fp16.onnx",
+                "local_path": "minicpm-v4.5/onnx/minicpmv_v45_resampler_temporal.fp16.onnx",
                 "size": 24169,
             },
             {
                 "repo_path": "minicpmv/minicpmv_v45_resampler_temporal.fp16.onnx.data",
-                "local_path": "onnx/minicpmv_v45_resampler_temporal.fp16.onnx.data",
+                "local_path": "minicpm-v4.5/onnx/minicpmv_v45_resampler_temporal.fp16.onnx.data",
                 "size": 177864704,
             },
         ],
@@ -72,62 +72,62 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
         "files": [
             {
                 "repo_path": "glm-ocr/GLM-OCR-Q8_0.gguf",
-                "local_path": "models/GLM-OCR-Q8_0.gguf",
+                "local_path": "glm-ocr/GLM-OCR-Q8_0.gguf",
                 "size": 950433408,
             },
             {
                 "repo_path": "glm-ocr/onnx/vision_encoder_q4.onnx",
-                "local_path": "glm-ocr-onnx/onnx/vision_encoder_q4.onnx",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/vision_encoder_q4.onnx",
                 "size": 424697,
             },
             {
                 "repo_path": "glm-ocr/onnx/vision_encoder_q4.onnx_data",
-                "local_path": "glm-ocr-onnx/onnx/vision_encoder_q4.onnx_data",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/vision_encoder_q4.onnx_data",
                 "size": 373217280,
             },
             {
                 "repo_path": "glm-ocr/onnx/embed_tokens_q4.onnx",
-                "local_path": "glm-ocr-onnx/onnx/embed_tokens_q4.onnx",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/embed_tokens_q4.onnx",
                 "size": 854,
             },
             {
                 "repo_path": "glm-ocr/onnx/embed_tokens_q4.onnx_data",
-                "local_path": "glm-ocr-onnx/onnx/embed_tokens_q4.onnx_data",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/embed_tokens_q4.onnx_data",
                 "size": 58441728,
             },
             {
                 "repo_path": "glm-ocr/onnx/merger_fp16.onnx",
-                "local_path": "glm-ocr-onnx/onnx/merger_fp16.onnx",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/merger_fp16.onnx",
                 "size": 47195673,
             },
             {
                 "repo_path": "glm-ocr/tokenizer.json",
-                "local_path": "glm-ocr-onnx/tokenizer.json",
+                "local_path": "glm-ocr/glm-ocr-onnx/tokenizer.json",
                 "size": 5420559,
             },
             {
                 "repo_path": "glm-ocr/config.json",
-                "local_path": "glm-ocr-onnx/config.json",
+                "local_path": "glm-ocr/glm-ocr-onnx/config.json",
                 "size": 2022,
             },
             {
                 "repo_path": "glm-ocr/generation_config.json",
-                "local_path": "glm-ocr-onnx/generation_config.json",
+                "local_path": "glm-ocr/glm-ocr-onnx/generation_config.json",
                 "size": 166,
             },
             {
                 "repo_path": "glm-ocr/preprocessor_config.json",
-                "local_path": "glm-ocr-onnx/preprocessor_config.json",
+                "local_path": "glm-ocr/glm-ocr-onnx/preprocessor_config.json",
                 "size": 366,
             },
             {
                 "repo_path": "glm-ocr/processor_config.json",
-                "local_path": "glm-ocr-onnx/processor_config.json",
+                "local_path": "glm-ocr/glm-ocr-onnx/processor_config.json",
                 "size": 1495,
             },
             {
                 "repo_path": "glm-ocr/tokenizer_config.json",
-                "local_path": "glm-ocr-onnx/tokenizer_config.json",
+                "local_path": "glm-ocr/glm-ocr-onnx/tokenizer_config.json",
                 "size": 5855,
             },
         ],
@@ -138,32 +138,32 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
         "files": [
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/model.onnx",
-                "local_path": "models/bge-small-zh-v1.5-onnx/model.onnx",
+                "local_path": "embedding/bge-small-zh-v1.5-onnx/model.onnx",
                 "size": 94835369,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer.json",
-                "local_path": "models/bge-small-zh-v1.5-onnx/tokenizer.json",
+                "local_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer.json",
                 "size": 439125,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/config.json",
-                "local_path": "models/bge-small-zh-v1.5-onnx/config.json",
+                "local_path": "embedding/bge-small-zh-v1.5-onnx/config.json",
                 "size": 688,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/special_tokens_map.json",
-                "local_path": "models/bge-small-zh-v1.5-onnx/special_tokens_map.json",
+                "local_path": "embedding/bge-small-zh-v1.5-onnx/special_tokens_map.json",
                 "size": 695,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer_config.json",
-                "local_path": "models/bge-small-zh-v1.5-onnx/tokenizer_config.json",
+                "local_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer_config.json",
                 "size": 1273,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/vocab.txt",
-                "local_path": "models/bge-small-zh-v1.5-onnx/vocab.txt",
+                "local_path": "embedding/bge-small-zh-v1.5-onnx/vocab.txt",
                 "size": 109540,
             },
         ],
@@ -196,6 +196,9 @@ def _model_files(group: ModelGroup) -> list[ModelFile]:
 
 
 def _file_path(file_info: ModelFile) -> Path:
+    model_root = os.environ.get("VIDUNDER_MODEL_ROOT", "")
+    if model_root:
+        return Path(model_root) / file_info["local_path"]
     return PROJECT_DIR / file_info["local_path"]
 
 

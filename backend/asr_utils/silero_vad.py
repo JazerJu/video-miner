@@ -34,10 +34,13 @@ class SileroVAD:
 
         # 设置模型路径
         if model_path is None:
-            # 默认模型路径
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(os.path.dirname(current_dir))
-            model_path = os.path.join(project_root, 'models', 'ggml-silero-vad.onnx')
+            model_root = os.environ.get("VIDUNDER_MODEL_ROOT", "")
+            if model_root:
+                model_path = os.path.join(model_root, "vad", "ggml-silero-vad.onnx")
+            if not model_root or not os.path.exists(model_path):
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(os.path.dirname(current_dir))
+                model_path = os.path.join(project_root, 'models', 'ggml-silero-vad.onnx')
 
         # 如果ONNX模型不存在，尝试使用PyTorch模型
         if not os.path.exists(model_path):

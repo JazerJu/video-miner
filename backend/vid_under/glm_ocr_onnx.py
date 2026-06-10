@@ -13,7 +13,12 @@ from tokenizers import Tokenizer
 class GlmOcrOnnx:
     """Pure ONNX Runtime GLM-OCR inference for one image at a time."""
 
-    DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / "glm-ocr-onnx"
+    import os as _os
+    _MODEL_ROOT = _os.environ.get("VIDUNDER_MODEL_ROOT", "")
+    if _MODEL_ROOT:
+        DEFAULT_MODEL_DIR = Path(_MODEL_ROOT) / "glm-ocr" / "glm-ocr-onnx"
+    else:
+        DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / "glm-ocr-onnx"
 
     def __init__(self, model_dir: str | Path | None = None, max_tokens: int = 2048) -> None:
         self.model_dir = Path(model_dir) if model_dir is not None else self.DEFAULT_MODEL_DIR
