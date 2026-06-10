@@ -1,0 +1,10 @@
+{
+  "num_blocks": 8,
+  "proj_dim": 128,
+  "cache_len": 10,
+  "output_dim": 1,
+  "fbank_dim": 80,
+  "frame_length_ms": 25,
+  "frame_shift_ms": 10,
+  "sample_rate": 16000
+}

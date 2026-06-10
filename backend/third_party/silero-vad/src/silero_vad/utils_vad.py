@@ -1,5 +1,5 @@
 import torch
-import torchaudio
+# torchaudio imported lazily - only needed for JIT (non-ONNX) mode
 from typing import Callable, List
 import warnings
 from packaging import version
@@ -18,10 +18,7 @@ class OnnxWrapper():
         opts.inter_op_num_threads = 1
         opts.intra_op_num_threads = 1
 
-        if force_onnx_cpu and 'CPUExecutionProvider' in onnxruntime.get_available_providers():
-            self.session = onnxruntime.InferenceSession(path, providers=['CPUExecutionProvider'], sess_options=opts)
-        else:
-            self.session = onnxruntime.InferenceSession(path, sess_options=opts)
+        self.session = onnxruntime.InferenceSession(path, providers=['CPUExecutionProvider'], sess_options=opts)
 
         self.reset_states()
         if '16k' in path:
