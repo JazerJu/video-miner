@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { markdownToHtml, processMarkdownContent } from '@/composables/ConvertMarkdown'
 import { BACKEND } from '@/composables/ConfigAPI'
 import { getCookie } from '@/composables/GetCSRFToken'
+import { ElMessageBox } from 'element-plus'
 
 const { t, locale } = useI18n()
 
@@ -58,67 +59,135 @@ async function sendMessage() {
 
   isLoading.value = true
 
-  const toolMsg: ChatMessage = {
-    id: ++msgCounter,
-    role: 'tool',
-    content: '',
-    toolName: t('vuToolCalling'),
-  }
-  messages.value.push(toolMsg)
-  await scrollToBottom()
-
   try {
-    const res = await fetch(`${BACKEND}/api/video-ask/${encodeURIComponent(props.filename)}`, {
+    const res = await fetch(`${BACKEND}/api/video-ask-stream/${encodeURIComponent(props.filename)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: text }),
     })
 
-    const toolIdx = messages.value.findIndex((m) => m.id === toolMsg.id)
-    if (toolIdx !== -1) messages.value.splice(toolIdx, 1)
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-      const assistantMsg: ChatMessage = {
-        id: ++msgCounter,
-        role: 'assistant',
-        content: `Error: ${err.error || `HTTP ${res.status}`}`,
-      }
-      messages.value.push(assistantMsg)
+      messages.value.push({ id: ++msgCounter, role: 'assistant', content: `Error: ${err.error || `HTTP ${res.status}`}` })
       await scrollToBottom()
       return
     }
 
-    const data = await res.json()
-    const assistantMsg: ChatMessage = {
-      id: ++msgCounter,
-      role: 'assistant',
-      content: data.answer,
-      isStreaming: true,
-    }
-    messages.value.push(assistantMsg)
-    await scrollToBottom()
-    await renderMarkdown(assistantMsg)
-    assistantMsg.isStreaming = false
-  } catch (e: any) {
-    const toolIdx = messages.value.findIndex((m) => m.id === toolMsg.id)
-    if (toolIdx !== -1) messages.value.splice(toolIdx, 1)
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
 
-    const assistantMsg: ChatMessage = {
-      id: ++msgCounter,
-      role: 'assistant',
-      content: `Error: ${e.message || 'Unknown error'}`,
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const dataStr = line.slice(6)
+        if (!dataStr) continue
+        try {
+          const event = JSON.parse(dataStr)
+          if (event.type === 'tool_call') {
+            const label = t('vuToolCall') + ': ' + event.name
+            const existingIdx = messages.value.findIndex(m => m.role === 'tool' && m.toolName === event.name)
+            if (existingIdx !== -1) {
+              messages.value[existingIdx] = { ...messages.value[existingIdx], content: label, renderedHtml: undefined }
+            } else {
+              messages.value.push({ id: ++msgCounter, role: 'tool', content: label, toolName: event.name })
+            }
+            await scrollToBottom()
+          } else if (event.type === 'tool_result') {
+            const idx = messages.value.findIndex(m => m.role === 'tool' && m.toolName === event.name)
+            if (idx !== -1) {
+              messages.value[idx].content = (messages.value[idx].content || '') + ' ✓'
+            }
+            await scrollToBottom()
+          } else if (event.type === 'thinking') {
+            messages.value.push({ id: ++msgCounter, role: 'tool', content: t('vuThinking'), toolName: 'thinking', isStreaming: true })
+            await scrollToBottom()
+          } else if (event.type === 'answer') {
+            messages.value = messages.value.filter(m => m.role !== 'tool')
+            const assistantMsg: ChatMessage = { id: ++msgCounter, role: 'assistant', content: event.content }
+            messages.value.push(assistantMsg)
+            await scrollToBottom()
+            await renderMarkdown(assistantMsg)
+          } else if (event.type === 'error') {
+            messages.value.push({ id: ++msgCounter, role: 'assistant', content: `Error: ${event.content}` })
+            await scrollToBottom()
+          }
+        } catch {}
+      }
     }
-    messages.value.push(assistantMsg)
+  } catch (e: any) {
+    messages.value = messages.value.filter(m => m.role !== 'tool')
+    messages.value.push({ id: ++msgCounter, role: 'assistant', content: `Error: ${e.message || 'Unknown error'}` })
     await scrollToBottom()
   } finally {
     isLoading.value = false
   }
 }
 
+interface PrerequisitesResult {
+  status: 'ok' | 'no_subtitles' | 'raw_lang_not_set' | 'video_not_found'
+  video_id: number
+  has_subtitles: boolean
+  raw_lang: string | null
+  available_langs: string[]
+}
+
+async function checkSummaryPrerequisites(): Promise<PrerequisitesResult | null> {
+  try {
+    const res = await fetch(`${BACKEND}/api/video-summary/${encodeURIComponent(props.filename)}/prerequisites`, {
+      credentials: 'include',
+    })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 async function generateSummary() {
   showSummaryMenu.value = false
   if (isSubmittingSummary.value) return
+
+  const pre = await checkSummaryPrerequisites()
+  if (!pre) {
+    alert(t('vuSummaryFailed'))
+    return
+  }
+  if (pre.status === 'no_subtitles') {
+    alert(t('vuNeedSubtitles'))
+    return
+  }
+  if (pre.status === 'raw_lang_not_set') {
+    try {
+      await ElMessageBox.confirm(
+        t('vuBindRawLangPrompt'),
+        t('vuBindRawLangTitle'),
+        { confirmButtonText: t('vuBind'), cancelButtonText: t('vuCancel') }
+      )
+      const firstLang = pre.available_langs[0]
+      const csrfToken = getCookie('csrftoken')
+      const bindRes = await fetch(`${BACKEND}/api/videos/${pre.video_id}/update_raw_lang`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ raw_lang: firstLang }),
+      })
+      if (!bindRes.ok) {
+        alert(t('vuBindRawLangFailed'))
+        return
+      }
+    } catch {
+      // user cancelled
+      return
+    }
+  }
+
   isSubmittingSummary.value = true
 
   try {
@@ -149,11 +218,45 @@ async function generateSummary() {
   }
 }
 
-function openSummary() {
+async function openSummary() {
+  showSummaryMenu.value = false
+
+  const pre = await checkSummaryPrerequisites()
+  if (!pre) {
+    alert(t('vuSummaryFailed'))
+    return
+  }
+  if (pre.status === 'no_subtitles') {
+    alert(t('vuNeedSubtitles'))
+    return
+  }
+  if (pre.status === 'raw_lang_not_set') {
+    try {
+      await ElMessageBox.confirm(
+        t('vuBindRawLangPrompt'),
+        t('vuBindRawLangTitle'),
+        { confirmButtonText: t('vuBind'), cancelButtonText: t('vuCancel') }
+      )
+      const firstLang = pre.available_langs[0]
+      const csrfToken = getCookie('csrftoken')
+      const bindRes = await fetch(`${BACKEND}/api/videos/${pre.video_id}/update_raw_lang`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ raw_lang: firstLang }),
+      })
+      if (!bindRes.ok) {
+        alert(t('vuBindRawLangFailed'))
+        return
+      }
+    } catch {
+      return
+    }
+  }
+
   const base = props.filename
   const url = `/summary/${base}`
   window.open(url, '_blank')
-  showSummaryMenu.value = false
 }
 
 function handleKeydown(e: KeyboardEvent) {

@@ -3,7 +3,7 @@ from typing import Any, cast
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse, Http404
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse, Http404, StreamingHttpResponse
 from django.conf import settings
 from ..tasks import summary_task_status, summary_task_queue
 
@@ -43,6 +43,66 @@ def _reset_unload_timer():
     _unload_timer = threading.Timer(300, _unload_all_agents)
     _unload_timer.daemon = True
     _unload_timer.start()
+
+
+def _get_or_create_agent(filename):
+    stem = os.path.splitext(filename)[0]
+    from ..models import Video
+    video = Video.objects.filter(url__contains=stem).first()
+
+    db_dir = os.path.join(settings.MEDIA_ROOT, "vidunder", "db")
+    if not os.path.isdir(db_dir):
+        return None, video, "No vidunder DB found. Run summary first."
+    if not video or not video.srt_path:
+        return None, video, "Video has no subtitle. Generate subtitles first."
+
+    db_path = None
+    if video:
+        vid_suffix = f"_{video.id}.json"
+        for f in os.listdir(db_dir):
+            if f.endswith(vid_suffix):
+                db_path = os.path.join(db_dir, f)
+                break
+    if not db_path:
+        for f in os.listdir(db_dir):
+            if not f.endswith(".json"):
+                continue
+            f_stem = os.path.splitext(f)[0]
+            if stem.startswith(f_stem) or f_stem.startswith(stem):
+                db_path = os.path.join(db_dir, f)
+                break
+    if not db_path or not os.path.exists(db_path):
+        return None, video, f"No vidunder DB found for {filename}"
+
+    srt_path = os.path.join(settings.MEDIA_ROOT, "saved_srt", video.srt_path)
+    if not os.path.exists(srt_path):
+        return None, video, f"SRT file not found: {srt_path}"
+
+    agent = _agent_cache.get(db_path)
+    if agent is None:
+        import sys as _sys
+        vid_under_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vid_under")
+        if vid_under_dir not in _sys.path:
+            _sys.path.insert(0, vid_under_dir)
+        from ..tasks import _inject_vidunder_config
+        _inject_vidunder_config()
+        from agent import VideoAgent
+        from srt_utils import parse_srt
+        with open(db_path, encoding="utf-8") as f:
+            db = json.load(f)
+        srt = parse_srt(srt_path)
+        agent = VideoAgent(db, srt)
+        _agent_cache[db_path] = agent
+        _agent_cache_order.append(db_path)
+        logger.info("Created agent for %s, cache size: %d", db_path, len(_agent_cache))
+        while len(_agent_cache) > _agent_cache_max:
+            _unload_oldest_agent()
+    else:
+        if db_path in _agent_cache_order:
+            _agent_cache_order.remove(db_path)
+        _agent_cache_order.append(db_path)
+    _reset_unload_timer()
+    return agent, video, None
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -180,6 +240,54 @@ def _find_summary_file(filename):
     return None
 
 
+VALID_SUBTITLE_LANGS = ["en", "zh", "jp", "de"]
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class SummaryPrerequisitesView(View):
+    """GET /api/video-summary/<filename>/prerequisites — check subtitles & raw_lang"""
+
+    def get(self, request, filename):
+        stem = os.path.splitext(filename)[0]
+        from ..models import Video
+        video = Video.objects.filter(url__contains=stem).first()
+
+        if not video:
+            return JsonResponse({
+                "status": "video_not_found",
+                "has_subtitles": False,
+                "raw_lang": None,
+                "available_langs": [],
+            }, status=404)
+
+        # Check which subtitle languages have files on disk
+        srt_dir = os.path.join(settings.MEDIA_ROOT, "saved_srt")
+        available_langs = []
+        for lang in VALID_SUBTITLE_LANGS:
+            srt_name = f"{video.id}_{lang}.srt"
+            if os.path.exists(os.path.join(srt_dir, srt_name)):
+                available_langs.append(lang)
+
+        has_subtitles = len(available_langs) > 0
+        raw_lang = video.raw_lang or None
+
+        if not has_subtitles:
+            status = "no_subtitles"
+        elif not raw_lang:
+            status = "raw_lang_not_set"
+        else:
+            status = "ok"
+
+        return JsonResponse({
+            "status": status,
+            "video_id": video.id,
+            "filename": filename,
+            "has_subtitles": has_subtitles,
+            "raw_lang": raw_lang,
+            "available_langs": available_langs,
+        })
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class VideoSummaryView(View):
     """GET /api/video-summary/<filename> → {summary, slides[], file}"""
@@ -194,13 +302,13 @@ class VideoSummaryView(View):
 
         base = os.path.basename(summary_file)
         db_name = base.replace("_summary_with_slides.md", "").replace("_summary.md", "")
-        slide_prefix = f"/media/vidunder/output/{db_name}_slides/"
+        shared_slides = "/media/vidunder/output/slides/"
+        per_video_slides = f"/media/vidunder/output/{db_name}_slides/"
+        output_root = os.path.join(settings.MEDIA_ROOT, "vidunder", "output")
+        per_video_dir = os.path.join(output_root, f"{db_name}_slides")
+        use_per_video = os.path.isdir(per_video_dir)
+        slide_prefix = per_video_slides if use_per_video else shared_slides
 
-        content = re.sub(
-            r'!\[([^\]]*)\]\((?:/tmp/[^/]+/?)?slides/',
-            rf'![\1]({slide_prefix}',
-            content,
-        )
         content = re.sub(
             r'!\[([^\]]*)\]\(slides/',
             rf'![\1]({slide_prefix}',
@@ -227,66 +335,61 @@ class VideoAskView(View):
         if not question:
             return JsonResponse({"error": "Missing question"}, status=400)
 
-        stem = os.path.splitext(filename)[0]
+        agent, _, error = _get_or_create_agent(filename)
+        if error:
+            return JsonResponse({"error": error}, status=404 if "not found" in error.lower() else 400)
 
-        from ..models import Video
-        video = Video.objects.filter(url__contains=stem).first()
-
-        db_dir = os.path.join(settings.MEDIA_ROOT, "vidunder", "db")
-        if not os.path.isdir(db_dir):
-            return JsonResponse({"error": "No vidunder DB found. Run summary first."}, status=404)
-
-        db_path = None
-        if video:
-            vid_suffix = f"_{video.id}.json"
-            for f in os.listdir(db_dir):
-                if f.endswith(vid_suffix):
-                    db_path = os.path.join(db_dir, f)
-                    break
-        if not db_path:
-            for f in os.listdir(db_dir):
-                if not f.endswith(".json"):
-                    continue
-                f_stem = os.path.splitext(f)[0]
-                if stem.startswith(f_stem) or f_stem.startswith(stem):
-                    db_path = os.path.join(db_dir, f)
-                    break
-        if not db_path or not os.path.exists(db_path):
-            return JsonResponse({"error": f"No vidunder DB found for {filename}"}, status=404)
-        if not video or not video.srt_path:
-            return JsonResponse({"error": "Video has no subtitle. Generate subtitles first."}, status=400)
-        srt_path = os.path.join(settings.MEDIA_ROOT, "saved_srt", video.srt_path)
-        if not os.path.exists(srt_path):
-            return JsonResponse({"error": f"SRT file not found: {srt_path}"}, status=404)
-
-        # ── Get or create cached VideoAgent ──
-        agent = _agent_cache.get(db_path)
-        if agent is None:
-            import sys as _sys
-            vid_under_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vid_under")
-            if vid_under_dir not in _sys.path:
-                _sys.path.insert(0, vid_under_dir)
-
-            from ..tasks import _inject_vidunder_config
-            _inject_vidunder_config()
-
-            from agent import VideoAgent
-            from srt_utils import parse_srt
-
-            with open(db_path, encoding="utf-8") as f:
-                db = json.load(f)
-            srt = parse_srt(srt_path)
-            agent = VideoAgent(db, srt)
-            _agent_cache[db_path] = agent
-            _agent_cache_order.append(db_path)
-            logger.info("Created agent for %s, cache size: %d", db_path, len(_agent_cache))
-            while len(_agent_cache) > _agent_cache_max:
-                _unload_oldest_agent()
-        else:
-            if db_path in _agent_cache_order:
-                _agent_cache_order.remove(db_path)
-            _agent_cache_order.append(db_path)
-
-        _reset_unload_timer()
         result = agent.ask(question)
         return JsonResponse({"answer": result})
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class VideoAskStreamView(View):
+
+    def post(self, request, filename):
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except json.JSONDecodeError:
+            return HttpResponseBadRequest("Invalid JSON")
+
+        question = payload.get("question", "").strip()
+        if not question:
+            return JsonResponse({"error": "Missing question"}, status=400)
+
+        agent, _, error = _get_or_create_agent(filename)
+        if error:
+            return JsonResponse({"error": error}, status=404 if "not found" in error.lower() else 400)
+
+        def event_stream():
+            import queue
+            event_queue = queue.Queue()
+
+            def on_event(event):
+                event_queue.put(event)
+
+            import threading
+            def run_ask():
+                try:
+                    agent.ask(question, on_event=on_event)
+                except Exception as exc:
+                    event_queue.put({"type": "error", "content": str(exc)})
+                finally:
+                    event_queue.put(None)
+
+            t = threading.Thread(target=run_ask, daemon=True)
+            t.start()
+
+            while True:
+                event = event_queue.get()
+                if event is None:
+                    break
+                data = json.dumps(event, ensure_ascii=False)
+                yield f"data: {data}\n\n"
+
+        response = StreamingHttpResponse(
+            event_stream(),
+            content_type="text/event-stream",
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
