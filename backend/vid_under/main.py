@@ -146,7 +146,8 @@ def cmd_external(question: str):
 
 def cmd_extract(video_path: str, srt_path: str | None = None,
                 clip_secs: int = 10, frames_per_clip: int = 7,
-                output_dir: str | None = None, perspective: bool = False):
+                output_dir: str | None = None, perspective: bool = False,
+                progress_cb=None):
     import time, av
     import numpy as np
     from video_structure import classify_scene, VideoStructure, SlideEntry, CodeSnapshot
@@ -261,6 +262,8 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
             m, s = divmod(int(start_sec), 60)
             lt = layout.layout_type if layout else "none"
             print(f"  [{m:02d}:{s:02d}] layout={lt} frames collected")
+        if progress_cb:
+            progress_cb("layout", clip_idx + 1, n_clips)
 
     c.close()
     print(f"  Phase 1 done: {len(clip_mid_frames)} clips")
@@ -269,7 +272,7 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
     from external_api import call_glm_ocr
     sorted_indices = sorted(clip_mid_frames.keys())
     print(f"  Phase 2: OCR on {len(sorted_indices)} clips...")
-    for clip_idx in sorted_indices:
+    for ocr_i, clip_idx in enumerate(sorted_indices):
         mid_content = clip_mid_frames[clip_idx]
         caption = call_glm_ocr(mid_content, "Describe this image in one short sentence:", max_tokens=128)
         clip_captions[clip_idx] = caption
@@ -277,6 +280,8 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
         if clip_idx % 50 == 0:
             m, s = divmod(int(clip_idx * clip_secs), 60)
             print(f"  [{m:02d}:{s:02d}] {caption[:50]}...")
+        if progress_cb:
+            progress_cb("ocr", ocr_i + 1, len(sorted_indices))
 
     # Phase 3: Classify scenes
     for clip_idx in sorted_indices:

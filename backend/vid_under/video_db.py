@@ -45,7 +45,8 @@ from srt_utils import parse_srt, transcript_for_timerange
 
 def build_database(video_path: str, srt_path: str, db_name: str = "default",
                    clip_secs: int = None, video_fps: float = None,
-                   frames_per_clip: int = None) -> dict:
+                   frames_per_clip: int = None,
+                   progress_cb=None) -> dict:
     clip_secs = clip_secs or CLIP_SECS
     video_fps = video_fps or VIDEO_FPS
     frames_per_clip = frames_per_clip or FRAMES_PER_CLIP
@@ -89,6 +90,8 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
         elapsed = time.time() - t0
         if (i + 1) % 10 == 0:
             print(f"  [{i+1}/{n_clips}] {elapsed:.0f}s/clip  ({start:.0f}s-{end:.0f}s)")
+        if progress_cb:
+            progress_cb("caption", i + 1, n_clips)
 
     ctx.clear_kv()
     del ctx, sampler, model

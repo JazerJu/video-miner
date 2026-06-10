@@ -40,7 +40,7 @@ from .views.external_transcription import (
     ExternalTranscriptionListView,
     ExternalTranscriptionDeleteView,
 )
-from .views.summary import SummaryAddView, SummaryStatusView, SummaryDeleteView, SummaryRetryView, VideoSummaryView, VideoAskView
+from .views.summary import SummaryAddView, SummaryStatusView, SummaryDeleteView, SummaryRetryView, SummaryPrerequisitesView, VideoSummaryView, VideoAskView, VideoAskStreamView
 from .views.realtime_subtitles import RealtimeSubtitleView, RealtimeSubtitleStreamView
 from .views.language_tracks import VideoLanguageTracksView
 from .views.extract_insights import extract_insights
@@ -402,8 +402,10 @@ urlpatterns = [
     path("api/summary/<str:task_id>/delete", SummaryDeleteView.as_view(), name="summary_delete"),
     path("api/summary/<str:task_id>/retry", SummaryRetryView.as_view(), name="summary_retry"),
     path("api/summary/status", SummaryStatusView.as_view(), name="summary_all_status"),
-    path("api/video-summary/<str:filename>", VideoSummaryView.as_view(), name="video_summary"),
+    path("api/video-summary/<str:filename>/prerequisites", SummaryPrerequisitesView.as_view(), name="summary_prerequisites"),
+path("api/video-summary/<str:filename>", VideoSummaryView.as_view(), name="video_summary"),
     path("api/video-ask/<str:filename>", VideoAskView.as_view(), name="video_ask"),
+    path("api/video-ask-stream/<str:filename>", VideoAskStreamView.as_view(), name="video_ask_stream"),
     # 标签管理
     path("api/tags/", TagListView.as_view(), name="tag_list"),
     path("api/tags/create", TagCreateView.as_view(), name="tag_create"),
