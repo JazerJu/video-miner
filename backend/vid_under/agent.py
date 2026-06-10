@@ -1,4 +1,5 @@
 # coding=utf-8
+import os
 import glob as _glob
 import numpy as np
 from pathlib import Path
@@ -593,12 +594,13 @@ class VideoAgent:
         vt = self._resampler.run(None, inputs)[0]
         return vt.astype(np.float32)
 
-    def summarize(self, thinking_budget: str = "low", top_n: int = 20, min_coverage: float = 0.60):
+    def summarize(self, thinking_budget: str = "low", top_n: int = 20, min_coverage: float = 0.60,
+                  progress_cb=None):
         if not DEEPSEEK_API_KEY:
             raise RuntimeError("summarize 需要 DEEPSEEK_API_KEY。本地 8B 模型摘要质量不足，不支持 legacy 模式。")
 
         try:
-            result = self._summarize_inner(thinking_budget, top_n, min_coverage)
+            result = self._summarize_inner(thinking_budget, top_n, min_coverage, progress_cb)
         finally:
             self._cleanup_dense_tokens()
         return result
@@ -617,7 +619,7 @@ class VideoAgent:
         if removed:
             print(f"  [cleanup] removed {removed} .npy files ({freed / 1024**2:.0f} MB)")
 
-    def _summarize_inner(self, thinking_budget, top_n, min_coverage):
+    def _summarize_inner(self, thinking_budget, top_n, min_coverage, progress_cb=None):
 
         messages = [
             {"role": "system", "content": self._SUMMARIZE_SYSTEM_PROMPT},
@@ -630,6 +632,7 @@ class VideoAgent:
         ]
 
         chapter_summaries = []
+        total_chapters = 0
         max_rounds = 25
         recent_tool_calls = []
 
@@ -681,8 +684,15 @@ class VideoAgent:
                 result_str = _json.dumps(result, ensure_ascii=False)[:30000]
                 print(f"  [result] {result_str[:150]}...")
 
+                if fn_name == "detect_chapters" and isinstance(result, dict):
+                    chapters = result.get("chapters", [])
+                    if chapters:
+                        total_chapters = len(chapters)
+
                 if fn_name == "summarize_chapter" and "summary" in result:
                     chapter_summaries.append(result["summary"])
+                    if progress_cb and total_chapters > 0:
+                        progress_cb(len(chapter_summaries), total_chapters)
 
                 messages.append({
                     "role": "tool",
@@ -708,12 +718,14 @@ class VideoAgent:
     def _assemble_summary(self, chapter_summaries: list, min_coverage: float = 0.60) -> str:
         extract_path = self._extract_json_path()
         slides_data = []
+        slides_base = None
         if extract_path:
             import json as _json_mod
             try:
                 with open(extract_path) as f:
                     structure = _json_mod.load(f)
                 slides_data = structure.get("slides", [])
+                slides_base = str(Path(extract_path).parent)
             except Exception:
                 pass
 
@@ -757,6 +769,8 @@ class VideoAgent:
                     mm, sc = divmod(int(t), 60)
                     img_path = self._crop_slide_for_summary(s, min_coverage)
                     display_path = img_path or s["image_path"]
+                    if slides_base:
+                        display_path = os.path.relpath(display_path, slides_base)
                     chapter_slides.append(f'![{mm:02d}:{sc:02d}]({display_path})')
 
             toc += f"{i}. {title_match or f'第{i}章'}\n"
@@ -807,6 +821,7 @@ class VideoAgent:
                 structure = _json_mod.load(f)
         except Exception:
             return text
+        slides_base = str(Path(extract_path).parent)
         slides = [s for s in structure.get("slides", [])
                   if s.get("image_path") and Path(s["image_path"]).exists()]
         if not slides:
@@ -830,7 +845,7 @@ class VideoAgent:
             for s in chapter_slides:
                 t = s.get("time", 0)
                 m, sc = divmod(int(t), 60)
-                img_lines.append(f'\n![{m:02d}:{sc:02d}]({s["image_path"]})')
+                img_lines.append(f'\n![{m:02d}:{sc:02d}]({os.path.relpath(s["image_path"], slides_base)})')
             return header_line + "".join(img_lines)
 
         result = _re.sub(r'^## .+\[\d{2}:\d{2}-\d{2}:\d{2}\].*$', _insert_after_header, text, flags=_re.MULTILINE)
@@ -1163,7 +1178,7 @@ class VideoAgent:
     def reset_conversation(self):
         self._messages = [{"role": "system", "content": self._SYSTEM_PROMPT}]
 
-    def ask(self, question, max_rounds=6):
+    def ask(self, question, max_rounds=6, on_event=None):
         if not DEEPSEEK_API_KEY:
             return self._ask_legacy(question)
 
@@ -1195,6 +1210,8 @@ class VideoAgent:
             content = (assistant_msg.get("content") or "").strip()
 
             if not tool_calls and content and len(content) > 30 and finish_reason != "length":
+                if on_event:
+                    on_event({"type": "answer", "content": content})
                 return content
 
             if not tool_calls:
@@ -1207,16 +1224,26 @@ class VideoAgent:
                 fn_args = _json.loads(tc["function"]["arguments"])
                 tc_id = tc["id"]
 
+                if on_event:
+                    on_event({"type": "tool_call", "name": fn_name, "args": fn_args})
+
                 print(f"  [tool] {fn_name}({fn_args})")
                 result = self._execute_tool(fn_name, fn_args)
                 result_str = _json.dumps(result, ensure_ascii=False)[:4000]
                 print(f"  [tool_result] {result_str[:200]}...")
+
+                if on_event:
+                    summary = result_str[:80] if isinstance(result_str, str) else str(result)[:80]
+                    on_event({"type": "tool_result", "name": fn_name, "summary": summary})
 
                 self._messages.append({
                     "role": "tool",
                     "tool_call_id": tc_id,
                     "content": result_str,
                 })
+
+        if on_event:
+            on_event({"type": "thinking"})
 
         self._messages.append({
             "role": "user",
@@ -1226,8 +1253,13 @@ class VideoAgent:
         if final_resp and "choices" in final_resp:
             answer = final_resp["choices"][0]["message"].get("content", "信息不足，无法回答。")
             self._messages.append({"role": "assistant", "content": answer})
+            if on_event:
+                on_event({"type": "answer", "content": answer})
             return answer
-        return "信息不足，无法回答。"
+        answer = "信息不足，无法回答。"
+        if on_event:
+            on_event({"type": "answer", "content": answer})
+        return answer
 
     def _run_glm_ocr(self, image, prompt="Text Recognition:") -> str:
         return call_glm_ocr(image, prompt)
