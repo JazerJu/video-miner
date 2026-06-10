@@ -42,11 +42,38 @@ def _get_engine_config() -> tuple[str, str, str]:
 
 
 class ASREngineDaemon:
+    IDLE_TIMEOUT_S = 120
+
     def __init__(self):
         self._lock = threading.Lock()
         self._proc = None
         self._stderr_lines: list[str] = []
         self._stderr_thread = None
+        self._last_used = 0.0
+        self._idle_watcher = None
+
+    def _touch(self):
+        self._last_used = __import__("time").monotonic()
+
+    def _start_idle_watcher(self):
+        if self._idle_watcher and self._idle_watcher.is_alive():
+            return
+        self._idle_watcher = threading.Thread(target=self._idle_loop, daemon=True, name="glm-asr-idle-watcher")
+        self._idle_watcher.start()
+
+    def _idle_loop(self):
+        import time
+        while True:
+            time.sleep(60)
+            with self._lock:
+                if self._proc is None:
+                    return
+                if self._proc.poll() is not None:
+                    self._proc = None
+                    return
+                if time.monotonic() - self._last_used > self.IDLE_TIMEOUT_S:
+                    self._stop_locked()
+                    return
 
     def is_running(self) -> bool:
         with self._lock:
@@ -65,6 +92,7 @@ class ASREngineDaemon:
             return []
         with self._lock:
             self._ensure_started_locked()
+            self._touch()
             try:
                 return self._transcribe_locked(bin_paths)
             except Exception:
@@ -103,6 +131,8 @@ class ASREngineDaemon:
         self._wait_ready_locked("after model load")
         self._send_line_locked(f"MEL {mel_filters}")
         self._wait_ready_locked("after mel filter load")
+        self._touch()
+        self._start_idle_watcher()
 
     def _transcribe_locked(self, bin_paths: List[str]) -> List[str]:
         self._send_line_locked(f"BATCH {len(bin_paths)}")

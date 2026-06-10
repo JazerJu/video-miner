@@ -50,6 +50,14 @@ def _get_download_proxy():
     )
 
 
+def _get_bili_download_proxy():
+    settings_data = load_all_settings()
+    media_settings = settings_data.get("Media Credentials", {})
+    return get_effective_proxy(
+        _is_enabled(media_settings.get("bili_download_use_proxy", "false"))
+    )
+
+
 def _build_requests_proxies(proxy_url):
     if proxy_url:
         return {"http": proxy_url, "https": proxy_url}
@@ -308,7 +316,7 @@ def _resolve_bilibili(url):
     settings_data = load_all_settings()
     media_settings = settings_data.get("Media Credentials", {})
     sessdata = media_settings.get("bilibili_sessdata", "").strip()
-    proxy_url = _get_download_proxy()
+    proxy_url = _get_bili_download_proxy()
     bvid, avid, p_value = extract_av_bv_p(url)
     with _patched_bilibili_proxies(proxy_url):
         info = get_video_info(bvid=bvid, avid=avid)
@@ -370,7 +378,7 @@ def _resolve_live(url):
     platform = 'bilibili_live' if host == 'live.bilibili.com' else 'youtube_live'
 
     cmd = ['yt-dlp', '-J', '--no-warnings', '--no-playlist', url]
-    proxy_url = _get_download_proxy()
+    proxy_url = _get_bili_download_proxy() if platform == 'bilibili_live' else _get_download_proxy()
     if proxy_url:
         cmd += ['--proxy', proxy_url]
 
@@ -542,7 +550,7 @@ class StreamProxyView(View):
                 {"success": False, "error": 'Missing "url" query parameter'},
                 status=400,
             )
-        proxy_url = _get_download_proxy()
+        proxy_url = _get_bili_download_proxy() if 'bilibili.com' in target_url else _get_download_proxy()
         try:
             upstream = requests.request(
                 method,
@@ -639,12 +647,14 @@ class StartView(View):
             audio_headers = {}
             proxy_url = None
         else:
-            proxy_url = _get_download_proxy()
+            proxy_url = _get_bili_download_proxy() if 'bilibili.com' in audio_url else _get_download_proxy()
         source_lang = str(data.get("source_lang") or "en").strip().lower()
         target_lang = str(data.get("target_lang") or "").strip().lower()
+        original_url = str(data.get("original_url") or "").strip()
         task_id = str(uuid.uuid4())
         start_transcription(task_id, audio_url, proxy_url, audio_headers,
-                            source_lang=source_lang, target_lang=target_lang)
+                            source_lang=source_lang, target_lang=target_lang,
+                            original_url=original_url)
         return JsonResponse({"success": True, "task_id": task_id})
 
 
@@ -664,6 +674,13 @@ class TranscriptionSSEView(View):
                 try:
                     event_type, payload = event_queue.get(timeout=1.0)
                 except Exception:
+                    # No new events in 1s. Drain remaining before breaking if done.
+                    while status.get("status") in ("Completed", "Failed", "Cancelled"):
+                        try:
+                            event_type, payload = event_queue.get_nowait()
+                        except Exception:
+                            break
+                        yield f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
                     if status.get("status") in ("Completed", "Failed", "Cancelled"):
                         break
                     continue

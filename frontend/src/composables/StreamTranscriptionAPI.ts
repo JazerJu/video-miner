@@ -66,12 +66,14 @@ export async function startTranscription(
   requiresRelay = false,
   sourceLang = 'en',
   targetLang = '',
+  originalUrl = '',
 ): Promise<string> {
   const body: Record<string, unknown> = {
     audio_url: audioUrl,
     audio_headers: audioHeaders,
     requires_relay: requiresRelay,
     source_lang: sourceLang,
+    original_url: originalUrl,
   }
   if (targetLang) body.target_lang = targetLang
   const resp = await fetch(`${BACKEND}/api/stream_transcription/start`, {

@@ -126,7 +126,7 @@ const statusLabel = computed(() => {
   if (transcriptionStatus.value === 'completed') return t('completed')
   if (transcriptionStatus.value === 'failed') return t('failed')
   if (transcriptionStatus.value === 'cancelled') return t('stopTranscription')
-  return '待开始'
+  return t('vuIdleStatus')
 })
 
 const progressLabel = computed(() => {
@@ -466,6 +466,7 @@ async function handleStartTranscription() {
       resolvedStream.value.audio.requires_relay,
       'en',
       targetLang.value,
+      streamUrl.value,
     )
     taskId.value = nextTaskId
     attachTranscriptionStream(nextTaskId)
@@ -523,7 +524,7 @@ onBeforeUnmount(async () => {
           @click="showSourceDialog = true"
         >
           <Settings2 class="h-4 w-4" />
-          源配置
+          {{ t('vuStreamSource') }}
         </button>
       </div>
 
@@ -534,7 +535,7 @@ onBeforeUnmount(async () => {
               <div class="min-w-0">
                 <p class="text-xs uppercase tracking-[0.28em] text-slate-400">Playback</p>
                 <h2 class="truncate text-lg font-semibold text-white">
-                  {{ resolvedStream?.title || '等待解析视频源' }}
+                   {{ resolvedStream?.title || t('vuWaitingSource') }}
                 </h2>
               </div>
 
@@ -576,14 +577,14 @@ onBeforeUnmount(async () => {
                   class="flex h-full items-center justify-center px-8 text-center text-sm text-slate-400"
                 >
                   <div class="space-y-4">
-                    <p>打开“源配置”，填写流媒体 URL 后解析。</p>
+                    <p>{{ t('vuEnterStreamUrl') }}</p>
                     <button
                       type="button"
                       class="inline-flex items-center gap-2 rounded-full border border-cyan-300/25 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/20"
                       @click="showSourceDialog = true"
                     >
                       <Link2 class="h-4 w-4" />
-                      配置流媒体源
+                      {{ t('vuConfigureStream') }}
                     </button>
                   </div>
                 </div>
@@ -597,9 +598,9 @@ onBeforeUnmount(async () => {
             <div class="flex items-start justify-between gap-4 border-b border-white/8 pb-4">
               <div>
                 <p class="text-xs uppercase tracking-[0.26em] text-slate-400">Recognition</p>
-                <h2 class="mt-2 text-xl font-semibold text-white">字幕识别 / 字幕列表</h2>
+                <h2 class="mt-2 text-xl font-semibold text-white">{{ t('vuSubtitleRecognition') }}</h2>
                 <p class="mt-1 text-sm text-slate-400">
-                  {{ segments.length ? `已接收 ${segments.length} 条字幕` : t('noTranscriptionYet') }}
+                  {{ segments.length ? t('vuSegmentsReceived', { n: segments.length }) : t('noTranscriptionYet') }}
                 </p>
               </div>
 
@@ -748,9 +749,9 @@ onBeforeUnmount(async () => {
             <p class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-200/75">
               Source Dialog
             </p>
-            <h2 class="mt-2 text-2xl font-semibold text-white">流媒体源配置</h2>
+            <h2 class="mt-2 text-2xl font-semibold text-white">{{ t('vuStreamSourceDialog') }}</h2>
             <p class="mt-1 text-sm text-slate-400">
-              URL、缩略图和时长信息都集中在这里处理。
+              {{ t('vuStreamSourceDesc') }}
             </p>
           </div>
 
@@ -774,7 +775,7 @@ onBeforeUnmount(async () => {
           </div>
 
           <div class="flex items-center gap-3">
-            <span class="text-sm text-slate-400">实时翻译：</span>
+            <span class="text-sm text-slate-400">{{ t('vuRealtimeTranslation') }}</span>
             <select
               v-model="targetLang"
               class="appearance-none rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/35"
@@ -783,12 +784,12 @@ onBeforeUnmount(async () => {
               <option value="en">→ English</option>
               <option value="jp">→ 日本語</option>
             </select>
-            <span class="text-xs text-slate-500">默认取自「界面设置 → 默认译文语言」</span>
+            <span class="text-xs text-slate-500">{{ t('vuTranslationDefaultHint') }}</span>
           </div>
 
           <div class="flex flex-wrap items-center justify-between gap-3">
             <p class="text-sm text-slate-400">
-              支持 YouTube / Bilibili 流媒体解析。
+              {{ t('vuStreamSupported') }}
             </p>
 
             <button

@@ -335,6 +335,7 @@ class StreamTranscriber:
         on_progress,
         on_done,
         on_error,
+        temp_audio_file=None,
     ):
         self.audio_url = audio_url
         self.proxy_url = proxy_url
@@ -344,6 +345,7 @@ class StreamTranscriber:
         self.on_done = on_done
         self.on_error = on_error
         self.cancel_event = threading.Event()
+        self._temp_audio_file = temp_audio_file
         self._ffmpeg_proc = None
         self._sample_index = 0
         self._speech_chunks = []
@@ -600,8 +602,21 @@ class StreamTranscriber:
             return None
 
     def _create_vad_iterator(self):
-        import sys
+        backend = self._get_vad_backend()
+        if backend == "firered":
+            return self._create_firered_vad()
+        return self._create_silero_vad()
 
+    def _get_vad_backend(self) -> str:
+        try:
+            from .views.set_setting import load_all_settings
+            s = load_all_settings()
+            return s.get("Transcription Engine", {}).get("vad_backend", "silero")
+        except Exception:
+            return "silero"
+
+    def _create_silero_vad(self):
+        import sys
         silero_src = os.path.abspath(
             os.path.join(
                 os.path.dirname(__file__), "..", "third_party", "silero-vad", "src"
@@ -611,9 +626,22 @@ class StreamTranscriber:
             sys.path.insert(0, silero_src)
         from silero_vad import VADIterator, load_silero_vad
 
-        model = load_silero_vad(onnx=False)
+        model = load_silero_vad(onnx=True)
         return VADIterator(
             model,
+            threshold=0.5,
+            sampling_rate=SAMPLE_RATE,
+            min_silence_duration_ms=VAD_MIN_SILENCE_MS,
+        )
+
+    def _create_firered_vad(self):
+        from asr_utils.firered_vad import FireRedVAD
+        model_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "third_party", "firered-vad", "firered_vad.int8.onnx",
+        )
+        return FireRedVAD(
+            model_path,
             threshold=0.5,
             sampling_rate=SAMPLE_RATE,
             min_silence_duration_ms=VAD_MIN_SILENCE_MS,
@@ -644,13 +672,48 @@ class StreamTranscriber:
             os.rmdir(self._tmp_dir)
         except OSError:
             pass
+        if self._temp_audio_file:
+            try:
+                os.remove(self._temp_audio_file)
+            except OSError:
+                pass
+
+
+def _prefetch_youtube_audio(audio_url: str, original_url: str, proxy_url: str | None, task_id: str) -> str | None:
+    """Download YouTube audio to temp file so ffmpeg reads locally, not via Django relay."""
+    target_url = original_url or audio_url
+    if 'youtube.com' not in target_url and 'youtu.be' not in target_url:
+        return None
+    try:
+        import yt_dlp, uuid
+        tmp_path = os.path.join(tempfile.gettempdir(), f"vidgo_yt_{uuid.uuid4().hex}.m4a")
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': tmp_path,
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+        }
+        if proxy_url:
+            ydl_opts['proxy'] = proxy_url
+        with _transcription_lock:
+            _transcription_status[task_id]["status"] = "Downloading"
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([target_url])
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+            return tmp_path
+    except Exception as e:
+        print(f"[prefetch] yt-dlp failed: {e}, falling back to direct ffmpeg")
+    return None
 
 
 def start_transcription(task_id, audio_url, proxy_url, headers,
-                        source_lang="en", target_lang=""):
+                        source_lang="en", target_lang="", original_url=""):
     with _transcription_lock:
         _transcription_status[task_id] = _new_status(task_id, audio_url)
         _transcription_events[task_id] = queue.Queue()
+
+    local_audio = _prefetch_youtube_audio(audio_url, original_url, proxy_url, task_id)
 
     do_translate = bool(target_lang) and target_lang != source_lang
 
@@ -671,13 +734,14 @@ def start_transcription(task_id, audio_url, proxy_url, headers,
         _mark_error(task_id, message)
 
     transcriber = StreamTranscriber(
-        audio_url=audio_url,
-        proxy_url=proxy_url,
-        headers=headers,
+        audio_url=local_audio or audio_url,
+        proxy_url=proxy_url if not local_audio else None,
+        headers=headers if not local_audio else {},
         on_segment=on_segment,
         on_progress=on_progress,
         on_done=on_done,
         on_error=on_error,
+        temp_audio_file=local_audio,
     )
     thread = threading.Thread(
         target=transcriber.run, daemon=True, name=f"stream-transcriber-{task_id}"
