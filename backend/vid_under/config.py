@@ -2,6 +2,7 @@
 """视频理解框架配置
 
 支持环境变量覆盖（Docker 热修改）：
+  VIDUNDER_MODEL_ROOT    - 模型根目录，默认 PROJECT_DIR/models
   VIDUNDER_N_CTX          - KV cache 上下文长度，默认 4096
   VIDUNDER_N_GPU_LAYERS   - MiniCPM-V GGUF 放 GPU 的层数，默认 36（0-36）
   VIDUNDER_GLM_OCR_N_GPU_LAYERS - GLM-OCR GGUF 放 GPU 的层数，默认 17（0-17）
@@ -13,14 +14,15 @@
 import os
 from pathlib import Path
 
-# ── 项目路径 ──────────────────────────────────────────────
+MODEL_ROOT = Path(os.environ.get("VIDUNDER_MODEL_ROOT", str(Path(__file__).parent / "models")))
+
 PROJECT_DIR = Path(__file__).parent
 MEDIA_VIDUNDER = PROJECT_DIR.parent / "media" / "vidunder"
 DB_DIR = MEDIA_VIDUNDER / "db"
 TOKENS_DIR = DB_DIR / "tokens"
-EXPORT_DIR = PROJECT_DIR / "onnx"
-GGUF_PATH = PROJECT_DIR / "models" / "MiniCPM-V-4_5-Q4_K_M.gguf"
-GGUF_PATH_V46 = PROJECT_DIR / "models" / "MiniCPM-V-4_6-Q4_K_M.gguf"
+EXPORT_DIR = MODEL_ROOT / "minicpm-v4.5" / "onnx"
+GGUF_PATH = MODEL_ROOT / "minicpm-v4.5" / "MiniCPM-V-4_5-Q4_K_M.gguf"
+GGUF_PATH_V46 = MODEL_ROOT / "minicpm-v4.5" / "MiniCPM-V-4_6-Q4_K_M.gguf"
 
 # ── 分段参数 ──────────────────────────────────────────────
 CLIP_SECS = 10
@@ -36,8 +38,8 @@ DEFAULT_THINKING_BUDGET = os.environ.get("VIDUNDER_THINKING_BUDGET", "low")
 FRAMES_PER_CLIP = THINKING_BUDGET_FRAMES[DEFAULT_THINKING_BUDGET]
 
 # ── 外部 API ─────────────────────────────────────────────
-GEMINI_API_KEY = "REDACTED_GEMINI_KEY"
-GEMINI_MODEL = "gemini-3.1-pro-preview"
+GEMINI_API_KEY = os.environ.get("VIDUNDER_GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("VIDUNDER_GEMINI_MODEL", "gemini-3.1-pro-preview")
 GEMINI_EMBED_MODEL = "text-embedding-004"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 GEMINI_EMBED_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_EMBED_MODEL}:embedContent?key={GEMINI_API_KEY}"
@@ -45,27 +47,27 @@ GEMINI_EMBED_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GE
 NPPS = 70
 EMBED_DIM = 4096
 
-EMBED_MODEL_PATH = str(PROJECT_DIR / "models" / "bge-small-zh-v1.5")
+EMBED_MODEL_PATH = str(MODEL_ROOT / "embedding" / "bge-small-zh-v1.5")
 
-GLM_OCR_GGUF = str(PROJECT_DIR / "models" / "GLM-OCR-Q8_0.gguf")
+GLM_OCR_GGUF = str(MODEL_ROOT / "glm-ocr" / "GLM-OCR-Q8_0.gguf")
 
-OPENROUTER_KEY = "REDACTED_OPENROUTER_KEY"
+OPENROUTER_KEY = os.environ.get("VIDUNDER_OPENROUTER_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL = "google/gemini-2.5-flash"
 
-DOUBAO_API_KEY = "REDACTED_DOUBAO_KEY"
+DOUBAO_API_KEY = os.environ.get("VIDUNDER_DOUBAO_API_KEY", "")
 DOUBAO_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 DOUBAO_MODEL = "doubao-seed-2-0-pro-260215"
 
-STEP_API_KEY = "REDACTED_STEP_KEY"
+STEP_API_KEY = os.environ.get("VIDUNDER_STEP_API_KEY", "")
 STEP_BASE_URL = "https://api.stepfun.com/v1"
 STEP_MODEL = "step-3.7-flash"
 
-DEEPSEEK_API_KEY = "REDACTED_DEEPSEEK_KEY"
+DEEPSEEK_API_KEY = os.environ.get("VIDUNDER_DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 
-MIMO_API_KEY = "REDACTED_MIMO_KEY"
+MIMO_API_KEY = os.environ.get("VIDUNDER_MIMO_API_KEY", "")
 MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
 MIMO_MODEL = "mimo-v2.5"
 

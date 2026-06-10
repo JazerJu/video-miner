@@ -33,7 +33,7 @@ FRAMES_PER_CLIP = 7
 MAX_SLICE_NUMS = 1
 
 # ── 外部 API ─────────────────────────────────────────────
-GEMINI_API_KEY = "REDACTED_GEMINI_KEY"
+GEMINI_API_KEY = os.environ.get("VIDUNDER_GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.1-pro-preview"
 GEMINI_EMBED_MODEL = "text-embedding-004"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
@@ -46,22 +46,22 @@ EMBED_MODEL_PATH = str(PROJECT_DIR / "models" / "bge-small-zh-v1.5")
 
 GLM_OCR_GGUF = str(PROJECT_DIR / "models" / "GLM-OCR-Q8_0.gguf")
 
-OPENROUTER_KEY = "REDACTED_OPENROUTER_KEY"
+OPENROUTER_KEY = os.environ.get("VIDUNDER_OPENROUTER_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-DOUBAO_API_KEY = "REDACTED_DOUBAO_KEY"
+DOUBAO_API_KEY = os.environ.get("VIDUNDER_DOUBAO_API_KEY", "")
 DOUBAO_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 DOUBAO_MODEL = "doubao-seed-2-0-pro-260215"
 
-STEP_API_KEY = "REDACTED_STEP_KEY"
+STEP_API_KEY = os.environ.get("VIDUNDER_STEP_API_KEY", "")
 STEP_BASE_URL = "https://api.stepfun.com/v1"
 STEP_MODEL = "step-3.7-flash"
 
-DEEPSEEK_API_KEY = "REDACTED_DEEPSEEK_KEY"
+DEEPSEEK_API_KEY = os.environ.get("VIDUNDER_DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 
-MIMO_API_KEY = "REDACTED_MIMO_KEY"
+MIMO_API_KEY = os.environ.get("VIDUNDER_MIMO_API_KEY", "")
 MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"
 MIMO_MODEL = "mimo-v2.5"
 
