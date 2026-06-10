@@ -745,6 +745,18 @@
               </select>
             </div>
 
+            <!-- VAD Backend -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">VAD Backend</label>
+              <select
+                v-model="settings.vadBackend"
+                class="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option value="silero">Silero VAD (default)</option>
+                <option value="firered">FireRed VAD</option>
+              </select>
+            </div>
+
              <!-- FunASR-GGUF Info -->
              <div v-if="settings.transcriptionPrimaryEngine === 'funasr_gguf'" class="space-y-3 border-t pt-4">
                <h4 class="text-md font-medium text-gray-800">FunASR-GGUF 设置</h4>
@@ -1412,6 +1424,7 @@ const settings = reactive<FrontendSettings>({
   downloadUseProxy: false,
   // Transcription Engine settings
   transcriptionPrimaryEngine: 'funasr_gguf',
+  vadBackend: 'silero',
   fwsrModel: 'large-v3',
   useGpu: true,  // GPU acceleration
   transcriptionElevenlabsApiKey: '',
@@ -1426,12 +1439,16 @@ const settings = reactive<FrontendSettings>({
   vuCornerGeminiApiKey: '',
   vuCornerGeminiBaseUrl: 'https://openrouter.ai/api/v1',
   vuCornerGeminiModel: 'google/gemini-2.5-flash',
+  vuCornerGeminiOfficialApiKey: '',
+  vuCornerGeminiOfficialBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  vuCornerGeminiOfficialModel: 'gemini-2.5-flash',
   vuCornerMimoApiKey: '',
   vuCornerMimoBaseUrl: '',
   vuCornerMimoModel: 'mimo-v2.5',
   vuCornerOpenaiApiKey: '',
   vuCornerOpenaiBaseUrl: '',
   vuCornerOpenaiModel: '',
+  vuSummaryProvider: 'deepseek',
   vuSummaryApiKey: '',
   vuSummaryBaseUrl: 'https://api.deepseek.com',
   vuSummaryModel: 'deepseek-chat',
@@ -1442,6 +1459,7 @@ const settings = reactive<FrontendSettings>({
   vuCornerUseProxy: false,
   vuSummaryUseProxy: false,
   vuKnowledgeUseProxy: false,
+  biliDownloadUseProxy: false,
 })
 
 const loading = ref(false)
@@ -1645,6 +1663,7 @@ const resetSettings = () => {
     downloadUseProxy: false,
     // Transcription Engine settings
     transcriptionPrimaryEngine: 'funasr_gguf',
+  vadBackend: 'silero',
     fwsrModel: 'large-v3',
     useGpu: true,  // GPU acceleration
     transcriptionElevenlabsApiKey: '',

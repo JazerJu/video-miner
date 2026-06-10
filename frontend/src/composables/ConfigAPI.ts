@@ -215,9 +215,11 @@ export interface ConfigData {
     bilibili_sessdata: string
     proxy_url: string
     download_use_proxy: string
+    bili_download_use_proxy: string
   }
   'Transcription Engine': {
     primary_engine: string
+    vad_backend: string
     fwsr_model: string
     use_gpu: string
     elevenlabs_api_key: string
@@ -232,12 +234,16 @@ export interface ConfigData {
     vu_corner_gemini_api_key: string
     vu_corner_gemini_base_url: string
     vu_corner_gemini_model: string
+    vu_corner_gemini_official_api_key: string
+    vu_corner_gemini_official_base_url: string
+    vu_corner_gemini_official_model: string
     vu_corner_mimo_api_key: string
     vu_corner_mimo_base_url: string
     vu_corner_mimo_model: string
     vu_corner_openai_api_key: string
     vu_corner_openai_base_url: string
     vu_corner_openai_model: string
+    vu_summary_provider: string
     vu_summary_api_key: string
     vu_summary_base_url: string
     vu_summary_model: string
@@ -353,8 +359,10 @@ export interface FrontendSettings {
   bilibiliSessData: string
   proxyUrl: string
   downloadUseProxy: boolean
+  biliDownloadUseProxy: boolean
   // Transcription Engine settings
   transcriptionPrimaryEngine: string
+  vadBackend: string
   fwsrModel: string
   useGpu: boolean  // GPU acceleration toggle
   transcriptionElevenlabsApiKey: string
@@ -368,12 +376,16 @@ export interface FrontendSettings {
   vuCornerGeminiApiKey: string
   vuCornerGeminiBaseUrl: string
   vuCornerGeminiModel: string
+  vuCornerGeminiOfficialApiKey: string
+  vuCornerGeminiOfficialBaseUrl: string
+  vuCornerGeminiOfficialModel: string
   vuCornerMimoApiKey: string
   vuCornerMimoBaseUrl: string
   vuCornerMimoModel: string
   vuCornerOpenaiApiKey: string
   vuCornerOpenaiBaseUrl: string
   vuCornerOpenaiModel: string
+  vuSummaryProvider: string
   vuSummaryApiKey: string
   vuSummaryBaseUrl: string
   vuSummaryModel: string
@@ -532,8 +544,10 @@ export async function loadConfig(): Promise<FrontendSettings> {
       bilibiliSessData: data['Media Credentials']?.bilibili_sessdata || '',
       proxyUrl: data['Media Credentials']?.proxy_url || '',
       downloadUseProxy: data['Media Credentials']?.download_use_proxy === 'true',
+      biliDownloadUseProxy: data['Media Credentials']?.bili_download_use_proxy === 'true',
       // Transcription Engine settings
       transcriptionPrimaryEngine: data['Transcription Engine']?.primary_engine || 'funasr_gguf',
+      vadBackend: data['Transcription Engine']?.vad_backend || 'silero',
       fwsrModel: data['Transcription Engine']?.fwsr_model || 'large-v3',
       useGpu: data['Transcription Engine']?.use_gpu === 'true',
       transcriptionElevenlabsApiKey: data['Transcription Engine']?.elevenlabs_api_key || '',
@@ -549,12 +563,18 @@ export async function loadConfig(): Promise<FrontendSettings> {
         data['Video Understanding']?.vu_corner_gemini_base_url || 'https://openrouter.ai/api/v1',
       vuCornerGeminiModel:
         data['Video Understanding']?.vu_corner_gemini_model || 'google/gemini-2.5-flash',
+      vuCornerGeminiOfficialApiKey: data['Video Understanding']?.vu_corner_gemini_official_api_key || '',
+      vuCornerGeminiOfficialBaseUrl:
+        data['Video Understanding']?.vu_corner_gemini_official_base_url || 'https://generativelanguage.googleapis.com/v1beta/openai',
+      vuCornerGeminiOfficialModel:
+        data['Video Understanding']?.vu_corner_gemini_official_model || 'gemini-2.5-flash',
       vuCornerMimoApiKey: data['Video Understanding']?.vu_corner_mimo_api_key || '',
       vuCornerMimoBaseUrl: data['Video Understanding']?.vu_corner_mimo_base_url || '',
       vuCornerMimoModel: data['Video Understanding']?.vu_corner_mimo_model || 'mimo-v2.5',
       vuCornerOpenaiApiKey: data['Video Understanding']?.vu_corner_openai_api_key || '',
       vuCornerOpenaiBaseUrl: data['Video Understanding']?.vu_corner_openai_base_url || '',
       vuCornerOpenaiModel: data['Video Understanding']?.vu_corner_openai_model || '',
+      vuSummaryProvider: data['Video Understanding']?.vu_summary_provider || 'deepseek',
       vuSummaryApiKey: data['Video Understanding']?.vu_summary_api_key || '',
       vuSummaryBaseUrl:
         data['Video Understanding']?.vu_summary_base_url || 'https://api.deepseek.com',
@@ -685,9 +705,11 @@ split_use_proxy: settings.splitUseProxy.toString(),
         bilibili_sessdata: settings.bilibiliSessData,
         proxy_url: settings.proxyUrl,
         download_use_proxy: settings.downloadUseProxy.toString(),
+    bili_download_use_proxy: settings.biliDownloadUseProxy.toString(),
       },
       'Transcription Engine': {
         primary_engine: settings.transcriptionPrimaryEngine,
+    vad_backend: settings.vadBackend,
         fwsr_model: settings.fwsrModel,
         use_gpu: settings.useGpu.toString(),
         elevenlabs_api_key: settings.transcriptionElevenlabsApiKey,
@@ -702,13 +724,17 @@ split_use_proxy: settings.splitUseProxy.toString(),
         vu_corner_gemini_api_key: settings.vuCornerGeminiApiKey,
         vu_corner_gemini_base_url: settings.vuCornerGeminiBaseUrl,
         vu_corner_gemini_model: settings.vuCornerGeminiModel,
+        vu_corner_gemini_official_api_key: settings.vuCornerGeminiOfficialApiKey,
+        vu_corner_gemini_official_base_url: settings.vuCornerGeminiOfficialBaseUrl,
+        vu_corner_gemini_official_model: settings.vuCornerGeminiOfficialModel,
         vu_corner_mimo_api_key: settings.vuCornerMimoApiKey,
         vu_corner_mimo_base_url: settings.vuCornerMimoBaseUrl,
-    vu_corner_mimo_model: settings.vuCornerMimoModel,
-    vu_corner_openai_api_key: settings.vuCornerOpenaiApiKey,
-    vu_corner_openai_base_url: settings.vuCornerOpenaiBaseUrl,
-    vu_corner_openai_model: settings.vuCornerOpenaiModel,
-    vu_summary_api_key: settings.vuSummaryApiKey,
+        vu_corner_mimo_model: settings.vuCornerMimoModel,
+        vu_corner_openai_api_key: settings.vuCornerOpenaiApiKey,
+        vu_corner_openai_base_url: settings.vuCornerOpenaiBaseUrl,
+        vu_corner_openai_model: settings.vuCornerOpenaiModel,
+        vu_summary_provider: settings.vuSummaryProvider,
+        vu_summary_api_key: settings.vuSummaryApiKey,
         vu_summary_base_url: settings.vuSummaryBaseUrl,
         vu_summary_model: settings.vuSummaryModel,
         vu_knowledge_provider: settings.vuKnowledgeProvider,

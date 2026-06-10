@@ -368,9 +368,9 @@
                 class="w-6 h-6 rounded border-2 border-slate-300 dark:border-white/30"
               ></button>
             </div>
-          </div>
+        </div>
 
-          <div>
+        <div>
             <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">{{ t('fontWeight') }}</label>
             <div class="grid grid-cols-3 gap-2">
               <button
@@ -642,6 +642,18 @@
           />
         </div>
 
+        <!-- VAD Backend -->
+        <div>
+          <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">VAD Backend</label>
+          <select
+            v-model="settings.vadBackend"
+            class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+          >
+            <option value="silero">Silero VAD (default)</option>
+            <option value="firered">FireRed VAD</option>
+          </select>
+        </div>
+
         <!-- FunASR-GGUF Info -->
         <div
           v-if="settings.transcriptionPrimaryEngine === 'funasr_gguf'"
@@ -816,6 +828,14 @@
                 class="w-4 h-4 text-teal-500 bg-white border-slate-300 rounded focus:ring-teal-500 focus:ring-offset-white dark:bg-gray-800 dark:border-gray-600 dark:focus:ring-offset-gray-900"
               />
               <span class="text-sm text-slate-600 dark:text-gray-300">{{ t('downloadUseProxyLabel') }}</span>
+            </label>
+            <label class="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="settings.biliDownloadUseProxy"
+                class="w-4 h-4 text-teal-500 bg-white border-slate-300 rounded focus:ring-teal-500 focus:ring-offset-white dark:bg-gray-800 dark:border-gray-600 dark:focus:ring-offset-gray-900"
+              />
+              <span class="text-sm text-slate-600 dark:text-gray-300">{{ t('biliDownloadUseProxyLabel') }}</span>
             </label>
             <label class="flex items-center space-x-3 cursor-pointer">
               <input
@@ -1072,6 +1092,7 @@
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               >
                 <option value="gemini">OpenRouter (Gemini as default)</option>
+                <option value="gemini_official">Gemini (Official)</option>
                 <option value="mimo">MiMo</option>
                 <option value="openai_compatible">OpenAI Compatible</option>
               </select>
@@ -1102,6 +1123,7 @@
                 <input
                   v-model="settings.vuCornerGeminiBaseUrl"
                   type="text"
+                  placeholder="https://openrouter.ai/api/v1"
                   class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
                 />
               </div>
@@ -1112,6 +1134,42 @@
                 <input
                   v-model="settings.vuCornerGeminiModel"
                   type="text"
+                  placeholder="google/gemini-2.5-flash"
+                  class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+                />
+              </div>
+            </template>
+            <template v-if="settings.vuCornerProvider === 'gemini_official'">
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                  {{ t('apiKey') }}
+                </label>
+                <el-input
+                  v-model="settings.vuCornerGeminiOfficialApiKey"
+                  type="password"
+                  show-password
+                  :placeholder="t('enterApiKey')"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                  {{ t('baseUrl') }}
+                </label>
+                <input
+                  v-model="settings.vuCornerGeminiOfficialBaseUrl"
+                  type="text"
+                  placeholder="https://generativelanguage.googleapis.com/v1beta/openai"
+                  class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                  Model
+                </label>
+                <input
+                  v-model="settings.vuCornerGeminiOfficialModel"
+                  type="text"
+                  placeholder="gemini-2.5-flash"
                   class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
                 />
               </div>
@@ -1135,6 +1193,7 @@
                 <input
                   v-model="settings.vuCornerMimoBaseUrl"
                   type="text"
+                  placeholder="https://token-plan-cn.xiaomimimo.com/v1"
                   class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
                 />
               </div>
@@ -1145,6 +1204,7 @@
                 <input
                   v-model="settings.vuCornerMimoModel"
                   type="text"
+                  placeholder="mimo-v2.5"
                   class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
                 />
               </div>
@@ -1191,6 +1251,18 @@
             {{ t('vuSummaryOrchestration') }}
           </h4>
           <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                Provider
+              </label>
+              <select
+                v-model="settings.vuSummaryProvider"
+                class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+              >
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai_compatible">OpenAI Compatible</option>
+              </select>
+            </div>
             <div class="flex items-center">
               <el-switch
                 v-model="settings.vuSummaryUseProxy"
@@ -1216,6 +1288,7 @@
               <input
                 v-model="settings.vuSummaryBaseUrl"
                 type="text"
+                :placeholder="summaryBaseUrlPlaceholder"
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               />
             </div>
@@ -1226,6 +1299,7 @@
               <input
                 v-model="settings.vuSummaryModel"
                 type="text"
+                :placeholder="summaryModelPlaceholder"
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               />
             </div>
@@ -1248,7 +1322,7 @@
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               >
                 <option value="doubao">{{ t('doubao') }}</option>
-                <option value="step">Step</option>
+                <option value="step">StepFun</option>
                 <option value="openrouter">OpenRouter</option>
                 <option value="openai_compatible">OpenAI Compatible</option>
               </select>
@@ -1278,6 +1352,7 @@
               <input
                 v-model="settings.vuKnowledgeBaseUrl"
                 type="text"
+                :placeholder="knowledgeBaseUrlPlaceholder"
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               />
             </div>
@@ -1288,6 +1363,7 @@
               <input
                 v-model="settings.vuKnowledgeModel"
                 type="text"
+                :placeholder="knowledgeModelPlaceholder"
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               />
             </div>
@@ -1648,6 +1724,38 @@ const splitApiKey = computed({
         break
     }
   },
+})
+
+const summaryBaseUrlPlaceholder = computed(() => {
+  switch (settings.vuSummaryProvider) {
+    case 'deepseek': return 'https://api.deepseek.com'
+    default: return ''
+  }
+})
+
+const summaryModelPlaceholder = computed(() => {
+  switch (settings.vuSummaryProvider) {
+    case 'deepseek': return 'deepseek-chat'
+    default: return ''
+  }
+})
+
+const knowledgeBaseUrlPlaceholder = computed(() => {
+  switch (settings.vuKnowledgeProvider) {
+    case 'doubao': return 'https://ark.cn-beijing.volces.com/api/v3'
+    case 'step': return 'https://api.stepfun.com/v1'
+    case 'openrouter': return 'https://openrouter.ai/api/v1'
+    default: return ''
+  }
+})
+
+const knowledgeModelPlaceholder = computed(() => {
+  switch (settings.vuKnowledgeProvider) {
+    case 'doubao': return 'doubao-seed-2-0-pro-260215'
+    case 'step': return 'step-3.7-flash'
+    case 'openrouter': return 'google/gemini-2.5-flash'
+    default: return ''
+  }
 })
 
 const splitBaseUrl = computed({
@@ -2183,8 +2291,10 @@ const settings = reactive<FrontendSettings>({
   bilibiliSessData: '',
   proxyUrl: '',
   downloadUseProxy: false,
+  biliDownloadUseProxy: false,
   // Transcription Engine settings
   transcriptionPrimaryEngine: 'funasr_gguf',
+  vadBackend: 'silero',
   fwsrModel: 'large-v3',
   useGpu: true, // GPU acceleration
   transcriptionElevenlabsApiKey: '',
@@ -2199,12 +2309,16 @@ const settings = reactive<FrontendSettings>({
   vuCornerGeminiApiKey: '',
   vuCornerGeminiBaseUrl: 'https://openrouter.ai/api/v1',
   vuCornerGeminiModel: 'google/gemini-2.5-flash',
+  vuCornerGeminiOfficialApiKey: '',
+  vuCornerGeminiOfficialBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  vuCornerGeminiOfficialModel: 'gemini-2.5-flash',
   vuCornerMimoApiKey: '',
   vuCornerMimoBaseUrl: '',
   vuCornerMimoModel: 'mimo-v2.5',
   vuCornerOpenaiApiKey: '',
   vuCornerOpenaiBaseUrl: '',
   vuCornerOpenaiModel: '',
+  vuSummaryProvider: 'deepseek',
   vuSummaryApiKey: '',
   vuSummaryBaseUrl: 'https://api.deepseek.com',
   vuSummaryModel: 'deepseek-chat',
