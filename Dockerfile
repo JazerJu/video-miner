@@ -78,10 +78,11 @@ COPY --from=compile-frontend /app/frontend/dist /app/static
 # Copy backend code only
 COPY backend/ .
 # 复制启动脚本
-COPY --chown=vidgo:vidgo backend/docker/entrypoint.sh /app/entrypoint.sh
+COPY docker/entrypoint.sh /app/entrypoint.sh
 # Create user and directories
 RUN useradd --create-home --uid 1000 vidgo \
     && mkdir -p /app/media /app/models /app/database \
+    && chown vidgo:vidgo /app/entrypoint.sh \
     && chown -R vidgo:vidgo /app
 
 RUN chmod +x /app/entrypoint.sh
