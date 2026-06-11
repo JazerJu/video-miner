@@ -1,8 +1,6 @@
-from django.views import View
 import os, time, configparser
 from queue import Queue, Empty
 from collections import defaultdict
-from django.http import JsonResponse
 from django.db import transaction
 from .models import Video
 from utils.split_subtitle.main import optimise_srt
@@ -587,7 +585,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
 
 
 """
-所以你可以将external_transcription视为前端文件SettingsDialog.vue中可选择的另一个远程字幕生成引擎，可以在SettingsDialog.vue的”字幕引擎“中选择，
+所以你可以将external_transcription视为前端设置面板中可选择的另一个远程字幕生成引擎。
 在DropdownList中展示的名称为：远程VidGo字幕服务，并在下方注释：
 用户可在高性能主机中部署VidGo实例，并通过IP/域名链接，调用后端的字幕识别服务。
 需要填写的内容为IP/域名与端口号，一个Switch Icon设置是否启用SSL.
@@ -613,14 +611,6 @@ def process_next_task() -> None:
             generate_subtitles_for_video(video_id)
     finally:
         subtitle_task_queue.task_done()
-
-
-class SubtitleTaskStatusView(View):
-    http_method_names = ["get"]
-
-    def get(self, request, *args, **kwargs):
-        logger.debug("%s", subtitle_task_status)
-        return JsonResponse(subtitle_task_status, safe=False)
 
 
 """
@@ -1547,8 +1537,6 @@ def generate_summary_for_video(task_id: str) -> None:
         import tempfile
         extract_output = os.path.join(tempfile.gettempdir(), db_name)
         os.makedirs(extract_output, exist_ok=True)
-        from content_extractor import extract_unique_slides, ocr_slides
-        from layout_detector import detect_layout, crop_content, get_vision_bbox
         from main import cmd_extract
 
         def _extract_progress(stage, current, total):

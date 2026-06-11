@@ -22,7 +22,6 @@ DB_DIR = MEDIA_VIDUNDER / "db"
 TOKENS_DIR = DB_DIR / "tokens"
 EXPORT_DIR = MODEL_ROOT / "minicpm-v4.5" / "onnx"
 GGUF_PATH = MODEL_ROOT / "minicpm-v4.5" / "MiniCPM-V-4_5-Q4_K_M.gguf"
-GGUF_PATH_V46 = MODEL_ROOT / "minicpm-v4.5" / "MiniCPM-V-4_6-Q4_K_M.gguf"
 
 # ── 分段参数 ──────────────────────────────────────────────
 CLIP_SECS = 10
@@ -40,9 +39,7 @@ FRAMES_PER_CLIP = THINKING_BUDGET_FRAMES[DEFAULT_THINKING_BUDGET]
 # ── 外部 API ─────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("VIDUNDER_GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("VIDUNDER_GEMINI_MODEL", "gemini-3.1-pro-preview")
-GEMINI_EMBED_MODEL = "text-embedding-004"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-GEMINI_EMBED_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_EMBED_MODEL}:embedContent?key={GEMINI_API_KEY}"
 
 NPPS = 70
 EMBED_DIM = 4096

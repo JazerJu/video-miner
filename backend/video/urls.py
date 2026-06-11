@@ -44,8 +44,7 @@ from .views.summary import SummaryAddView, SummaryStatusView, SummaryDeleteView,
 from .views.realtime_subtitles import RealtimeSubtitleView, RealtimeSubtitleStreamView
 from .views.language_tracks import VideoLanguageTracksView
 from .views.extract_insights import extract_insights
-from django.views.decorators.csrf import csrf_exempt, get_token, ensure_csrf_cookie
-from .tasks import SubtitleTaskStatusView
+from django.views.decorators.csrf import ensure_csrf_cookie
 from .views import stream_media
 from .views import subtitles
 from .views import cookies

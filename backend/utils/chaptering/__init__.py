@@ -1,1 +1,0 @@
-# Chaptering module for video content analysis and chapter generation

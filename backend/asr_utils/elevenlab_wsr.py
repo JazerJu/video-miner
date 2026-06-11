@@ -1,8 +1,7 @@
-import requests
 import json
 import re
 import requests
-from typing import Iterable, List, Dict, Any, Optional
+from typing import Iterable, List, Dict, Any
 
 def sec_to_srt_time(sec: float) -> str:
     """
@@ -92,57 +91,6 @@ def elevenlabs_words_to_entries(
             "start": float(start),
             "end": float(end),
         })
-    return entries
-
-
-# ========== 字级时间戳json转srt ==========
-def sentence_json_to_entries(
-    sentence_list: List[Dict[str, Any]],
-    include_punctuation: bool = False
-) -> List[Dict[str, Any]]:
-    """
-    适配你此前提供的结构：
-    [
-      {
-        "sentence_id": 1,
-        "begin_time": 1980,  # ms
-        "end_time": 4260,    # ms
-        "words": [
-          {"begin_time": 1980, "end_time": 2305, "text": "好", "punctuation": "，"},
-          ...
-        ]
-      },
-      ...
-    ]
-    转为 entries（秒）
-    - include_punctuation=False: 默认把 punctuation 拼到当前词尾或直接忽略（更贴近“字级”）
-    """
-    entries: List[Dict[str, Any]] = []
-    for sent in sentence_list:
-        for w in sent.get("words", []):
-            text = (w.get("text") or "")
-            punct = (w.get("punctuation") or "")
-            token = text if not include_punctuation else (text + punct)
-
-            if not token.strip():
-                continue
-
-            # 原数据是毫秒
-            bs = w.get("begin_time")
-            es = w.get("end_time")
-            if bs is None or es is None:
-                continue
-
-            start = float(bs) / 1000.0
-            end = float(es) / 1000.0
-            if end <= start:
-                end = start + 0.001
-
-            entries.append({
-                "text": token.strip(),
-                "start": start,
-                "end": end
-            })
     return entries
 
 

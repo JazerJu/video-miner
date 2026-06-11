@@ -24,7 +24,6 @@ SRT_PATH = os.environ.get("VIDUNDER_SRT_PATH", "/data/其他模型/小型语言�
 # ── MiniCPM-V 模型路径 ──────────────────────────────────
 EXPORT_DIR = PROJECT_DIR / "onnx"
 GGUF_PATH = PROJECT_DIR / "models" / "MiniCPM-V-4_5-Q4_K_M.gguf"
-GGUF_PATH_V46 = PROJECT_DIR / "models" / "MiniCPM-V-4_6-Q4_K_M.gguf"
 
 # ── 分段参数 ──────────────────────────────────────────────
 CLIP_SECS = 10
@@ -35,9 +34,7 @@ MAX_SLICE_NUMS = 1
 # ── 外部 API ─────────────────────────────────────────────
 GEMINI_API_KEY = os.environ.get("VIDUNDER_GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.1-pro-preview"
-GEMINI_EMBED_MODEL = "text-embedding-004"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-GEMINI_EMBED_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_EMBED_MODEL}:embedContent?key={GEMINI_API_KEY}"
 
 NPPS = 70
 EMBED_DIM = 4096

@@ -10,7 +10,7 @@ import av
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import minicpmv_llama
-from preprocess import preprocess_frame, extract_frames
+from preprocess import preprocess_frame
 from config import EXPORT_DIR, GGUF_PATH
 
 

@@ -151,7 +151,7 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
     import time, av
     import numpy as np
     from video_structure import classify_scene, VideoStructure, SlideEntry, CodeSnapshot
-    from layout_detector import detect_layout, crop_content, detect_ui_strips, get_vision_bbox, LayoutResult
+    from layout_detector import detect_layout, crop_content, get_vision_bbox, LayoutResult
     from content_extractor import (
         extract_unique_slides, ocr_slides, detect_code_changes, extract_code_snapshots,
     )

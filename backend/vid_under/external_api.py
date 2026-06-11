@@ -192,52 +192,6 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
         return ""
 
 
-# ── Parallel GLM-OCR via multiprocessing ──────────────────────
-
-_ocr_pool = None
-
-def _ocr_worker_init():
-    """Each worker process loads its own GlmOcrLlama instance."""
-    global _ocr_worker_engine
-    from glm_ocr_llama import GlmOcrLlama
-    _ocr_worker_engine = GlmOcrLlama(gguf_path=GLM_OCR_GGUF, n_gpu_layers=GLM_OCR_N_GPU_LAYERS)
-
-def _ocr_worker_call(args):
-    """Worker function: (image_bytes, prompt, max_tokens) -> text."""
-    import io
-    from PIL import Image as PILImage
-    image_bytes, prompt, max_tokens = args
-    try:
-        img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
-        return _ocr_worker_engine.ocr(img, prompt=prompt, max_tokens=min(max_tokens, 2048))
-    except Exception as e:
-        return f"ERROR: {e}"
-
-def ocr_parallel(images_prompts, num_workers=2):
-    """Run GLM-OCR on multiple images in parallel.
-    images_prompts: list of (PIL.Image, prompt, max_tokens)
-    Returns: list of str results, same order.
-    """
-    import io
-    from concurrent.futures import ProcessPoolExecutor
-    global _ocr_pool
-
-    serialized = []
-    for img, prompt, max_tokens in images_prompts:
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
-        serialized.append((buf.getvalue(), prompt, max_tokens))
-
-    if _ocr_pool is None:
-        _ocr_pool = ProcessPoolExecutor(
-            max_workers=num_workers,
-            initializer=_ocr_worker_init,
-        )
-
-    results = list(_ocr_pool.map(_ocr_worker_call, serialized))
-    return results
-
-
 def call_openrouter(prompt: str, model: str = None,
                     system: str = "You are a helpful assistant.", max_tokens: int = 4096) -> str:
     model = model or OPENROUTER_MODEL
@@ -287,35 +241,6 @@ def call_doubao(prompt: str, system: str = "You are a helpful assistant.", max_t
             return result["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"  Doubao API error: {e}", flush=True)
-        return ""
-
-
-def call_doubao_with_image(prompt: str, image_b64: str,
-                           system: str = "You are a helpful assistant.", max_tokens: int = 4096) -> str:
-    url = f"{DOUBAO_BASE_URL}/chat/completions"
-    payload = {
-        "model": DOUBAO_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
-                {"type": "text", "text": prompt},
-            ]},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.3,
-    }
-    data = json.dumps(payload, ensure_ascii=False).encode()
-    req = urllib.request.Request(url, data=data, headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {DOUBAO_API_KEY}",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode())
-            return result["choices"][0]["message"]["content"]
-    except Exception as e:
-        print(f"  Doubao vision API error: {e}", flush=True)
         return ""
 
 

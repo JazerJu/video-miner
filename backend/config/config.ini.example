@@ -130,7 +130,3 @@ oss_access_key_secret =
 oss_endpoint = oss-cn-beijing.aliyuncs.com
 oss_bucket = vidgo-test
 oss_region = cn-beijing
-
-[TTS settings]
-tts_engine_chosen = glm_asr_local
-dashscope_api_key = 

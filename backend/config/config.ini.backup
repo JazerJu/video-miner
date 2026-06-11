@@ -69,20 +69,3 @@ openai_base_url = https://api.openai.com/v1
 host =
 port = 8000
 use_ssl = false
-
-[TTS settings]
-# Alibaba Cloud DashScope API key for CosyVoice-v2 TTS
-# Get your API key from: https://dashscope.console.aliyun.com/apiKey
-dashscope_api_key =
-# Default voice model (options: longxiaochun_v2, longyueyue_v2, etc.)
-default_voice = longxiaochun_v2
-# Default TTS model
-default_model = cosyvoice-v2
-
-# Audio duration adjustment settings
-# Time-stretch algorithm: librosa (phase vocoder), rubberband (formant-preserving), resample (changes pitch)
-time_stretch_algorithm = librosa
-# Quality for librosa: low, medium, high (higher = better quality but slower)
-time_stretch_quality = high
-# Maximum compression ratio before warning (e.g., 2.0 = 2x faster/slower)
-max_compression_ratio = 2.0

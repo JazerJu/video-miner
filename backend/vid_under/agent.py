@@ -11,7 +11,13 @@ from external_api import (
     call_glm_ocr, _pil_to_base64,
 )
 from srt_utils import search_transcript, transcript_for_timerange
-from config import DEEPSEEK_API_KEY, STEP_API_KEY, N_PREDICT, GGUF_PATH, EXPORT_DIR, N_CTX, N_GPU_LAYERS, N_BATCH, KV_CACHE_TYPE, ONNX_PROVIDER, SUMMARY_SLIDES_PER_CHAPTER, SUMMARY_LANG
+from config import (
+    DEEPSEEK_API_KEY,
+    STEP_API_KEY,
+    N_PREDICT,
+    SUMMARY_SLIDES_PER_CHAPTER,
+    SUMMARY_LANG,
+)
 
 
 # ── DeepSeek tool definitions ─────────────────────────────────
