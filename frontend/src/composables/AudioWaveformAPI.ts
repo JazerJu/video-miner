@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 
 export interface WaveformPeakData {
   version: string
@@ -9,43 +9,8 @@ export interface WaveformPeakData {
   peaks: number[]
 }
 
-export interface AudioDetectionResult {
-  success: boolean
-  has_audio: boolean
-  is_audio_file: boolean
-  audio_filename?: string
-  audio_path?: string
-  audio_size?: number
-  audio_format?: string
-  message?: string
-}
-
 import { BACKEND } from '@/composables/ConfigAPI'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
-
-// Check if audio file exists for the video (using video ID)
-export async function checkAudioFile(videoId: number): Promise<AudioDetectionResult> {
-  try {
-    const response = await fetch(`${BACKEND}/api/videos/${videoId}/has_audio`, {
-      credentials: 'include',
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-
-    const result = await response.json()
-    return result as AudioDetectionResult
-  } catch (error) {
-    console.error('Failed to check audio file:', error)
-    return {
-      success: false,
-      has_audio: false,
-      is_audio_file: false,
-      message: 'Failed to check audio file availability',
-    }
-  }
-}
 
 // Extract filename from video URL - returns full filename like "abc123.mp4"
 export function extractVideoUrlFilename(videoUrl: string): string | null {
@@ -112,75 +77,6 @@ export async function extractAudioFromVideo(videoId: number): Promise<{ success:
       success: false,
       error: 'Network error during audio extraction',
     }
-  }
-}
-
-// Generate waveform peaks for a video
-export async function generateWaveformPeaks(videoId: number): Promise<boolean> {
-  try {
-    const csrf = await getCSRFToken()
-    const response = await fetch(`${BACKEND}/api/videos/${videoId}/generate_waveform_peaks`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrf,
-      },
-    })
-
-    if (response.ok) {
-      console.log('Waveform peak generation started for video:', videoId)
-      return true
-    } else {
-      console.error('Failed to start waveform generation:', response.status)
-      return false
-    }
-  } catch (error) {
-    console.error('Error generating waveform peaks:', error)
-    return false
-  }
-}
-
-// Fetch waveform peak data (legacy function for backward compatibility)
-export async function fetchWaveformPeaks(audioFilename: string): Promise<WaveformPeakData | null> {
-  try {
-    const response = await fetch(`${BACKEND}/api/waveform/${encodeURIComponent(audioFilename)}`, {
-      credentials: 'include',
-    })
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.log('Waveform data not found, will be generated')
-        return null
-      }
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
-
-    const peaksData = await response.json()
-    return peaksData as WaveformPeakData
-  } catch (error) {
-    console.error('Failed to fetch waveform peaks:', error)
-    return null
-  }
-}
-
-// Trigger audio extraction from video (using video ID)
-export async function triggerAudioExtraction(videoId: number): Promise<boolean> {
-  try {
-    const csrf = await getCSRFToken()
-    const response = await fetch(`${BACKEND}/api/videos/${videoId}/extract_audio`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrf,
-      },
-    })
-
-    return response.ok
-  } catch (error) {
-    console.error('Failed to trigger audio extraction:', error)
-    return false
   }
 }
 
