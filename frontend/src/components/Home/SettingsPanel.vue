@@ -955,9 +955,15 @@
       <div v-if="activeTab === 'videoUnderstanding'" class="space-y-6 max-w-3xl">
         <!-- Section 1: Local Models -->
         <div class="bg-slate-50 rounded-lg p-4 border border-slate-200 dark:bg-gray-800/50 dark:border-white/10">
-          <h4 class="text-sm font-medium text-slate-600 mb-4 dark:text-gray-300">
-            {{ t('vuLocalModels') }}
-          </h4>
+          <div class="flex items-center justify-between mb-4">
+            <h4 class="text-sm font-medium text-slate-600 dark:text-gray-300">
+              {{ t('vuLocalModels') }}
+            </h4>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-400 dark:text-gray-500">{{ t('useProxy') }}</span>
+              <el-switch v-model="settings.vuDownloadUseProxy" size="small" />
+            </div>
+          </div>
           <div class="space-y-3">
             <div
               v-for="model in vuModels"
@@ -983,7 +989,7 @@
                     <span v-if="getVuStatus(model) === 'downloaded'" class="text-green-500">&#10003;</span>
                   </div>
                   <div
-                    v-if="getVuStatus(model) === 'not_downloaded' || getVuStatus(model) === 'error'"
+                    v-if="getVuStatus(model) !== 'downloading'"
                     class="flex items-center gap-2"
                   >
                     <label class="text-xs text-slate-400 dark:text-gray-500">{{ t('vuDownloadFrom') }}</label>
@@ -998,13 +1004,12 @@
                     <button
                       class="h-8 px-3 text-xs font-medium bg-teal-500 hover:bg-teal-400 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       @click="startVuDownload(model.name)"
-                      :disabled="getVuStatus(model) === 'downloading'"
                     >
-                      {{ getVuStatus(model) === 'error' ? t('vuRetry') : t('vuDownload') }}
+                      {{ getVuDownloadButtonText(model) }}
                     </button>
                   </div>
                   <button
-                    v-else-if="getVuStatus(model) === 'downloading'"
+                    v-else
                     class="h-8 px-3 text-xs font-medium text-white bg-teal-500 rounded-md opacity-70 cursor-not-allowed"
                     disabled
                   >
@@ -1049,6 +1054,9 @@
                 <option value="medium">{{ t('vuBudgetMedium') }}</option>
                 <option value="high">{{ t('vuBudgetHigh') }}</option>
               </select>
+              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
+                {{ t('vuThinkingBudgetDesc') }}
+              </p>
             </div>
             <div>
               <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
@@ -1058,9 +1066,12 @@
                 v-model.number="settings.vuNGpuLayers"
                 type="number"
                 min="0"
-                max="36"
+                max="40"
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               />
+              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
+                {{ t('vuNGpuLayersDesc') }}
+              </p>
             </div>
             <div>
               <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
@@ -1073,6 +1084,9 @@
                 max="17"
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               />
+              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
+                {{ t('vuGlmOcrNGpuLayersDesc') }}
+              </p>
             </div>
           </div>
         </div>
@@ -1103,6 +1117,28 @@
                 :active-text="t('useProxy')"
                 :inactive-text="t('noProxy')"
               />
+            </div>
+            <!-- Coverage threshold -->
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                {{ t('vuCornerCoverage') }}
+              </label>
+              <div class="flex items-center gap-3">
+                <input
+                  v-model.number="settings.vuCornerCoverage"
+                  type="range"
+                  min="0.3"
+                  max="1"
+                  step="0.05"
+                  class="flex-1 accent-teal-600"
+                />
+                <span class="text-sm font-medium text-slate-700 dark:text-gray-200 w-12 text-right">
+                  {{ Math.round(settings.vuCornerCoverage * 100) }}%
+                </span>
+              </div>
+              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
+                {{ t('vuCornerCoverageDesc') }}
+              </p>
             </div>
             <template v-if="settings.vuCornerProvider === 'gemini'">
               <div>
@@ -2303,7 +2339,7 @@ const settings = reactive<FrontendSettings>({
   hotwords: '',
   // Video Understanding settings
   vuThinkingBudget: 'low',
-  vuNGpuLayers: 36,
+  vuNGpuLayers: 40,
   vuGlmOcrNGpuLayers: 17,
   vuCornerProvider: 'gemini',
   vuCornerGeminiApiKey: '',
@@ -2327,8 +2363,10 @@ const settings = reactive<FrontendSettings>({
   vuKnowledgeBaseUrl: '',
   vuKnowledgeModel: '',
   vuCornerUseProxy: false,
+  vuCornerCoverage: 0.6,
   vuSummaryUseProxy: false,
   vuKnowledgeUseProxy: false,
+  vuDownloadUseProxy: false,
 })
 
 const loading = ref(false)
@@ -2364,6 +2402,18 @@ const VIDUNDER_MODELS: Array<Required<Pick<VidUnderModel, 'name' | 'label' | 'de
     label: 'BGE Embedding (ONNX)',
     description: 'Text embedding (ONNX runtime, no torch)',
     totalSize: 95000000,
+  },
+  {
+    name: 'fun-asr',
+    label: 'FUN-ASR Nano',
+    description: 'Fun-ASR speech recognition (ONNX + GGUF)',
+    totalSize: 988000000,
+  },
+  {
+    name: 'glm-asr',
+    label: 'GLM-ASR Stack',
+    description: 'GLM-ASR Nano + Qwen3 ForceAligner',
+    totalSize: 6370000000,
   },
 ]
 
@@ -2437,7 +2487,8 @@ const loadVuModels = async () => {
 const startVuDownload = async (modelName: string) => {
   try {
     const source = vuDownloadSources[modelName] || 'hf'
-    await downloadVidUnderModel(modelName, source)
+    const proxy = settings.vuDownloadUseProxy ? settings.proxyUrl || undefined : undefined
+    await downloadVidUnderModel(modelName, source, proxy)
     const idx = vuModels.value.findIndex((model) => model.name === modelName)
     if (idx >= 0) vuModels.value[idx].status = 'downloading'
     startVuPolling()
@@ -2513,6 +2564,13 @@ const getVuStatusText = (model: VidUnderModel): string => {
   if (status === 'downloading') return `${t('vuDownloading')} ${getVuProgressPercent(model)}%`
   if (status === 'error') return `${t('vuDownloadError')} - ${t('vuRetry')}`
   return t('vuNotDownloaded')
+}
+
+const getVuDownloadButtonText = (model: VidUnderModel): string => {
+  const status = getVuStatus(model)
+  if (status === 'error') return t('vuRetry')
+  if (status === 'downloaded') return t('vuRedownload')
+  return t('vuDownload')
 }
 
 const getVuStatusClass = (model: VidUnderModel): string => {

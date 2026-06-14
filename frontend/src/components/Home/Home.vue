@@ -1,6 +1,6 @@
 <!-- 主要布局组件，复杂业务逻辑 -->
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, Transition } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, Transition, watch } from 'vue'
 import { defineExpose, computed } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
@@ -26,10 +26,11 @@ import { useThumbnail } from '@/composables/thumbnail'
 import { useHiddenCategories } from '@/composables/useHiddenCategories'
 import { useTheme } from '@/composables/useTheme'
 
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { consumeDirtyVideos, hasDirtyVideos } from '@/composables/useVideoDirtyState'
 
 const router = useRouter()
+const route = useRoute()
 const { theme } = useTheme()
 
 const mainThemeClass = computed(() =>
@@ -78,32 +79,10 @@ async function onCategoriesUpdated() {
   }
 }
 
-// 1.更新侧边栏选中菜单序号-->更新main page内容
+// 1.更新侧边栏选中菜单序号-->更新main page内容 (基于路由)
 const currentMenuIdx = ref(0)
 const activeSettingsTab = ref('model')
 const filterMode = ref<'folders' | 'tags'>('folders')
-
-function updateMenuIndex(idx: number) {
-  currentMenuIdx.value = idx
-  resetPagination() // 切换视图时重置分页
-  // console.log('Sidebar Menu updated to:', idx)
-
-  if (idx === 0) {
-    // 首页
-    currentCategory.value = null
-    // console.log(currentCategory)
-  } else if (idx === 1) {
-    //媒体库
-    currentCategory.value = null // not inside any folder
-  } else if (idx === 2) {
-    // Settings
-    currentCategory.value = null
-  }
-
-  if ((idx === 0 || idx === 1) && hasDirtyVideos()) {
-    fetchVideoData()
-  }
-}
 
 function updateSettingsTab(tab: string) {
   activeSettingsTab.value = tab
@@ -112,15 +91,15 @@ function updateSettingsTab(tab: string) {
 // 1.1 打开搜索框
 const libraryViewRef = ref<InstanceType<typeof LibraryView> | null>(null)
 function handleOpenSearch() {
-  updateMenuIndex(1)
+  router.push('/library')
   nextTick(() => {
     libraryViewRef.value?.focusSearch()
   })
 }
 
-// 1.2 打开设置 - Now switches to menu index 3
+// 1.2 打开设置
 function handleOpenSettings() {
-  updateMenuIndex(3)
+  router.push({ path: '/settings', query: { tab: activeSettingsTab.value } })
 }
 
 // 1.2.侧边栏定义分类的函数，展示对应分类的Items
@@ -515,7 +494,7 @@ async function fetchVideoData() {
     // Since we removed Collections, everything should be in loose_videos or similar
     // We map backend response to Frontend Category structure
     categories.value = catArray.map((cat: any) => {
-      const categoryName = cat.name || '未归档'
+      const categoryName = cat.name || t('unarchived')
       return {
         id: cat.id ?? 0,
         name: categoryName,
@@ -585,7 +564,7 @@ const { success: successNotify, error: errorNotify, warning: warningNotify } = u
 
 // Check if user is authenticated before fetching
 async function checkAuthAndFetch() {
-  setLoadStep('正在验证身份...', 30)
+  setLoadStep('Verifying identity...', 30)
   try {
     const response = await fetch(`${BACKEND}/api/auth/profile/`, {
       credentials: 'include',
@@ -597,9 +576,9 @@ async function checkAuthAndFetch() {
         // User is authenticated, fetch data
         isAuthenticated.value = true
         currentUser.value = data.user
-        setLoadStep('正在加载视频数据...', 70)
+        setLoadStep('Loading video data...', 70)
         await fetchVideoData()
-        setLoadStep('加载完成', 95)
+        setLoadStep('Done', 95)
         finishLoading()
       } else {
         // Not authenticated - redirect to login
@@ -661,6 +640,27 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     handleOpenSearch()
   }
 }
+
+// --- Route sync (must be after all referenced functions are declared) ---
+const _pathMap: Record<string, number> = { '/': 0, '/library': 1, '/settings': 3 }
+function _syncMenuFromRoute(path: string) {
+  resetPagination()
+  currentMenuIdx.value = _pathMap[path] ?? 0
+  if (path === '/') currentCategory.value = null
+  if ((path === '/' || path === '/library') && hasDirtyVideos()) fetchVideoData()
+}
+_syncMenuFromRoute(route.path)
+if (route.path === '/settings' && route.query.tab) {
+  activeSettingsTab.value = route.query.tab as string
+}
+
+watch(() => route.path, _syncMenuFromRoute)
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (route.path === '/settings' && tab) activeSettingsTab.value = tab as string
+  },
+)
 </script>
 
 <template>
@@ -703,7 +703,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
         <!-- Title -->
         <h1 class="mb-1 text-3xl font-bold tracking-tight text-slate-900">VideoMiner</h1>
-        <p class="mb-10 text-sm text-slate-500 dark:text-slate-400">视频管理系统</p>
+        <p class="mb-10 text-sm text-slate-500 dark:text-slate-400">Video Mining Tool</p>
 
         <!-- Progress bar -->
         <div class="relative h-[5px] w-64 overflow-hidden rounded-full bg-slate-200/80">
@@ -715,7 +715,7 @@ function handleGlobalKeydown(event: KeyboardEvent) {
 
         <!-- Step text -->
         <p class="mt-4 text-[13px] font-medium text-slate-500 dark:text-slate-400 tracking-wide">
-          {{ loadingStep || '正在初始化...' }}
+          {{ loadingStep || 'Initializing...' }}
         </p>
       </div>
     </div>
@@ -725,10 +725,8 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     <!-- Sidebar on the left -->
     <Sidebar
       :categories="isAuthenticated ? filteredCategories : []"
-      :currentMenuIdx="currentMenuIdx"
       :activeSettingsTab="activeSettingsTab"
       :isAuthenticated="isAuthenticated"
-      @update-menuIndex="updateMenuIndex"
       @open-settings="handleOpenSettings"
       @refresh="checkAuthAndFetch"
       @show-login="handleUserAreaClick"

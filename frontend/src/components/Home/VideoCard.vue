@@ -3,6 +3,7 @@ import { More, EditPen } from '@element-plus/icons-vue'
 import { Clock3, Play, Upload, Headphones, Link, SquarePen } from 'lucide-vue-next'
 import { PictureFilled } from '@element-plus/icons-vue'
 import { computed, ref, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Video } from '@/types/media'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import { useNotification } from '@/composables/useNotification'
@@ -26,6 +27,7 @@ const emit = defineEmits<{
 }>()
 
 const { success: successNotify, error: errorNotify, warning: warningNotify } = useNotification()
+const { t } = useI18n()
 
 const FALLBACK_IMG =
   'https://pic.chaopx.com/chao_water_pic/23/03/03/e78a5cf45f9ebc92411a8f9531975dec.jpg'
@@ -36,7 +38,7 @@ const thumbnailUrl = computed(() =>
   filename ? `${BACKEND}/media/thumbnail/${encodeURIComponent(filename)}` : ''
 )
 const durationLabel = computed(() => props.video.length || props.video.video_length || '')
-const categoryLabel = computed(() => props.video.categoryName || '未归档')
+const categoryLabel = computed(() => props.video.categoryName || t('unarchived'))
 const sourceUrlValue = computed(() => props.video.sourceUrl || props.video.source_url || '')
 
 function inferSourceFromUrl(url?: string) {
@@ -81,7 +83,7 @@ const sourceBadgeClass = computed(() => {
 })
 
 function formatAbsoluteDateTime(value?: string) {
-  if (!value) return '暂无记录'
+  if (!value) return t('noPlaybackRecord')
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleString('zh-CN', {
@@ -94,22 +96,22 @@ function formatAbsoluteDateTime(value?: string) {
 }
 
 function formatAccessLabel(value?: string) {
-  if (!value) return '暂无访问'
+  if (!value) return t('noAccess')
 
   const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '最近访问'
+  if (Number.isNaN(parsed.getTime())) return t('recentAccessUnknown')
 
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const startOfTarget = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())
   const dayDiff = Math.floor((startOfToday.getTime() - startOfTarget.getTime()) / 86400000)
 
-  if (dayDiff <= 0) return '今天访问'
-  if (dayDiff === 1) return '昨天访问'
-  if (dayDiff < 7) return `${dayDiff}天前访问`
-  if (dayDiff < 30) return `${Math.floor(dayDiff / 7)}周前访问`
-  if (dayDiff < 365) return `${Math.floor(dayDiff / 30)}个月前访问`
-  return `${Math.floor(dayDiff / 365)}年前访问`
+  if (dayDiff <= 0) return t('accessedToday')
+  if (dayDiff === 1) return t('accessedYesterday')
+  if (dayDiff < 7) return t('accessedDaysAgo', { n: dayDiff })
+  if (dayDiff < 30) return t('accessedWeeksAgo', { n: Math.floor(dayDiff / 7) })
+  if (dayDiff < 365) return t('accessedMonthsAgo', { n: Math.floor(dayDiff / 30) })
+  return t('accessedYearsAgo', { n: Math.floor(dayDiff / 365) })
 }
 
 const accessLabel = computed(() => formatAccessLabel(props.video.last_accessed_at))
@@ -169,7 +171,7 @@ const startEditing = async () => {
 
 const saveEdit = async () => {
   const newName = editingName.value.trim()
-  if (!newName) { warningNotify('名称不能为空'); return }
+  if (!newName) { warningNotify(t('nameRequired')); return }
   if (newName === props.video.name) { isEditing.value = false; return }
   try {
     const csrf = await getCSRFToken()
@@ -183,12 +185,12 @@ const saveEdit = async () => {
     if (result.success) {
       emit('rename-video', props.video, newName)
       isEditing.value = false
-      successNotify('重命名成功')
+      successNotify(t('renameSuccess'))
     } else {
-      errorNotify(result.message || '重命名失败')
+      errorNotify(result.message || t('renameFailed'))
     }
   } catch {
-    errorNotify('网络错误，请重试')
+    errorNotify(t('networkErrorRetry'))
   }
 }
 
@@ -234,12 +236,12 @@ const saveProps = async () => {
       props.video.sourceUrl = result.source_url
       emit('update-props', props.video)
       showPropsDialog.value = false
-      successNotify('属性已保存')
+      successNotify(t('propsSaved'))
     } else {
-      errorNotify(result.error || '保存失败')
+      errorNotify(result.error || t('propsSaveFailed'))
     }
   } catch {
-    errorNotify('网络错误，保存失败')
+    errorNotify(t('propsNetworkError'))
   } finally {
     propsSaving.value = false
   }
@@ -340,16 +342,16 @@ const LANG_OPTIONS = [
             <el-dropdown-menu>
               <el-dropdown-item @click="emit('edit-thumbnail', video)">
                 <el-icon><PictureFilled /></el-icon>
-                <span style="margin-left: 4px">更换预览图</span>
+                <span style="margin-left: 4px">{{ t('changeThumbnail') }}</span>
               </el-dropdown-item>
               <el-dropdown-item @click="openEditor">
-                <el-icon class="mr-2"><EditPen /></el-icon> 编辑字幕
+                <el-icon class="mr-2"><EditPen /></el-icon> {{ t('editSubtitle') }}
               </el-dropdown-item>
               <el-dropdown-item @click="startEditing" divided>
-                <SquarePen class="w-4 h-4 mr-2" /> 重命名
+                <SquarePen class="w-4 h-4 mr-2" /> {{ t('rename') }}
               </el-dropdown-item>
               <el-dropdown-item @click="openPropsDialog">
-                <Link class="w-4 h-4 mr-2" /> 视频属性
+                <Link class="w-4 h-4 mr-2" /> {{ t('videoProps') }}
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -376,15 +378,15 @@ const LANG_OPTIONS = [
 
           <div class="space-y-3 text-sm text-slate-800">
             <div class="flex items-start justify-between gap-4">
-              <span class="text-slate-500">最后访问</span>
+              <span class="text-slate-500">{{ t('lastAccess') }}</span>
               <span class="text-right font-medium text-slate-800">{{ formatAbsoluteDateTime(video.last_accessed_at) }}</span>
             </div>
             <div class="flex items-start justify-between gap-4">
-              <span class="text-slate-500">入库时间</span>
+              <span class="text-slate-500">{{ t('addedTime') }}</span>
               <span class="text-right font-medium text-slate-800">{{ formatAbsoluteDateTime(video.added_at || video.file_created_time) }}</span>
             </div>
             <div class="flex items-start justify-between gap-4">
-              <span class="text-slate-500">内容更新</span>
+              <span class="text-slate-500">{{ t('contentUpdated') }}</span>
               <span class="text-right font-medium text-slate-800">{{ formatAbsoluteDateTime(video.content_updated_at) }}</span>
             </div>
           </div>
@@ -479,15 +481,15 @@ const LANG_OPTIONS = [
 
         <div class="space-y-3 text-sm text-slate-800">
           <div class="flex items-start justify-between gap-4">
-            <span class="text-slate-500">最后访问</span>
+            <span class="text-slate-500">{{ t('lastAccess') }}</span>
             <span class="text-right font-medium text-slate-800">{{ formatAbsoluteDateTime(video.last_accessed_at) }}</span>
           </div>
           <div class="flex items-start justify-between gap-4">
-            <span class="text-slate-500">入库时间</span>
+            <span class="text-slate-500">{{ t('addedTime') }}</span>
             <span class="text-right font-medium text-slate-800">{{ formatAbsoluteDateTime(video.added_at || video.file_created_time) }}</span>
           </div>
           <div class="flex items-start justify-between gap-4">
-            <span class="text-slate-500">内容更新</span>
+            <span class="text-slate-500">{{ t('contentUpdated') }}</span>
             <span class="text-right font-medium text-slate-800">{{ formatAbsoluteDateTime(video.content_updated_at) }}</span>
           </div>
         </div>
@@ -500,16 +502,16 @@ const LANG_OPTIONS = [
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item @click="emit('edit-thumbnail', video)">
-              <el-icon class="mr-2"><PictureFilled /></el-icon> 更换预览图
+              <el-icon class="mr-2"><PictureFilled /></el-icon> {{ t('changeThumbnail') }}
             </el-dropdown-item>
             <el-dropdown-item @click="openEditor">
-              <el-icon class="mr-2"><EditPen /></el-icon> 编辑字幕
+              <el-icon class="mr-2"><EditPen /></el-icon> {{ t('editSubtitle') }}
             </el-dropdown-item>
             <el-dropdown-item @click="startEditing" divided>
-              <SquarePen class="w-4 h-4 mr-2" /> 重命名
+              <SquarePen class="w-4 h-4 mr-2" /> {{ t('rename') }}
             </el-dropdown-item>
             <el-dropdown-item @click="openPropsDialog">
-              <Link class="w-4 h-4 mr-2" /> 视频属性
+              <Link class="w-4 h-4 mr-2" /> {{ t('videoProps') }}
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -520,17 +522,17 @@ const LANG_OPTIONS = [
   <!-- ───────────── Video Properties Dialog ───────────── -->
   <el-dialog
     v-model="showPropsDialog"
-    title="视频属性"
+    :title="t('videoProps')"
     width="420px"
     class="video-props-dialog-shell"
     @close="showPropsDialog = false"
   >
     <div class="space-y-4 rounded-[20px] bg-slate-50 p-4 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.84),rgba(17,24,39,0.78))]">
       <div class="space-y-2">
-        <label class="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200">原始语言</label>
+        <label class="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200">{{ t('rawLang') }}</label>
         <el-select
           v-model="propsForm.rawLang"
-          placeholder="不设置"
+          :placeholder="t('rawLangPlaceholder')"
           clearable
           class="w-full"
           popper-class="video-props-select-popper"
@@ -546,7 +548,7 @@ const LANG_OPTIONS = [
       </div>
 
       <div class="border-t border-slate-200 pt-4 dark:border-white/8">
-        <label class="mb-3 block text-sm font-medium text-slate-800 dark:text-slate-200">源平台</label>
+        <label class="mb-3 block text-sm font-medium text-slate-800 dark:text-slate-200">{{ t('sourcePlatform') }}</label>
         <div class="flex flex-wrap gap-2">
           <button
             v-for="p in PLATFORM_OPTIONS"
@@ -577,7 +579,7 @@ const LANG_OPTIONS = [
       </div>
 
       <div class="border-t border-slate-200 pt-4 dark:border-white/8">
-        <label class="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200">源链接</label>
+        <label class="mb-2 block text-sm font-medium text-slate-800 dark:text-slate-200">{{ t('sourceLink') }}</label>
         <el-input
           v-model="propsForm.sourceUrl"
           placeholder="https://..."
@@ -592,14 +594,14 @@ const LANG_OPTIONS = [
           class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-100 dark:border-white/12 dark:bg-white/[0.04] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08]"
           @click="showPropsDialog = false"
         >
-          取消
+          {{ t('cancelBtn') }}
         </button>
         <button
           class="inline-flex h-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(34,211,238,0.24),rgba(59,130,246,0.24))] px-4 text-sm font-semibold text-cyan-600 transition hover:border-cyan-300/35 hover:shadow-[0_12px_28px_rgba(34,211,238,0.16)] disabled:cursor-not-allowed disabled:opacity-65 dark:text-cyan-50"
           :disabled="propsSaving"
           @click="saveProps"
         >
-          {{ propsSaving ? '保存中...' : '保存' }}
+          {{ propsSaving ? t('saving') : t('save') }}
         </button>
       </div>
     </template>

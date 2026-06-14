@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { FolderOpen, Tag, FileText, Filter, SortAsc, ChevronDown, X, Check, Search } from 'lucide-vue-next'
 import { ElMessage } from '@/composables/useNotification'
@@ -67,7 +67,7 @@ const selectedVideos = computed(() =>
 const selectedVideosFolders = computed(() => {
   const folders = new Set<string>()
   selectedVideos.value.forEach(v => {
-    folders.add(v.categoryName || '未分类')
+    folders.add(v.categoryName || t('uncategorized'))
   })
   return Array.from(folders)
 })
@@ -95,7 +95,7 @@ const commonSelectedTags = computed(() => {
 const availableFolders = computed(() => {
   const folders = new Set<string>()
   props.videos.forEach(v => {
-    folders.add(v.categoryName || '未分类')
+    folders.add(v.categoryName || t('uncategorized'))
   })
   return Array.from(folders).sort()
 })
@@ -110,27 +110,37 @@ fetchAllTags()
 
 const availableTags = computed(() => allTagNames.value)
 
-const fileTypes = [
-  { value: 'video', label: '视频', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov'] },
-  { value: 'audio', label: '音频', extensions: ['mp3', 'm4a', 'wav', 'aac', 'flac'] },
-]
+const fileTypes = computed(() => [
+  { value: 'video', label: t('fileTypeVideo'), extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov'] },
+  { value: 'audio', label: t('fileTypeAudio'), extensions: ['mp3', 'm4a', 'wav', 'aac', 'flac'] },
+])
 
-const sortOptions = [
-  { value: 'lastModified', label: '最后访问时间' },
-  { value: 'createdTime', label: '创建时间' },
-  { value: 'fileSize', label: '文件大小' },
-  { value: 'duration', label: '视频时长' },
-  { value: 'natural', label: '自然排序' },
-]
+const sortOptions = computed(() => [
+  { value: 'lastModified', label: t('sortLastModified') },
+  { value: 'createdTime', label: t('sortCreatedTime') },
+  { value: 'fileSize', label: t('sortFileSize') },
+  { value: 'duration', label: t('sortDuration') },
+  { value: 'natural', label: t('sortNatural') },
+])
 
-const searchModeOptions = [
-  { value: 'title', label: '标题' },
-  { value: 'title_content', label: '标题&内容' },
-  { value: 'subtitle', label: '纯字幕' },
-]
+const searchModeOptions = computed(() => [
+  { value: 'title', label: t('searchModeTitle') },
+  { value: 'title_content', label: t('searchModeTitleContent') },
+  { value: 'subtitle', label: t('searchModeSubtitle') },
+])
 
 const searchMode = ref<'title' | 'title_content' | 'subtitle'>('title_content')
+const showSearchModeDropdown = ref(false)
 const searchQuery = ref('')
+
+function closeSearchModeDropdown(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!target.closest('.search-mode-dropdown')) {
+    showSearchModeDropdown.value = false
+  }
+}
+onMounted(() => document.addEventListener('click', closeSearchModeDropdown))
+onUnmounted(() => document.removeEventListener('click', closeSearchModeDropdown))
 const activeSearchQuery = ref('')
 const activeSearchMode = ref<'title' | 'title_content' | 'subtitle'>('title_content')
 const searchMatchedIds = ref<number[] | null>(null)
@@ -151,7 +161,7 @@ const filteredVideos = computed(() => {
 
   if (selectedFolders.value.length > 0) {
     result = result.filter(v => {
-      const folderName = v.categoryName || '未分类'
+      const folderName = v.categoryName || t('uncategorized')
       const match = selectedFolders.value.includes(folderName)
       return filterMode.value === 'include' ? match : !match
     })
@@ -168,8 +178,8 @@ const filteredVideos = computed(() => {
   if (selectedTypes.value.length > 0) {
     result = result.filter(v => {
       const ext = v.url?.split('.').pop()?.toLowerCase() || ''
-      const isVideo = fileTypes[0].extensions.includes(ext)
-      const isAudio = fileTypes[1].extensions.includes(ext)
+      const isVideo = fileTypes.value[0].extensions.includes(ext)
+      const isAudio = fileTypes.value[1].extensions.includes(ext)
       let match = false
       if (selectedTypes.value.includes('video') && isVideo) match = true
       if (selectedTypes.value.includes('audio') && isAudio) match = true
@@ -301,7 +311,7 @@ async function performSearch() {
       signal: searchAbortController.signal,
     })
 
-    if (!res.ok) throw new Error('搜索失败')
+    if (!res.ok) throw new Error(t('searchFailed'))
 
     const data = await res.json()
     activeSearchQuery.value = query
@@ -313,7 +323,7 @@ async function performSearch() {
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return
     console.error(error)
-    ElMessage.error('搜索失败，请稍后重试')
+    ElMessage.error(t('searchFailedRetry'))
   } finally {
     isSearching.value = false
   }
@@ -337,7 +347,7 @@ function handleSearchKeydown(event: KeyboardEvent) {
 }
 
 function getFolderCount(folder: string): number {
-  return props.videos.filter(v => (v.categoryName || '未分类') === folder).length
+  return props.videos.filter(v => (v.categoryName || t('uncategorized')) === folder).length
 }
 
 function getTagCount(tag: string): number {
@@ -347,8 +357,8 @@ function getTagCount(tag: string): number {
 /* ─── 编辑模式: 点击文件夹/标签 → 弹出确认 ─── */
 
 function getFolderCategoryId(folderName: string): number | null {
-  const video = props.videos.find(v => (v.categoryName || '未分类') === folderName)
-  if (!video || folderName === '未分类') return null
+  const video = props.videos.find(v => (v.categoryName || t('uncategorized')) === folderName)
+  if (!video || folderName === t('uncategorized')) return null
   return video.categoryId ?? null
 }
 
@@ -392,9 +402,9 @@ async function confirmAssign() {
       })
       const data = await res.json()
       if (data.success) {
-        ElMessage.success(`已将存储路径"${targetName}"分配给 ${ids.length} 选定的文档。`)
+        ElMessage.success(t('assignSuccess', { name: targetName, count: ids.length }))
       } else {
-        ElMessage.error(data.error || '分配失败')
+        ElMessage.error(data.error || t('assignFailed'))
       }
     } else {
       const shouldRemoveTag = commonSelectedTags.value.includes(targetName)
@@ -412,18 +422,18 @@ async function confirmAssign() {
       if (data.success) {
         ElMessage.success(
           shouldRemoveTag
-            ? `已从 ${ids.length} 个选定项目移除标签"${targetName}"。`
-            : `已把标签"${targetName}"添加到 ${ids.length} 个选定项目。`,
+            ? t('tagRemoveSuccess', { count: ids.length, name: targetName })
+            : t('tagAddSuccess', { count: ids.length, name: targetName }),
         )
       } else {
-        ElMessage.error(data.error || (shouldRemoveTag ? '移除标签失败' : '添加标签失败'))
+        ElMessage.error(data.error || t('tagUpdateFailed'))
       }
     }
 
     emit('videos-updated')
     fetchAllTags()
   } catch (e: any) {
-    ElMessage.error(e.message || '操作失败')
+    ElMessage.error(e.message || t('operationFailed'))
   } finally {
     confirmDialog.value.visible = false
   }
@@ -478,7 +488,7 @@ watch(showFilterPanel, (val) => {
         <h2 class="text-xl font-bold text-slate-900 dark:text-white">
           {{ t('allMedia') }}
           <span v-if="batchMode" class="text-sm font-normal text-yellow-300 ml-2">
-            — 已选 {{ selectedIds.length }} 项
+            {{ t('batchSelected', { count: selectedIds.length }) }}
           </span>
           <button
             v-if="batchMode"
@@ -486,13 +496,13 @@ watch(showFilterPanel, (val) => {
             @click="emit('deselect-all')"
           >
             <X class="h-3 w-3" />
-            取消选择
+            {{ t('cancelSelection') }}
           </button>
         </h2>
 
         <!-- 排序控制 -->
         <div class="flex items-center space-x-2">
-          <span class="text-sm text-slate-500 dark:text-white/60">排序：</span>
+          <span class="text-sm text-slate-500 dark:text-white/60">{{ t('sortBy') }}</span>
           <div class="relative">
             <select
               v-model="sortBy"
@@ -507,7 +517,7 @@ watch(showFilterPanel, (val) => {
           <button
             @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'"
             class="p-1.5 rounded-lg bg-slate-100 text-slate-800 hover:bg-slate-200 transition-colors dark:bg-gray-700/50 dark:text-white/80 dark:hover:bg-gray-600/50"
-            :title="sortOrder === 'asc' ? '升序' : '降序'"
+            :title="sortOrder === 'asc' ? t('sortOrderAsc') : t('sortOrderDesc')"
           >
             <SortAsc class="w-4 h-4" :class="{ 'rotate-180': sortOrder === 'desc' }" />
           </button>
@@ -518,17 +528,31 @@ watch(showFilterPanel, (val) => {
       <div class="flex items-center flex-wrap gap-2">
         <!-- ════════ 筛选模式 (无选中) ════════ -->
         <template v-if="!batchMode">
-          <div class="flex min-w-[460px] max-w-[720px] flex-1 items-center overflow-hidden rounded-xl bg-white shadow-[0_10px_24px_rgba(2,6,23,0.18)] dark:bg-slate-900/55">
-            <div class="relative shrink-0 border-r border-slate-200 bg-slate-50 dark:border-white/8 dark:bg-slate-800/75">
-              <select
-                v-model="searchMode"
-                class="appearance-none bg-white px-3 py-2.5 pr-8 text-sm font-medium text-slate-900 focus:outline-none dark:bg-slate-800/95 dark:text-slate-100"
+          <div class="flex min-w-[460px] max-w-[720px] flex-1 items-center overflow-visible rounded-xl bg-white shadow-[0_10px_24px_rgba(2,6,23,0.18)] dark:bg-slate-900/55">
+            <div class="relative shrink-0 bg-slate-50 dark:bg-slate-800/75 search-mode-dropdown">
+              <button
+                @click="showSearchModeDropdown = !showSearchModeDropdown"
+                class="flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors cursor-pointer"
               >
-                <option v-for="opt in searchModeOptions" :key="opt.value" :value="opt.value">
+                {{ searchModeOptions.find(o => o.value === searchMode)?.label }}
+                <ChevronDown class="h-4 w-4 text-slate-500 dark:text-white/45 transition-transform" :class="{ 'rotate-180': showSearchModeDropdown }" />
+              </button>
+              <div
+                v-if="showSearchModeDropdown"
+                class="absolute left-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800 overflow-hidden"
+              >
+                <button
+                  v-for="opt in searchModeOptions"
+                  :key="opt.value"
+                  @click="searchMode = opt.value as typeof searchMode; showSearchModeDropdown = false"
+                  class="w-full px-3 py-2 text-left text-sm transition-colors cursor-pointer"
+                  :class="searchMode === opt.value
+                    ? 'bg-teal-50 text-teal-700 font-medium dark:bg-teal-900/30 dark:text-teal-300'
+                    : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/50'"
+                >
                   {{ opt.label }}
-                </option>
-              </select>
-              <ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 dark:text-white/45" />
+                </button>
+              </div>
             </div>
 
             <div class="relative min-w-0 flex-1">
@@ -536,7 +560,7 @@ watch(showFilterPanel, (val) => {
               <input
                 ref="searchInputRef"
                 v-model="searchQuery"
-                placeholder="按 Enter 搜索标题、内容或字幕"
+                :placeholder="t('searchPlaceholder')"
                 class="w-full border-0 bg-transparent py-2.5 pl-9 pr-10 text-sm text-slate-900 placeholder-slate-400 focus:outline-none dark:text-white dark:placeholder-white/35"
                 @keydown="handleSearchKeydown"
               />
@@ -559,7 +583,7 @@ watch(showFilterPanel, (val) => {
                 filterMode === 'include' ? 'bg-green-600 text-white' : 'text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white'
               ]"
             >
-              包含
+              {{ t('filterInclude') }}
             </button>
             <button
               @click="filterMode = 'exclude'"
@@ -568,7 +592,7 @@ watch(showFilterPanel, (val) => {
                 filterMode === 'exclude' ? 'bg-red-600 text-white' : 'text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white'
               ]"
             >
-              排除
+              {{ t('filterExclude') }}
             </button>
           </div>
 
@@ -584,7 +608,7 @@ watch(showFilterPanel, (val) => {
               ]"
             >
               <FolderOpen class="w-4 h-4" />
-              <span>文件夹</span>
+              <span>{{ t('filterFolders') }}</span>
               <span v-if="selectedFolders.length > 0" class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-xs dark:bg-blue-500/50 dark:text-blue-200">
                 {{ selectedFolders.length }}
               </span>
@@ -593,13 +617,13 @@ watch(showFilterPanel, (val) => {
 
             <div v-if="showFilterPanel === 'folders'" class="absolute top-full left-0 mt-2 w-64 bg-white rounded-lg border border-slate-200 shadow-xl z-50 max-h-80 overflow-y-auto dark:bg-gray-800 dark:border-white/10">
               <div class="p-3 border-b border-slate-200 flex items-center justify-between dark:border-white/10">
-                <span class="text-sm font-medium text-slate-900 dark:text-white">选择文件夹</span>
-                <button @click="selectedFolders = []" class="text-xs text-red-400 hover:text-red-300">清除</button>
+                <span class="text-sm font-medium text-slate-900 dark:text-white">{{ t('selectFolders') }}</span>
+                <button @click="selectedFolders = []" class="text-xs text-red-400 hover:text-red-300">{{ t('clear') }}</button>
               </div>
               <div class="p-2 border-b border-slate-200 dark:border-white/10">
                 <input
-                  v-model="folderSearchQuery"
-                  placeholder="筛选文件夹..."
+                  v-model="tagSearchQuery"
+                  :placeholder="t('filterTagPlaceholder2')"
                   class="w-full bg-slate-100 text-slate-900 text-sm px-3 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-400 dark:bg-gray-700/50 dark:text-white dark:border-white/10 dark:placeholder-white/40"
                 />
               </div>
@@ -617,7 +641,7 @@ watch(showFilterPanel, (val) => {
                   <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full dark:text-white/50 dark:bg-white/10">{{ getFolderCount(folder) }}</span>
                 </div>
                 <div v-if="availableFolders.length === 0" class="text-center py-4 text-slate-400 text-sm dark:text-white/40">
-                  暂无文件夹
+                  {{ t('noFolders') }}
                 </div>
               </div>
             </div>
@@ -635,7 +659,7 @@ watch(showFilterPanel, (val) => {
               ]"
             >
               <Tag class="w-4 h-4" />
-              <span>标签</span>
+              <span>{{ t('filterTags') }}</span>
               <span v-if="selectedTags.length > 0" class="bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full text-xs dark:bg-green-500/50 dark:text-green-200">
                 {{ selectedTags.length }}
               </span>
@@ -644,8 +668,8 @@ watch(showFilterPanel, (val) => {
 
             <div v-if="showFilterPanel === 'tags'" class="absolute top-full left-0 mt-2 w-64 bg-white rounded-lg border border-slate-200 shadow-xl z-50 max-h-80 overflow-y-auto dark:bg-gray-800 dark:border-white/10">
               <div class="p-3 border-b border-slate-200 flex items-center justify-between dark:border-white/10">
-                <span class="text-sm font-medium text-slate-900 dark:text-white">选择标签</span>
-                <button @click="selectedTags = []" class="text-xs text-red-400 hover:text-red-300">清除</button>
+                <span class="text-sm font-medium text-slate-900 dark:text-white">{{ t('selectTags') }}</span>
+                <button @click="selectedTags = []" class="text-xs text-red-400 hover:text-red-300">{{ t('clear') }}</button>
               </div>
               <div class="p-2 border-b border-slate-200 dark:border-white/10">
                 <input
@@ -668,7 +692,7 @@ watch(showFilterPanel, (val) => {
                   <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full dark:text-white/50 dark:bg-white/10">{{ getTagCount(tag) }}</span>
                 </div>
                 <div v-if="availableTags.length === 0" class="text-center py-4 text-slate-400 text-sm dark:text-white/40">
-                  暂无标签
+                  {{ t('noTags') }}
                 </div>
               </div>
             </div>
@@ -686,7 +710,7 @@ watch(showFilterPanel, (val) => {
               ]"
             >
               <FileText class="w-4 h-4" />
-              <span>类型</span>
+              <span>{{ t('filterTypes') }}</span>
               <span v-if="selectedTypes.length > 0" class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full text-xs dark:bg-purple-500/50 dark:text-purple-200">
                 {{ selectedTypes.length }}
               </span>
@@ -695,7 +719,7 @@ watch(showFilterPanel, (val) => {
 
             <div v-if="showFilterPanel === 'types'" class="absolute top-full left-0 mt-2 w-48 bg-white rounded-lg border border-slate-200 shadow-xl z-50 dark:bg-gray-800 dark:border-white/10">
               <div class="p-3 border-b border-slate-200 dark:border-white/10">
-                <span class="text-sm font-medium text-slate-900 dark:text-white">文件类型</span>
+                <span class="text-sm font-medium text-slate-900 dark:text-white">{{ t('fileType') }}</span>
               </div>
               <div class="p-2 space-y-1">
                 <div
@@ -721,7 +745,7 @@ watch(showFilterPanel, (val) => {
             class="flex items-center space-x-1 px-3 py-1.5 rounded-lg text-sm bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors dark:bg-red-600/20 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-600/30"
           >
             <X class="w-4 h-4" />
-            <span>清除筛选</span>
+            <span>{{ t('clearFilters') }}</span>
           </button>
         </template>
 
@@ -734,14 +758,14 @@ watch(showFilterPanel, (val) => {
               class="flex items-center space-x-1 px-3 py-1.5 rounded-lg text-sm transition-all border bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100 dark:bg-amber-600/30 dark:border-amber-500/50 dark:text-amber-200 dark:hover:bg-amber-600/40"
             >
               <FolderOpen class="w-4 h-4" />
-              <span>保存路径</span>
+              <span>{{ t('savePath') }}</span>
               <ChevronDown class="w-3 h-3" />
             </button>
 
             <div v-if="showFilterPanel === 'folders'" class="absolute top-full left-0 mt-2 w-72 bg-white rounded-lg border border-slate-200 shadow-xl z-50 max-h-96 overflow-y-auto dark:bg-gray-800 dark:border-white/10">
               <!-- 当前选中视频的 Folder -->
               <div class="p-3 border-b border-slate-200 dark:border-white/10">
-                <span class="text-xs text-slate-400 mb-1 block dark:text-white/50">当前选中视频的存储路径</span>
+                <span class="text-xs text-slate-400 mb-1 block dark:text-white/50">{{ t('selectedVideosFolders') }}</span>
                 <div class="flex flex-wrap gap-1">
                   <span
                     v-for="f in selectedVideosFolders"
@@ -756,7 +780,7 @@ watch(showFilterPanel, (val) => {
               <div class="p-2 border-b border-slate-200 dark:border-white/10">
                 <input
                   v-model="folderSearchQuery"
-                  placeholder="筛选存储路径..."
+                  :placeholder="t('filterFolderPlaceholder2')"
                   class="w-full bg-slate-100 text-slate-900 text-sm px-3 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:border-blue-500 placeholder-slate-400 dark:bg-gray-700/50 dark:text-white dark:border-white/10 dark:placeholder-white/40"
                 />
               </div>
@@ -774,7 +798,7 @@ watch(showFilterPanel, (val) => {
                   <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full dark:text-white/50 dark:bg-white/10">{{ getFolderCount(folder) }}</span>
                 </div>
                 <div v-if="availableFolders.length === 0" class="text-center py-4 text-slate-400 text-sm dark:text-white/40">
-                  暂无存储路径
+                  {{ t('noStoragePath') }}
                 </div>
               </div>
             </div>
@@ -787,14 +811,14 @@ watch(showFilterPanel, (val) => {
               class="flex items-center space-x-1 px-3 py-1.5 rounded-lg text-sm transition-all border bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-600/30 dark:border-emerald-500/50 dark:text-emerald-200 dark:hover:bg-emerald-600/40"
             >
               <Tag class="w-4 h-4" />
-              <span>标签</span>
+              <span>{{ t('filterTags') }}</span>
               <ChevronDown class="w-3 h-3" />
             </button>
 
             <div v-if="showFilterPanel === 'tags'" class="absolute top-full left-0 mt-2 w-72 bg-white rounded-lg border border-slate-200 shadow-xl z-50 max-h-96 overflow-y-auto dark:bg-gray-800 dark:border-white/10">
               <!-- 当前选中视频的标签 -->
               <div class="p-3 border-b border-slate-200 dark:border-white/10">
-                <span class="text-xs text-slate-400 mb-1 block dark:text-white/50">当前选中视频的标签</span>
+                <span class="text-xs text-slate-400 mb-1 block dark:text-white/50">{{ t('selectedVideosTags') }}</span>
                 <div v-if="selectedVideosTags.length > 0" class="flex flex-wrap gap-1">
                   <span
                     v-for="tg in selectedVideosTags"
@@ -810,7 +834,7 @@ watch(showFilterPanel, (val) => {
                     {{ tg }}
                   </span>
                 </div>
-                <span v-else class="text-xs text-slate-300 dark:text-white/30">无标签</span>
+                <span v-else class="text-xs text-slate-300 dark:text-white/30">{{ t('noTagsSelected') }}</span>
               </div>
               <div class="p-2 border-b border-slate-200 dark:border-white/10">
                 <input
@@ -839,19 +863,19 @@ watch(showFilterPanel, (val) => {
                       v-if="commonSelectedTags.includes(tag)"
                       class="rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:border-rose-400/30 dark:bg-rose-500/15 dark:text-rose-200"
                     >
-                      点击移除
+                      {{ t('clickToRemove') }}
                     </span>
                     <span
                       v-else-if="selectedVideosTags.includes(tag)"
                       class="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-200"
                     >
-                      部分已拥有
+                      {{ t('partiallyOwned') }}
                     </span>
                   </div>
                   <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full dark:text-white/50 dark:bg-white/10">{{ getTagCount(tag) }}</span>
                 </div>
                 <div v-if="availableTags.length === 0" class="text-center py-4 text-slate-400 text-sm dark:text-white/40">
-                  暂无标签
+                  {{ t('noTags') }}
                 </div>
               </div>
             </div>
@@ -871,15 +895,15 @@ watch(showFilterPanel, (val) => {
 
       <!-- 结果统计 -->
       <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400 dark:text-white/50">
-        <span>共 {{ filteredVideos.length }} 个视频，显示 {{ paginatedVideos.length }} 个</span>
-        <span v-if="isSearching" class="text-cyan-700 dark:text-cyan-200/80">搜索中...</span>
+        <span>{{ t('resultCount', { total: filteredVideos.length, shown: paginatedVideos.length }) }}</span>
+        <span v-if="isSearching" class="text-cyan-700 dark:text-cyan-200/80">{{ t('searching') }}</span>
         <span v-else-if="activeSearchQuery" class="rounded-full border border-cyan-300/40 bg-cyan-50 px-2.5 py-1 text-cyan-700 dark:border-cyan-400/20 dark:bg-cyan-500/10 dark:text-cyan-100">
-          {{ searchModeOptions.find(item => item.value === activeSearchMode)?.label || '搜索' }}:
-          “{{ activeSearchQuery }}”
-          <span class="ml-1 text-cyan-600 dark:text-cyan-200/70">{{ searchTotalMatches }} 处匹配</span>
+          {{ searchModeOptions.find(item => item.value === activeSearchMode)?.label }}:
+          "{{ activeSearchQuery }}"
+          <span class="ml-1 text-cyan-600 dark:text-cyan-200/70">{{ t('searchResultMatch', { count: searchTotalMatches }) }}</span>
         </span>
         <span v-if="searchIsTruncated" class="text-amber-600 dark:text-amber-300/80">
-          搜索结果较多，仅显示部分匹配（10s 超时保护）
+          {{ t('searchTruncated') }}
         </span>
       </div>
     </div>
@@ -908,20 +932,20 @@ watch(showFilterPanel, (val) => {
     <div v-else-if="filteredVideos.length === 0 && props.videos.length > 0" class="flex items-center justify-center py-12">
       <div class="text-center">
         <Filter class="w-16 h-16 mx-auto mb-4 text-slate-300 dark:text-white/30" />
-        <p class="text-slate-500 text-lg mb-2 dark:text-white/60">没有找到匹配的视频</p>
+        <p class="text-slate-500 text-lg mb-2 dark:text-white/60">{{ t('noMatchFound') }}</p>
         <p class="text-slate-400 text-sm mb-4 dark:text-white/40">
-          {{ activeSearchQuery ? '尝试更换关键词，或清空搜索与筛选条件' : '尝试调整筛选条件' }}
+          {{ activeSearchQuery ? t('noMatchTryOther') : t('adjustFilters') }}
         </p>
         <div class="flex items-center justify-center gap-3">
           <button @click="clearFilters" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
-            清除筛选
+            {{ t('clearFilters') }}
           </button>
           <button
             v-if="activeSearchQuery"
             @click="clearSearch"
             class="px-4 py-2 rounded-lg border border-slate-300 bg-slate-50 text-slate-800 transition-colors hover:bg-slate-100 dark:border-white/15 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10"
           >
-            清空搜索
+            {{ t('clear') }}
           </button>
         </div>
       </div>
@@ -929,8 +953,8 @@ watch(showFilterPanel, (val) => {
 
     <div v-else class="flex items-center justify-center py-12">
       <div class="text-center">
-        <p class="text-slate-500 text-lg mb-2 dark:text-white/60">暂无视频</p>
-        <p class="text-slate-400 text-sm dark:text-white/40">请上传或添加视频</p>
+        <p class="text-slate-500 text-lg mb-2 dark:text-white/60">{{ t('emptyNoVideos') }}</p>
+        <p class="text-slate-400 text-sm dark:text-white/40">{{ t('emptyUploadPrompt') }}</p>
       </div>
     </div>
 
@@ -947,7 +971,7 @@ watch(showFilterPanel, (val) => {
               : 'bg-slate-100 text-slate-900 hover:bg-slate-200 dark:bg-gray-700/50 dark:text-white dark:hover:bg-gray-600/50'
           ]"
         >
-          上一页
+            {{ t('prevPage') }}
         </button>
 
         <div class="flex items-center space-x-1">
@@ -976,7 +1000,7 @@ watch(showFilterPanel, (val) => {
               : 'bg-slate-100 text-slate-900 hover:bg-slate-200 dark:bg-gray-700/50 dark:text-white dark:hover:bg-gray-600/50'
           ]"
         >
-          下一页
+            {{ t('nextPage') }}
         </button>
       </div>
     </div>
@@ -995,7 +1019,7 @@ watch(showFilterPanel, (val) => {
           <!-- 标题栏 -->
           <div class="flex items-center justify-between p-5 pb-3">
             <h3 class="text-lg font-bold text-slate-900 dark:text-white">
-              {{ confirmDialog.type === 'folder' ? '确认存储路径分配' : '确认标签分配' }}
+              {{ confirmDialog.type === 'folder' ? t('confirmFolderAssign') : t('confirmTagAssign') }}
             </h3>
             <button
               @click="confirmDialog.visible = false"
@@ -1009,10 +1033,10 @@ watch(showFilterPanel, (val) => {
           <div class="px-5 pb-5">
             <p class="text-green-600 text-sm leading-relaxed mb-6 dark:text-green-400">
               <template v-if="confirmDialog.type === 'folder'">
-                此操作将将存储路径"{{ confirmDialog.targetName }}"分配给 {{ selectedIds.length }} 选定的文档。
+                {{ t('confirmFolderDesc', { name: confirmDialog.targetName, count: selectedIds.length }) }}
               </template>
               <template v-else>
-                此操作将把标签"{{ confirmDialog.targetName }}"添加到 {{ selectedIds.length }} 个选定的文档。
+                {{ t('confirmTagDesc', { name: confirmDialog.targetName, count: selectedIds.length }) }}
               </template>
             </p>
 
@@ -1022,13 +1046,13 @@ watch(showFilterPanel, (val) => {
                 @click="confirmDialog.visible = false"
                 class="px-5 py-2 rounded-lg text-sm text-slate-800 border border-slate-300 hover:bg-slate-100 transition-colors dark:text-white/80 dark:border-white/20 dark:hover:bg-white/10"
               >
-                取消
+                {{ t('cancelBtn') }}
               </button>
               <button
                 @click="confirmAssign"
                 class="px-5 py-2 rounded-lg text-sm text-black font-medium bg-amber-500 hover:bg-amber-400 transition-colors"
               >
-                确认
+                {{ t('confirmBtn') }}
               </button>
             </div>
           </div>

@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
         <el-button
           type="primary"
           size="small"
-          class="bg-blue-600 hover:bg-blue-700 border-blue-600"
+          class="bg-teal-600 hover:bg-teal-700 border-teal-600"
           @click="clearFinished"
         >
           清除已完成
@@ -360,7 +360,7 @@ onBeforeUnmount(() => {
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
-                    'bg-blue-500': row.status === 'uploading',
+                    'bg-teal-500': row.status === 'uploading',
                     'bg-green-500': row.status === 'success',
                     'bg-red-500': row.status === 'error',
                   }"
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
               }"
             ></span>
             <span class="ml-2 text-sm">
-              <span v-if="row.status === 'uploading'" class="text-blue-400">上传中</span>
+              <span v-if="row.status === 'uploading'" class="text-teal-400">上传中</span>
               <span v-else-if="row.status === 'success'" class="text-green-400">已完成</span>
               <span v-else class="text-red-400">失败</span>
             </span>
@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
         <el-button
           type="primary"
           size="small"
-          class="bg-blue-600 hover:bg-blue-700 border-blue-600"
+          class="bg-teal-600 hover:bg-teal-700 border-teal-600"
           @click="fetchSubtitleTasks"
         >
           <el-icon><Refresh /></el-icon>
@@ -433,7 +433,7 @@ onBeforeUnmount(() => {
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
-                    'bg-blue-500': row.totalProgress < 100,
+                    'bg-teal-500': row.totalProgress < 100,
                     'bg-green-500': row.totalProgress === 100,
                   }"
                   :style="{ width: `${row.totalProgress}%` }"
@@ -521,7 +521,7 @@ onBeforeUnmount(() => {
         <el-button
           type="primary"
           size="small"
-          class="bg-blue-600 hover:bg-blue-700 border-blue-600"
+          class="bg-teal-600 hover:bg-teal-700 border-teal-600"
           @click="fetchDownloadTasks"
         >
           <el-icon><Refresh /></el-icon>
@@ -548,7 +548,7 @@ onBeforeUnmount(() => {
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
-                    'bg-blue-500': row.totalProgress < 100,
+                    'bg-teal-500': row.totalProgress < 100,
                     'bg-green-500': row.totalProgress === 100,
                   }"
                   :style="{ width: `${row.totalProgress}%` }"
@@ -633,6 +633,7 @@ onBeforeUnmount(() => {
       <div class="flex items-center justify-between mb-6">
         <h2 class="text-xl font-bold text-slate-900 dark:text-white">{{ t('videoSummary') }}</h2>
         <el-button
+          type="primary"
           size="small"
           @click="fetchSummaryTasks"
         >
@@ -657,7 +658,7 @@ onBeforeUnmount(() => {
                 <div
                   class="h-3 rounded-full transition-all duration-300"
                   :class="{
-                    'bg-blue-500': row.totalProgress < 100,
+                    'bg-teal-500': row.totalProgress < 100,
                     'bg-green-500': row.totalProgress === 100,
                   }"
                   :style="{ width: `${row.totalProgress}%` }"

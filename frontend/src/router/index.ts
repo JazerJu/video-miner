@@ -9,6 +9,16 @@ const router = createRouter({
       name: 'home',
       component: () => import('@/views/HomeView.vue'),
     },
+    {
+      path: '/library',
+      name: 'library',
+      component: () => import('@/views/HomeView.vue'),
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('@/views/HomeView.vue'),
+    },
 
     {
       path: '/stream-transcription',

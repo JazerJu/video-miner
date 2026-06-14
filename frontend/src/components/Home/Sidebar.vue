@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute, RouterLink } from 'vue-router'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -33,11 +33,12 @@ import { BACKEND } from '@/composables/ConfigAPI'
 import { useTheme } from '@/composables/useTheme'
 
 const { theme, toggleTheme } = useTheme()
+const route = useRoute()
 
-// 菜单列表 - 移除了 Settings，因为 Sidebar 固定显示 Settings
+// 菜单列表 - 基于路由
 const menuList = [
-  { key: 'home', icon: Home, action: () => emit('updateMenuIndex', 0) },
-  { key: 'library', icon: Video, action: () => emit('updateMenuIndex', 1) },
+  { key: 'home', icon: Home, to: '/' },
+  { key: 'library', icon: Video, to: '/library' },
 ]
 
 // Settings Tabs - 固定显示，不随菜单切换
@@ -52,8 +53,7 @@ const settingsTabs = [
 ]
 
 const handleSettingsTabClick = (tab: string) => {
-  emit('updateMenuIndex', 3)
-  emit('update-settings-tab', tab)
+  router.push({ path: '/settings', query: { tab } })
 }
 
 // 折叠侧边栏
@@ -132,12 +132,10 @@ watch(currentUser, (newUser, oldUser) => {
 })
 
 const props = defineProps<{
-  currentMenuIdx: number
   activeSettingsTab?: string
 }>()
 
 const emit = defineEmits<{
-  (e: 'updateMenuIndex', idx: number): void
   (e: 'refresh'): void
   (e: 'update-settings-tab', tab: string): void
 }>()
@@ -163,12 +161,12 @@ const emit = defineEmits<{
         </button>
       </el-tooltip>
       <el-tooltip :content="t('home')" placement="right">
-        <button
-          @click="emit('updateMenuIndex', 0)"
+        <router-link
+          to="/"
           class="text-slate-500 hover:text-slate-900 p-2 rounded-lg hover:bg-slate-100 dark:text-white/70 dark:hover:text-white dark:hover:bg-white/10 transition-all"
         >
           <Home :size="20" />
-        </button>
+        </router-link>
       </el-tooltip>
     </div>
 
@@ -176,25 +174,23 @@ const emit = defineEmits<{
     <template v-if="!collapsed">
       <!-- Brand Header -->
       <div class="px-4 pt-5 pb-4 border-b border-slate-200/80 dark:border-white/10">
-        <div class="flex items-center">
-          <div class="flex min-w-0 items-center">
-            <img
-              class="h-10 w-10 p-0.5 border border-slate-200/80 dark:border-white/30 hover:border-teal-400/70 dark:hover:border-white/50 rounded-xl transition-all shadow-sm"
-              src="@/assets/miner.png"
-              alt="VideoMiner"
-            />
-                <div class="ml-3 min-w-0 flex flex-col">
-                  <span class="text-base font-semibold text-slate-950 dark:text-white">{{
-                    t('brand')
-                  }}</span>
-                  <span
-                    class="mt-0.5 w-fit rounded-full border border-teal-500/20 bg-teal-500/10 px-2 py-0.5 text-[10px] font-semibold text-teal-700 dark:text-teal-200"
-                  >
-                    v1.0
-                  </span>
-                </div>
+        <div class="flex items-center gap-2">
+          <img
+            class="h-10 w-10 shrink-0 p-0.5 border border-slate-200/80 dark:border-white/30 hover:border-teal-400/70 dark:hover:border-white/50 rounded-xl transition-all shadow-sm"
+            src="@/assets/miner.png"
+            alt="VideoMiner"
+          />
+          <div class="flex flex-col min-w-0">
+            <span class="text-base font-semibold text-slate-950 dark:text-white truncate">{{
+              t('brand')
+            }}</span>
+            <span
+              class="inline-block self-start rounded-full border border-teal-500/20 bg-teal-500/10 px-2 py-0.5 text-[10px] font-semibold text-teal-700 dark:text-teal-200"
+            >
+              v1.0
+            </span>
           </div>
-          <div class="ml-auto flex flex-none items-center gap-2">
+          <div class="ml-auto flex items-center gap-1 shrink-0">
             <el-tooltip
               :content="theme === 'dark' ? t('switchToLightTheme') : t('switchToDarkTheme')"
               placement="top"
@@ -223,22 +219,22 @@ const emit = defineEmits<{
         <nav class="flex-none px-2">
           <!-- Menu items -->
           <div class="space-y-2 mb-6">
-            <div
+            <router-link
               v-for="(item, i) in menuList"
               :key="i"
+              :to="item.to"
               class="flex items-center p-3 rounded-lg cursor-pointer transition-all duration-200"
               :class="
-                props.currentMenuIdx === i
+                route.path === item.to
                   ? 'bg-teal-600/90 text-white shadow-md'
                   : 'text-slate-700 hover:bg-slate-200/70 hover:text-slate-950 dark:text-white/80 dark:hover:bg-white/10 dark:hover:text-white'
               "
-              @click="item.action()"
             >
               <div class="flex items-center">
                 <component :is="item.icon" :size="18" />
                 <span class="ml-3 font-medium">{{ t(item.key) }}</span>
               </div>
-            </div>
+            </router-link>
           </div>
         </nav>
 
@@ -255,7 +251,7 @@ const emit = defineEmits<{
               :key="tab.id"
               class="p-3 mb-1 rounded-r-lg flex items-center cursor-pointer transition-all duration-200 border-l-3"
               :class="
-                props.activeSettingsTab === tab.id
+                route.path === '/settings' && (route.query.tab || 'model') === tab.id
                   ? 'bg-teal-600/90 text-white border-l-cyan-300'
                   : 'text-slate-700 border-l-transparent hover:bg-slate-200/70 hover:border-l-teal-500/70 dark:text-white/80 dark:hover:bg-white/8 dark:hover:border-l-cyan-400/70'
               "

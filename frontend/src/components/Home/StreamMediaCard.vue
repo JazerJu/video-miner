@@ -280,7 +280,7 @@ onMounted(() => {
         <button
           @click="submitUrl"
           :disabled="isParsing"
-          class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-r-xl border border-blue-600 transition-colors flex items-center justify-center font-medium disabled:opacity-60 disabled:cursor-not-allowed min-w-[100px]"
+          class="px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-r-xl border border-teal-600 transition-colors flex items-center justify-center font-medium disabled:opacity-60 disabled:cursor-not-allowed min-w-[100px]"
         >
           <div
             v-if="isParsing"
@@ -372,7 +372,7 @@ onMounted(() => {
         <!-- 右侧下载按钮 -->
         <div class="flex-shrink-0">
           <el-dropdown trigger="click" placement="bottom-end">
-            <el-button type="primary" class="bg-blue-600 hover:bg-blue-700 border-blue-600">
+            <el-button type="primary" class="bg-teal-600 hover:bg-teal-700 border-teal-600">
               {{ t('downloadVideo') }}
               <el-icon class="ml-1"><ArrowDown /></el-icon>
             </el-button>

@@ -252,8 +252,10 @@ export interface ConfigData {
     vu_knowledge_base_url: string
     vu_knowledge_model: string
     vu_corner_use_proxy: string
+    vu_corner_coverage: string
     vu_summary_use_proxy: string
     vu_knowledge_use_proxy: string
+    vu_download_use_proxy: string
   }
 }
 
@@ -394,8 +396,10 @@ export interface FrontendSettings {
   vuKnowledgeBaseUrl: string
   vuKnowledgeModel: string
   vuCornerUseProxy: boolean
+  vuCornerCoverage: number
   vuSummaryUseProxy: boolean
   vuKnowledgeUseProxy: boolean
+  vuDownloadUseProxy: boolean
 }
 
 export async function loadConfig(): Promise<FrontendSettings> {
@@ -555,7 +559,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
       transcriptionIncludePunctuation: data['Transcription Engine']?.include_punctuation === 'true',
       // Video Understanding settings
       vuThinkingBudget: data['Video Understanding']?.vu_thinking_budget || 'low',
-      vuNGpuLayers: parseInt(data['Video Understanding']?.vu_n_gpu_layers || '36'),
+      vuNGpuLayers: parseInt(data['Video Understanding']?.vu_n_gpu_layers || '40'),
       vuGlmOcrNGpuLayers: parseInt(data['Video Understanding']?.vu_glm_ocr_n_gpu_layers || '17'),
       vuCornerProvider: data['Video Understanding']?.vu_corner_provider || 'gemini',
       vuCornerGeminiApiKey: data['Video Understanding']?.vu_corner_gemini_api_key || '',
@@ -584,8 +588,10 @@ export async function loadConfig(): Promise<FrontendSettings> {
       vuKnowledgeBaseUrl: data['Video Understanding']?.vu_knowledge_base_url || '',
       vuKnowledgeModel: data['Video Understanding']?.vu_knowledge_model || '',
       vuCornerUseProxy: data['Video Understanding']?.vu_corner_use_proxy === 'true',
+      vuCornerCoverage: parseFloat(data['Video Understanding']?.vu_corner_coverage || '0.6'),
       vuSummaryUseProxy: data['Video Understanding']?.vu_summary_use_proxy === 'true',
       vuKnowledgeUseProxy: data['Video Understanding']?.vu_knowledge_use_proxy === 'true',
+      vuDownloadUseProxy: data['Video Understanding']?.vu_download_use_proxy === 'true',
     }
   } catch (error) {
     console.error('Error loading config:', error)
@@ -742,8 +748,10 @@ split_use_proxy: settings.splitUseProxy.toString(),
         vu_knowledge_base_url: settings.vuKnowledgeBaseUrl,
         vu_knowledge_model: settings.vuKnowledgeModel,
         vu_corner_use_proxy: settings.vuCornerUseProxy.toString(),
+        vu_corner_coverage: settings.vuCornerCoverage.toString(),
         vu_summary_use_proxy: settings.vuSummaryUseProxy.toString(),
         vu_knowledge_use_proxy: settings.vuKnowledgeUseProxy.toString(),
+        vu_download_use_proxy: settings.vuDownloadUseProxy.toString(),
       },
     }
 
@@ -991,9 +999,12 @@ export async function loadVidUnderModels(): Promise<VidUnderModel[]> {
 export async function downloadVidUnderModel(
   modelName: string,
   source: VidUnderModelSource = 'hf',
+  proxy?: string,
 ): Promise<void> {
   try {
     const csrf = await getCSRFToken()
+    const body: Record<string, string> = { model_name: modelName, source }
+    if (proxy) body.proxy = proxy
     const response = await fetch(`${BACKEND}/api/vidunder-models/download/`, {
       method: 'POST',
       headers: {
@@ -1001,7 +1012,7 @@ export async function downloadVidUnderModel(
         'X-CSRFToken': csrf,
       },
       credentials: 'include',
-      body: JSON.stringify({ model_name: modelName, source }),
+      body: JSON.stringify(body),
     })
 
     if (!response.ok) {
