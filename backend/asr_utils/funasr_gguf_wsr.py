@@ -33,6 +33,7 @@ _TOKENS_PATH = _MODELS_DIR / "tokens.txt"
 LANGUAGE_CODE_TO_FUNASR = {"zh": "中文", "en": "英文"}
 
 _engine_lock = threading.Lock()
+_engine_use_lock = threading.Lock()
 _engine_instance = None
 _engine_init_failed = False
 _engine_init_error: Optional[str] = None
@@ -121,7 +122,8 @@ def update_hotwords(hotwords_text: str) -> None:
         if _hotwords_engine_id == engine_id and _hotwords_signature == signature:
             return
 
-        engine.update_hotwords(hotwords)
+        with _engine_use_lock:
+            engine.update_hotwords(hotwords)
         _hotwords_engine_id = engine_id
         _hotwords_signature = signature
 
@@ -147,19 +149,55 @@ def _extract_srt(asr_result) -> str:
 
     # Detect flat [char, start_time] list format from Fun-ASR
     if segments and isinstance(segments[0], list) and len(segments[0]) == 2:
+        import re
+        _SENT_END = re.compile(r'[。！？!?；;]')
+        _CLAUSE_END = re.compile(r'[，,、）)】]')
+
         out = []
+        idx = 1
+        buf_chars = []
+        buf_start = None
+
         for i, (char, start) in enumerate(segments):
-            text = char if isinstance(char, str) else str(char)
-            if not text.strip():
-                continue
-            # end time = next segment's start, or start + 0.1s for last entry
-            end = segments[i + 1][1] if i + 1 < len(segments) else start + 0.1
-            if end <= start:
-                end = start + 0.1
-            out.append(
-                f"{i + 1}\n{seconds_to_srt_time(start)} --> "
-                f"{seconds_to_srt_time(end)}\n{text}\n"
+            text_c = char if isinstance(char, str) else str(char)
+            if not buf_start:
+                buf_start = start
+            buf_chars.append(text_c)
+
+            next_start = segments[i + 1][1] if i + 1 < len(segments) else start + 0.5
+            gap = next_start - start
+            is_sent_end = bool(_SENT_END.search(text_c))
+            is_clause_end = bool(_CLAUSE_END.search(text_c))
+            merged = "".join(buf_chars).strip()
+
+            should_flush = (
+                is_sent_end
+                or (is_clause_end and len(merged) >= 15)
+                or (gap > 0.8 and len(merged) >= 5)
+                or len(merged) >= 40
             )
+
+            if should_flush and merged:
+                end = next_start if gap > 0.8 else next_start + 0.01
+                if end <= buf_start:
+                    end = buf_start + 0.5
+                out.append(
+                    f"{idx}\n{seconds_to_srt_time(buf_start)} --> "
+                    f"{seconds_to_srt_time(end)}\n{merged}\n"
+                )
+                idx += 1
+                buf_chars = []
+                buf_start = None
+
+        if buf_chars:
+            merged = "".join(buf_chars).strip()
+            if merged:
+                end = segments[-1][1] + 0.5
+                out.append(
+                    f"{idx}\n{seconds_to_srt_time(buf_start)} --> "
+                    f"{seconds_to_srt_time(end)}\n{merged}\n"
+                )
+
         return "\n".join(out) + ("\n" if out else "")
 
     # Structured segment objects (has .start/.end/.text/.words attributes)
@@ -202,7 +240,8 @@ def transcribe_audio(
     progress_cb("Running")
     engine = _get_engine()
     lang_arg = LANGUAGE_CODE_TO_FUNASR.get(language, language) if language else None
-    result = engine.transcribe(audio_file_path, language=lang_arg, srt=True)
+    with _engine_use_lock:
+        result = engine.transcribe(audio_file_path, language=lang_arg, srt=True)
     srt = _extract_srt(result)
     if not srt:
         raise RuntimeError("FunASR-GGUF returned empty SRT")

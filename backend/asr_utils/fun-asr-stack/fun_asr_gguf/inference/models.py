@@ -44,16 +44,38 @@ class Models:
 
     def _load_models(self, verbose):
         """执行实际的模型加载逻辑"""
-        # 1. Encoder (ONNX)
-        vprint("[1/6] 加载音频编码器 (Encoder)...", verbose)
+        # 1. GGUF LLM Decoder (libggml CUDA 初始化必须在 ONNX 之前)
+        vprint("[1/6] 加载 GGUF LLM 解码器...", verbose)
+        if self.config.vulkan_force_fp32:
+            os.environ["GGML_VK_DISABLE_F16"] = "1"
+        self.model = llama.LlamaModel(self.config.decoder_gguf_path, use_gpu=self.config.llm_use_gpu)
+        self.vocab = self.model.vocab
+        self.eos_token = self.model.eos_token
+
+        # 2. Embeddings
+        vprint("[2/6] 加载 Embedding 权重...", verbose)
+        self.embedding_table = llama.get_token_embeddings_gguf(self.config.decoder_gguf_path)
+
+        # 3. LLM Context
+        vprint("[3/6] 创建 LLM 上下文...", verbose)
+        self.ctx = llama.LlamaContext(
+            self.model,
+            n_ctx=2048,
+            n_batch=2048,
+            n_ubatch=self.config.n_ubatch,
+            n_threads=self.config.n_threads,
+        )
+
+        # 4. Encoder (ONNX) — libggml CUDA context 就绪后再初始化
+        vprint("[4/6] 加载音频编码器 (Encoder)...", verbose)
         self.encoder = AudioEncoder(
             model_path=self.config.encoder_onnx_path,
             onnx_provider=self.config.onnx_provider,
             dml_pad_to=self.config.dml_pad_to
         )
 
-        # 2. CTC Decoder (ONNX + Search)
-        vprint("[2/6] 加载 CTC 解码器...", verbose)
+        # 5. CTC Decoder (ONNX)
+        vprint("[5/6] 加载 CTC 解码器...", verbose)
         self.ctc_decoder = CTCDecoder(
             model_path=self.config.ctc_onnx_path,
             tokens_path=self.config.tokens_path,
@@ -63,30 +85,8 @@ class Models:
             similar_threshold=self.config.similar_threshold
         )
 
-        # 3. GGUF LLM Decoder
-        vprint("[3/6] 加载 GGUF LLM 解码器...", verbose)
-        if self.config.vulkan_force_fp32:
-            os.environ["GGML_VK_DISABLE_F16"] = "1" 
-        self.model = llama.LlamaModel(self.config.decoder_gguf_path, use_gpu=self.config.llm_use_gpu)
-        self.vocab = self.model.vocab
-        self.eos_token = self.model.eos_token
-
-        # 4. Embeddings
-        vprint("[4/6] 加载 Embedding 权重...", verbose)
-        self.embedding_table = llama.get_token_embeddings_gguf(self.config.decoder_gguf_path)
-        
-        # 5. LLM Context
-        vprint("[5/6] 创建 LLM 上下文...", verbose)
-        self.ctx = llama.LlamaContext(
-            self.model,
-            n_ctx=2048,
-            n_batch=2048,
-            n_ubatch=self.config.n_ubatch,
-            n_threads=self.config.n_threads,
-        )
-        
-        # 6. Prompt构建器
-        vprint("[6/6] 初始化 Prompt 构建器器...", verbose)
+        # 6. Prompt 构建器
+        vprint("[6/6] 初始化 Prompt 构建器...", verbose)
         self.prompt_builder = PromptBuilder(self.vocab, self.embedding_table)
 
     def cleanup(self):

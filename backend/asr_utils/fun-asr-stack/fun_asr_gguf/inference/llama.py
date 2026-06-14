@@ -53,8 +53,11 @@ class llama_context_params(ctypes.Structure):
         ("n_batch", ctypes.c_uint32),
         ("n_ubatch", ctypes.c_uint32),
         ("n_seq_max", ctypes.c_uint32),
+        ("n_rs_seq", ctypes.c_uint32),
+        ("n_outputs_max", ctypes.c_uint32),
         ("n_threads", ctypes.c_int32),
         ("n_threads_batch", ctypes.c_int32),
+        ("ctx_type", ctypes.c_int32),
         ("rope_scaling_type", ctypes.c_int32),
         ("pooling_type", ctypes.c_int32),
         ("attention_type", ctypes.c_int32),
@@ -81,6 +84,7 @@ class llama_context_params(ctypes.Structure):
         ("kv_unified", ctypes.c_bool),
         ("samplers", ctypes.POINTER(ctypes.c_void_p)),
         ("n_samplers", ctypes.c_size_t),
+        ("ctx_other", ctypes.POINTER(ctypes.c_void_p)),
     ]
 
 class llama_sampler_chain_params(ctypes.Structure):
@@ -581,6 +585,10 @@ class LlamaBatch:
     def __init__(self, n_tokens, embd_dim=0, n_seq_max=1):
         self.struct = llama_batch_init(n_tokens, embd_dim, n_seq_max)
         self.n_tokens_max = n_tokens
+        self._zero_tokens = None
+        if embd_dim and not self.struct.token:
+            self._zero_tokens = (llama_token * n_tokens)()
+            self.struct.token = ctypes.cast(self._zero_tokens, ctypes.POINTER(llama_token))
 
     @property
     def n_tokens(self): return self.struct.n_tokens
@@ -642,6 +650,8 @@ class LlamaBatch:
         # 3. 设置其他元数据
         self.n_tokens = n_tokens
         for i in range(n_tokens):
+            if self.token:
+                self.token[i] = 0
             self.n_seq_id[i] = 1
             self.seq_id[i][0] = seq_id
             self.logits[i] = 1 if i == n_tokens - 1 else 0
@@ -650,7 +660,21 @@ class LlamaBatch:
 
     def __del__(self):
         if hasattr(self, 'struct'):
+            if self._zero_tokens is not None:
+                self.struct.token = None
             llama_batch_free(self.struct)
+
+class LlamaOneTokenBatch:
+    """Single-token batch that owns the ctypes token storage.
+
+    llama_batch_get_one() stores a pointer to the caller-provided token buffer.
+    Returning its raw struct with a local ctypes array leaves llama_decode() with
+    a dangling pointer, which can surface as random token ids in ggml get_rows.
+    """
+    def __init__(self, token_id: int):
+        self._token_arr = (llama_token * 1)(token_id)
+        self.struct = llama_batch_get_one(self._token_arr, 1)
+
 
 def get_one_batch(token_id: int):
     """
@@ -658,8 +682,7 @@ def get_one_batch(token_id: int):
     相当于 C++ 的 llama_batch_get_one(&token, 1)。
     它不依赖 llama_batch_init 的内存分配，并允许底层自动推断 pos。
     """
-    token_arr = (llama_token * 1)(token_id)
-    return llama_batch_get_one(token_arr, 1)
+    return LlamaOneTokenBatch(token_id)
 
 class LlamaSampler:
     """采样器的面向对象封装"""
