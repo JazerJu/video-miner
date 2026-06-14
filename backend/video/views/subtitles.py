@@ -48,6 +48,9 @@ def _new_subtitle_task():
 
 
 SAVE_DIR = 'media/saved_srt'
+LANG_ALIASES = {"ja": "jp", "jpn": "jp"}
+
+
 class SubtitleActionView(View):
     def dispatch(self, request, *args, **kwargs):
         self.action = kwargs.pop('action', None)
@@ -56,7 +59,7 @@ class SubtitleActionView(View):
         self.lang = request.GET.get("lang", "").lower()
         if not self.lang:
             return JsonResponse({"error": "No language code"}, status=400)
-        self.lang = self.lang.lower()
+        self.lang = LANG_ALIASES.get(self.lang.lower(), self.lang.lower())
         if self.lang not in {"en", "zh", "jp", "de", "system_define"}:
             return JsonResponse({"error": "Unsupported language code"}, status=400)
         return super().dispatch(request, *args, **kwargs)

@@ -1360,6 +1360,20 @@ def _summary_update(task_id: str, stage: str, status: str, progress: int = None,
         task["status"] = "Running"
 
 
+def _get_default_min_coverage():
+    settings_file = os.path.join(settings.BASE_DIR, "./config/config.ini")
+    if os.path.exists(settings_file):
+        cfg = configparser.ConfigParser(interpolation=None)
+        cfg.read(settings_file)
+        val = cfg.get("Video Understanding", "vu_corner_coverage", fallback="0.6")
+        try:
+            f = float(val)
+            return max(0.0, min(1.0, f))
+        except (ValueError, TypeError):
+            pass
+    return 0.6
+
+
 def _inject_vidunder_config():
     """Read Video Understanding settings from config.ini and patch vid_under config module."""
     settings_file = os.path.join(settings.BASE_DIR, "./config/config.ini")
@@ -1518,6 +1532,8 @@ def generate_summary_for_video(task_id: str) -> None:
 
         db_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "db")
         os.makedirs(db_dir, exist_ok=True)
+        result_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "output")
+        os.makedirs(result_dir, exist_ok=True)
 
         # Step 1: build
         _summary_update(task_id, "build", "Running", detail="Starting MiniCPM-V caption...")
@@ -1534,8 +1550,7 @@ def generate_summary_for_video(task_id: str) -> None:
 
         # Step 2: extract
         _summary_update(task_id, "extract", "Running", detail="Running GLM-OCR extraction...")
-        import tempfile
-        extract_output = os.path.join(tempfile.gettempdir(), db_name)
+        extract_output = os.path.join(result_dir, f"{db_name}_extract")
         os.makedirs(extract_output, exist_ok=True)
         from main import cmd_extract
 
@@ -1562,6 +1577,13 @@ def generate_summary_for_video(task_id: str) -> None:
         db_path = os.path.join(db_dir, f"{db_name}.json")
         with open(db_path, encoding="utf-8") as f:
             db = _json.load(f)
+        import glob as _glob
+        structure_hits = sorted(_glob.glob(os.path.join(extract_output, "*_structure.json")))
+        db["extract_output"] = extract_output
+        if structure_hits:
+            db["structure_path"] = structure_hits[-1]
+        with open(db_path, "w", encoding="utf-8") as f:
+            _json.dump(db, f, ensure_ascii=False, indent=2)
         srt = parse_srt(srt_path)
         agent = VideoAgent(db, srt, lang=task.get("language", "中文"))
 
@@ -1569,12 +1591,10 @@ def generate_summary_for_video(task_id: str) -> None:
             pct = 75 + int(done / total * 25) if total > 0 else 75
             _summary_update(task_id, "summarize", "Running", progress=pct)
 
-        summary = agent.summarize(min_coverage=task.get("min_coverage", 0.60),
+        summary = agent.summarize(min_coverage=task.get("min_coverage", _get_default_min_coverage()),
                                    progress_cb=_summarize_progress)
 
         # Save result
-        result_dir = os.path.join(vid_under_dir, "..", "media", "vidunder", "output")
-        os.makedirs(result_dir, exist_ok=True)
         result_path = os.path.join(result_dir, f"{db_name}_summary.md")
         with open(result_path, "w", encoding="utf-8") as f:
             f.write(summary)

@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse, Http404, StreamingHttpResponse
 from django.conf import settings
-from ..tasks import summary_task_status, summary_task_queue
+from ..tasks import summary_task_status, summary_task_queue, _get_default_min_coverage
 
 logger = logging.getLogger("video.summary")
 
@@ -135,7 +135,7 @@ class SummaryAddView(View):
             return JsonResponse({"error": f"SRT file not found: {srt_path}"}, status=404)
 
         task_id = f"summary_{video_id}_{int(time.time())}"
-        min_coverage = payload.get("min_coverage", 0.60)
+        min_coverage = payload.get("min_coverage", _get_default_min_coverage())
         language = payload.get("language", "中文")
 
         summary_task_status[task_id].update({
@@ -240,6 +240,56 @@ def _find_summary_file(filename):
     return None
 
 
+def _normalize_summary_slide_links(content: str, db_name: str) -> str:
+    output_root = os.path.join(settings.MEDIA_ROOT, "vidunder", "output")
+    per_video_dir = os.path.join(output_root, f"{db_name}_slides")
+    shared_dir = os.path.join(output_root, "slides")
+
+    tmp_slide_dirs = set(re.findall(r'(/tmp/[^)\n"\']+/slides)/[^)\n"\']+', content))
+    if tmp_slide_dirs:
+        import shutil
+        os.makedirs(per_video_dir, exist_ok=True)
+        for tmp_dir in tmp_slide_dirs:
+            if not os.path.isdir(tmp_dir):
+                continue
+            for name in os.listdir(tmp_dir):
+                src = os.path.join(tmp_dir, name)
+                dst = os.path.join(per_video_dir, name)
+                if os.path.isfile(src) and not os.path.exists(dst):
+                    shutil.copy2(src, dst)
+
+    per_video_prefix = f"/media/vidunder/output/{db_name}_slides/"
+    shared_prefix = "/media/vidunder/output/slides/"
+    slide_prefix = per_video_prefix if os.path.isdir(per_video_dir) else shared_prefix
+
+    def replace_markdown_relative(match):
+        return f"{match.group(1)}{slide_prefix}"
+
+    def replace_markdown_tmp(match):
+        return f"{match.group(1)}{slide_prefix}{match.group(2)}"
+
+    def replace_html_relative(match):
+        return f"{match.group(1)}{slide_prefix}{match.group(2)}{match.group(3)}"
+
+    def replace_html_tmp(match):
+        return f"{match.group(1)}{slide_prefix}{match.group(2)}{match.group(3)}"
+
+    content = re.sub(r'(!\[[^\]]*\]\()slides/', replace_markdown_relative, content)
+    content = re.sub(r'(!\[[^\]]*\]\()/tmp/[^)\n]+/slides/([^)\n]+)', replace_markdown_tmp, content)
+    content = re.sub(r'(<img\b[^>]*\bsrc=["\'])slides/([^"\']+)(["\'])', replace_html_relative, content)
+    content = re.sub(r'(<img\b[^>]*\bsrc=["\'])/tmp/[^"\']+/slides/([^"\']+)(["\'])', replace_html_tmp, content)
+
+    media_output_prefix = os.path.join(output_root, "")
+    if media_output_prefix in content:
+        media_url_prefix = "/media/vidunder/output/"
+        content = content.replace(media_output_prefix, media_url_prefix)
+
+    if not os.path.isdir(per_video_dir) and not os.path.isdir(shared_dir):
+        logger.warning("No slide directory found for summary %s", db_name)
+
+    return content
+
+
 VALID_SUBTITLE_LANGS = ["en", "zh", "jp", "de"]
 
 
@@ -302,18 +352,7 @@ class VideoSummaryView(View):
 
         base = os.path.basename(summary_file)
         db_name = base.replace("_summary_with_slides.md", "").replace("_summary.md", "")
-        shared_slides = "/media/vidunder/output/slides/"
-        per_video_slides = f"/media/vidunder/output/{db_name}_slides/"
-        output_root = os.path.join(settings.MEDIA_ROOT, "vidunder", "output")
-        per_video_dir = os.path.join(output_root, f"{db_name}_slides")
-        use_per_video = os.path.isdir(per_video_dir)
-        slide_prefix = per_video_slides if use_per_video else shared_slides
-
-        content = re.sub(
-            r'!\[([^\]]*)\]\(slides/',
-            rf'![\1]({slide_prefix}',
-            content,
-        )
+        content = _normalize_summary_slide_links(content, db_name)
 
         return JsonResponse({
             "summary": content,
