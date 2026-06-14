@@ -3,6 +3,7 @@ import os
 from django.urls import path
 from django.conf import settings
 from .views.set_setting import (
+    BilibiliSessDataAPIView,
     ConfigAPIView,
     TranscriptionEnginesAPIView,
     LLMTestAPIView,
@@ -164,6 +165,11 @@ urlpatterns = [
     ),
     # 配置与引擎测试
     path("api/config/", ConfigAPIView.as_view(), name="config_api"),
+    path(
+        "api/media-credentials/bilibili-sessdata/",
+        BilibiliSessDataAPIView.as_view(),
+        name="bilibili_sessdata_api",
+    ),
     path(
         "api/transcription-engines/",
         TranscriptionEnginesAPIView.as_view(),

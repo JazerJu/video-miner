@@ -1,12 +1,15 @@
 import os
 import configparser
 from typing import Any
+from datetime import datetime, timezone
 from django.conf import settings as dj_settings
 from django.views import View
 from django.http import JsonResponse, HttpRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
+import time
+import urllib.parse
 from asr_utils.transcription_engine import TranscriptionEngineFactory
 
 
@@ -329,6 +332,58 @@ def save_all_settings(settings_dict: dict[str, Any]):
         cfg.write(fp)
 
 
+def _get_media_credentials(settings_data: dict[str, Any]) -> dict[str, Any]:
+    media_settings = settings_data.setdefault("Media Credentials", {})
+    if not isinstance(media_settings, dict):
+        media_settings = {}
+        settings_data["Media Credentials"] = media_settings
+    return media_settings
+
+
+def _normalize_bilibili_sessdata(value: str) -> str:
+    """Accept raw SESSDATA or a full Cookie header and return only SESSDATA."""
+    value = (value or "").strip().strip('"').strip("'")
+    if not value:
+        return ""
+
+    if "SESSDATA=" not in value:
+        return value
+
+    for part in value.split(";"):
+        key, sep, cookie_value = part.strip().partition("=")
+        if sep and key.strip().lower() == "sessdata":
+            return cookie_value.strip()
+    return value
+
+
+def _bilibili_sessdata_status(value: str) -> dict[str, Any]:
+    value = (value or "").strip()
+    status: dict[str, Any] = {
+        "configured": bool(value),
+        "length": len(value),
+        "expires_at": None,
+        "expired": None,
+    }
+
+    if not value:
+        return status
+
+    decoded = urllib.parse.unquote(value)
+    parts = decoded.split(",")
+    if len(parts) >= 2:
+        try:
+            expiry = int(parts[1])
+        except ValueError:
+            expiry = 0
+        if expiry > 0:
+            status["expires_at"] = datetime.fromtimestamp(
+                expiry, tz=timezone.utc
+            ).isoformat()
+            status["expired"] = expiry <= int(time.time())
+
+    return status
+
+
 client: Any | None = None
 
 
@@ -405,6 +460,72 @@ class ConfigAPIView(View):
 
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
+        except Exception as exc:
+            return JsonResponse({"error": str(exc)}, status=500)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class BilibiliSessDataAPIView(View):
+    """Dedicated API for Bilibili SESSDATA without exposing full config."""
+
+    http_method_names = ["get", "post", "delete"]
+
+    def get(self, request: HttpRequest, *args, **kwargs):
+        try:
+            settings_data = load_all_settings()
+            media_settings = _get_media_credentials(settings_data)
+            sessdata = media_settings.get("bilibili_sessdata", "")
+            return JsonResponse(
+                {"success": True, "data": _bilibili_sessdata_status(sessdata)}
+            )
+        except Exception as exc:
+            return JsonResponse({"error": str(exc)}, status=500)
+
+    def post(self, request: HttpRequest, *args, **kwargs):
+        try:
+            if request.content_type != "application/json":
+                return JsonResponse(
+                    {"error": "Content-Type must be application/json"}, status=400
+                )
+
+            data = json.loads(request.body)
+            sessdata = _normalize_bilibili_sessdata(
+                data.get("sessdata") or data.get("bilibili_sessdata") or ""
+            )
+            if not sessdata:
+                return JsonResponse({"error": "sessdata is required"}, status=400)
+
+            settings_data = load_all_settings()
+            media_settings = _get_media_credentials(settings_data)
+            media_settings["bilibili_sessdata"] = sessdata
+            save_all_settings(settings_data)
+
+            return JsonResponse(
+                {
+                    "success": True,
+                    "message": "Bilibili SESSDATA updated",
+                    "data": _bilibili_sessdata_status(sessdata),
+                }
+            )
+
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        except Exception as exc:
+            return JsonResponse({"error": str(exc)}, status=500)
+
+    def delete(self, request: HttpRequest, *args, **kwargs):
+        try:
+            settings_data = load_all_settings()
+            media_settings = _get_media_credentials(settings_data)
+            media_settings["bilibili_sessdata"] = ""
+            save_all_settings(settings_data)
+            return JsonResponse(
+                {
+                    "success": True,
+                    "message": "Bilibili SESSDATA cleared",
+                    "data": _bilibili_sessdata_status(""),
+                }
+            )
         except Exception as exc:
             return JsonResponse({"error": str(exc)}, status=500)
 
