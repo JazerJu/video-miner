@@ -23,7 +23,7 @@ RUN set -eux; \
 
 # Copy frontend source and build
 COPY ${FRONTEND_DIR}/ ./
-RUN npm run build
+RUN npm run build-only
 
 # Stage 1: Python dependencies builder
 FROM python:${PYTHON_VERSION}-slim-bookworm AS python-builder
@@ -40,12 +40,15 @@ COPY backend/requirements.txt .
 # Install dependencies to system directory
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
-    # 安装 yt-dlp 完整依赖（含 EJS 脚本、加密库等）
-    && pip install --no-cache-dir "yt-dlp[default]"
+    && pip install --no-cache-dir "yt-dlp[default]" \
+    && pip uninstall -y pip sympy \
+    && find /usr/local/lib/python3.*/site-packages -name "__pycache__" -type d -exec rm -rf {} + \
+    && find /usr/local/lib/python3.*/site-packages -name "tests" -type d -exec rm -rf {} + \
+    && rm -rf /usr/local/lib/python3.*/site-packages/*.dist-info
 
 # Stage 2: Runtime
 # FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
-FROM nvidia/cuda:12.3.2-cudnn9-runtime-ubuntu22.04 AS runtime
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS runtime
 
 # 设置清华源 (Ubuntu)
 RUN sed -i 's@archive.ubuntu.com@mirrors.tuna.tsinghua.edu.cn@g' /etc/apt/sources.list \
@@ -61,29 +64,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     # FunASR-GGUF llama.cpp 依赖（GGUF decoder 通过 ctypes 加载）
     libgomp1 \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
+RUN rm -f /usr/local/cuda/lib64/libcusparse.so* \
+         /usr/local/cuda/lib64/libcusolver*.so* \
+         /usr/local/cuda/lib64/libnpp*.so*
+
 WORKDIR /app
+
+# Create runtime user before COPY --chown so name resolution works at build time.
+RUN useradd --create-home --uid 1000 vidgo \
+    && mkdir -p /app/config /app/media /app/models /app/database /app/work_dir \
+    && chown vidgo:vidgo /app/work_dir
 
 # 仅复制配置的备份文件到镜像固定位置（**不是**挂载点）
 COPY backend/config/config.ini.backup /app/config.ini.backup
 
-RUN mkdir -p /app/config
 # Copy Python packages from builder (system-wide installation)
 COPY --from=python-builder /usr/local /usr/local
 
 # Copy frontend build from compile-frontend stage
-COPY --from=compile-frontend /app/frontend/dist /app/static
+COPY --from=compile-frontend /app/backend/static /app/static
 
 # Copy backend code only
-COPY backend/ .
+COPY --chown=vidgo:vidgo backend/ .
 # 复制启动脚本
-COPY docker/entrypoint.sh /app/entrypoint.sh
-# Create user and directories
-RUN useradd --create-home --uid 1000 vidgo \
-    && mkdir -p /app/media /app/models /app/database \
-    && chown vidgo:vidgo /app/entrypoint.sh \
-    && chown -R vidgo:vidgo /app
+COPY --chown=vidgo:vidgo docker/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh
 USER vidgo
@@ -100,9 +107,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIDGO_CORS_ALLOWED_ORIGINS=http://localhost:4173,http://127.0.0.1:4173 \
     VIDGO_CSRF_TRUSTED_ORIGINS=http://localhost:4173,http://127.0.0.1:4173 \
     VIDUNDER_MODEL_ROOT=/app/models \
-    FUNASR_GGUF_DIR=/app/models/fun-asr \
-    GLM_ASR_MODEL=/app/models/glm-asr/glm-asr-bf16 \
-    GLM_ASR_FA_MODEL=/app/models/glm-asr/qwen3-forcealigner-0.6b
+    GLM_ASR_MODEL=/app/models/glm-asr/glm-asr-nano-2512 \
+    GLM_ASR_FA_MODEL=/app/models/glm-asr/qwen3-forcealigner-0.6b \
+    LD_LIBRARY_PATH=/app/vid_under/bin:/usr/local/cuda/lib64
 
 VOLUME ["/app/config", "/app/database", "/app/media", "/app/models"]
 

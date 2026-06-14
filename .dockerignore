@@ -20,6 +20,21 @@ backend/config/config.ini
 backend/doc/
 backend/media/
 backend/models/
+backend/asr_utils/glm-asr-stack/runtime/work_dir/
+backend/asr_utils/*/runtime/work_dir/
+backend/vid_under/db/
+backend/vid_under/output/
+backend/vid_under/onnx/
+backend/vid_under/models/
+backend/vid_under/glm-ocr-onnx
+backend/vid_under/__pycache__/
+backend/*.webm
+backend/*.mp4
+backend/*.mkv
+backend/*.m4a
+backend/*.wav
+backend/*.opus
+backend/*.aac
 backend/.dockerignore/
 backend/Dockerfile/
 backend/videos_url.json/
@@ -28,7 +43,6 @@ backend/.gitattributes/
 backend/miaowu.txt
 backend/videos.backup.db
 backend/videos_url.json
-backend/videos.db
 backend/CLAUDE.local.md
 backend/CLAUDE.md
 

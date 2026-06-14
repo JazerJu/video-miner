@@ -1,16 +1,17 @@
-version: '3.8'
-
 services:
   vidgo:
-    image: jaceju68/vidgo:latest
+    image: jaceju68/vidgo:cuda-latest
     container_name: vidgo-app
     restart: unless-stopped
+    runtime: nvidia
     user: "${UID:-1000}:${GID:-1000}"  # 使用宿主机用户运行，避免权限问题
     ports:
       - "8010:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"  # 让容器能通过 host.docker.internal 访问宿主机
     environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
       # VidGo Configuration
       # Set your deployment URL for automatic CORS, CSRF, and host configuration
       VIDGO_URL: "https://your-domain.com"
@@ -31,4 +32,9 @@ services:
       - ./data/config:/app/config
       # 模型文件目录
       - ./data/models:/app/models
-
+      # FunASR-GGUF 模型（只读挂载）
+      - /data/推理框架/asr-onnx/Fun-ASR-GGUF/model:/app/models/fun-asr:ro
+      # GLM-ASR Stack 模型（只读挂载）
+      - /data/fwsr/glm-asr/glm-asr-stack/models:/app/models/glm-asr:ro
+      # llama.cpp 共享库（FunASR-GGUF ctypes 依赖）
+      - /data/推理框架/llama.cpp/build/bin:/data/推理框架/llama.cpp/build/bin:ro
