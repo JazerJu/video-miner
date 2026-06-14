@@ -14,13 +14,17 @@ from agent import VideoAgent
 
 
 def _load_models():
+    import external_api as _ext
+    engine = getattr(_ext, "_glm_ocr_engine", None)
+    if engine is not None:
+        if hasattr(engine, "close"):
+            engine.close()
+        _ext._glm_ocr_engine = None
+        import gc
+        gc.collect()
+
     import minicpmv_llama
     import onnxruntime as ort
-    from external_api import _glm_ocr_engine
-    if _glm_ocr_engine is not None:
-        del _glm_ocr_engine
-        import external_api as _ext
-        _ext._glm_ocr_engine = None
 
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -35,7 +39,7 @@ def _load_models():
     sampler = minicpmv_llama.LlamaSampler(temperature=0, repeat_penalty=1.1)
 
     siglip = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_siglip.fp32.onnx"), sess_options=opts, providers=providers)
-    resampler = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_resampler_temporal.fp32.onnx"), sess_options=opts, providers=providers)
+    resampler = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_resampler_temporal.fp16.onnx"), sess_options=opts, providers=providers)
 
     return model, ctx, sampler, siglip, resampler
 
@@ -151,7 +155,7 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
     import time, av
     import numpy as np
     from video_structure import classify_scene, VideoStructure, SlideEntry, CodeSnapshot
-    from layout_detector import detect_layout, crop_content, get_vision_bbox, LayoutResult
+    from layout_detector import detect_layout, crop_content, detect_ui_strips, get_vision_bbox, LayoutResult
     from content_extractor import (
         extract_unique_slides, ocr_slides, detect_code_changes, extract_code_snapshots,
     )
@@ -188,12 +192,13 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
     n_clips = int(duration / clip_secs)
     print(f"  时长: {duration:.0f}s, {n_clips} clips ({clip_secs}s/clip)")
 
-    # 3. Phase 1: Extract mid frame + layout per clip (memory-efficient)
+    # 3. Phase 1: Extract mid frame + layout per clip
     slide_clips = {}
     code_clips = {}
     terminal_clips = {}
     clip_captions = {}
     clip_mid_frames = {}
+    clip_all_frames = {}
     clip_layouts = {}
     cached_vision_bbox = None
 
@@ -256,7 +261,8 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
 
         clip_layouts[clip_idx] = layout
         clip_mid_frames[clip_idx] = content_frames[len(content_frames) // 2]
-        del frames, content_frames
+        clip_all_frames[clip_idx] = content_frames
+        del frames  # raw frames discarded; content_frames kept for terminal/code stitching
 
         if clip_idx % 50 == 0:
             m, s = divmod(int(start_sec), 60)
@@ -355,15 +361,21 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
                     break
     print(f"  unique code snapshots: {len(code_snapshots)}")
 
-    # 8. Terminal outputs
+    # 8. Terminal outputs — 复用 Phase 1 全帧：去重→拼接→长图分块OCR
     print("\n提取终端输出...")
     terminal_outputs = []
+    from frame_stitcher import deduplicate_frames, stitch_scrolling_frames
+    from external_api import ocr_long_image
     for clip_idx in sorted(terminal_clips.keys()):
-        frames = terminal_clips[clip_idx]
-        if not frames:
+        clip_frames = clip_all_frames.get(clip_idx, [])
+        if not clip_frames:
             continue
-        mid = frames[len(frames) // 2]
-        text = call_glm_ocr(mid, "Text Recognition:", max_tokens=1024)
+        try:
+            deduped = deduplicate_frames(clip_frames)
+            stitched = stitch_scrolling_frames(deduped)
+            text = ocr_long_image(stitched)
+        except Exception:
+            text = call_glm_ocr(clip_frames[len(clip_frames) // 2], "Text Recognition:", max_tokens=1024)
         if text and len(text) > 20:
             t = clip_idx * clip_secs
             m, s = divmod(int(t), 60)
@@ -377,6 +389,10 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
                     entry["transcript"] = e["text"]
                     break
             terminal_outputs.append(entry)
+    # Free non-terminal frame data
+    for idx in list(clip_all_frames):
+        if idx not in terminal_clips and idx not in code_clips:
+            del clip_all_frames[idx]
     print(f"  terminal outputs: {len(terminal_outputs)}")
 
     # 9. Build structured output

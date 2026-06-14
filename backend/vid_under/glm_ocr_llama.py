@@ -1,12 +1,5 @@
 # coding=utf-8
-"""
-GLM-OCR hybrid inference: ONNX vision encoder + llama.cpp ctypes LLM decoder.
-
-Reuses the ctypes bindings from minicpmv_llama.py and adds 4D mRoPE support
-for correct image token position encoding.
-"""
-import os
-import sys
+"""GLM-OCR hybrid inference: ONNX vision encoder + llama.cpp ctypes decoder."""
 import time
 import json
 import ctypes
@@ -14,12 +7,11 @@ from pathlib import Path
 
 import numpy as np
 
-# Reuse existing llama.cpp ctypes bindings
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "MiniCPM-V-GGUF"))
-from minicpmv_llama import (
-    LlamaModel, LlamaContext, LlamaBatch, LlamaSampler, text_to_tokens, token_to_piece
+from llama_cpp_bindings import (
+    LlamaModel, LlamaContext, LlamaBatch, LlamaSampler
 )
 
+from config import GLM_OCR_ONNX_DIR
 from glm_ocr_onnx import GlmOcrOnnx
 
 
@@ -30,19 +22,21 @@ class GlmOcrLlama:
 
     def __init__(
         self,
-        gguf_path: str = "/data/其他模型/ocr/GLM-OCR-Q8_0.gguf",
+        gguf_path: str = "",
         onnx_dir: str | None = None,
         n_ctx: int = 4096,
         n_gpu_layers: int = 99,
     ):
+        if not gguf_path:
+            raise ValueError("gguf_path is required (e.g. 'models/GLM-OCR-GGUF/GLM-OCR-Q8_0.gguf')")
         if onnx_dir is None:
-            onnx_dir = str(Path(__file__).resolve().parent / "glm-ocr-onnx")
+            onnx_dir = GLM_OCR_ONNX_DIR
 
-        self.onnx = GlmOcrOnnx(max_tokens=2048)
+        self.onnx = GlmOcrOnnx(onnx_dir, max_tokens=2048)
 
         self.model = LlamaModel(gguf_path, n_gpu_layers=n_gpu_layers)
         self.n_embd = self.model.n_embd
-        self.ctx = LlamaContext(self.model, n_ctx=4096, n_batch=4096)
+        self.ctx = LlamaContext(self.model, n_ctx=n_ctx, n_batch=n_ctx)
 
         with open(Path(onnx_dir) / "config.json") as f:
             cfg = json.load(f)
@@ -52,6 +46,19 @@ class GlmOcrLlama:
         self.image_token_id = cfg["image_token_id"]
         self.mrope_section = cfg["text_config"]["rope_parameters"]["mrope_section"]
         self.spatial_merge_size = cfg["vision_config"]["spatial_merge_size"]
+
+    def close(self) -> None:
+        self.ctx = None
+        self.model = None
+        self.onnx = None
+        import gc
+        gc.collect()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _build_input_ids(self, prompt: str, num_image_tokens: int) -> list[int]:
         """Build token IDs using the ONNX module's Jinja template."""
@@ -246,7 +253,10 @@ if __name__ == "__main__":
     from PIL import Image
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image", default="/tmp/glm_ocr_onnx_test.png")
+    project_dir = Path(__file__).resolve().parents[1]
+    parser.add_argument("--image", default=str(project_dir / "tests" / "example.png"))
+    parser.add_argument("--gguf", default=str(project_dir / "models" / "GLM-OCR-GGUF" / "GLM-OCR-Q8_0.gguf"))
+    parser.add_argument("--onnx-dir", default=str(project_dir / "models" / "export"))
     parser.add_argument("--prompt", default="请识别图中的所有文字")
     parser.add_argument("--max-tokens", type=int, default=512)
     args = parser.parse_args()
@@ -254,7 +264,7 @@ if __name__ == "__main__":
     img = Image.open(args.image).convert("RGB")
     print(f"Image: {img.size}")
 
-    engine = GlmOcrLlama()
+    engine = GlmOcrLlama(gguf_path=args.gguf, onnx_dir=args.onnx_dir)
     t0 = time.time()
     text = engine.ocr(img, prompt=args.prompt, max_tokens=args.max_tokens)
     dt = time.time() - t0

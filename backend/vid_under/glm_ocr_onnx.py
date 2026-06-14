@@ -18,7 +18,7 @@ class GlmOcrOnnx:
     if _MODEL_ROOT:
         DEFAULT_MODEL_DIR = Path(_MODEL_ROOT) / "glm-ocr" / "glm-ocr-onnx"
     else:
-        DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / "glm-ocr-onnx"
+        DEFAULT_MODEL_DIR = Path(__file__).resolve().parent / "models" / "glm-ocr" / "glm-ocr-onnx"
 
     def __init__(self, model_dir: str | Path | None = None, max_tokens: int = 2048) -> None:
         self.model_dir = Path(model_dir) if model_dir is not None else self.DEFAULT_MODEL_DIR
@@ -84,8 +84,10 @@ class GlmOcrOnnx:
         try:
             return ort.InferenceSession(str(path), sess_options=options, providers=self.providers)
         except Exception:
-            # Fallback to CPU for THIS session only, don't poison self.providers
-            return ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
+            if self.providers != ["CPUExecutionProvider"]:
+                self.providers = ["CPUExecutionProvider"]
+                return ort.InferenceSession(str(path), sess_options=options, providers=self.providers)
+            raise
 
     def ocr(
         self,
@@ -158,7 +160,13 @@ class GlmOcrOnnx:
 
         with open(self.model_dir / "tokenizer_config.json", "r", encoding="utf-8") as f:
             cfg = json.load(f)
-        template = Environment().from_string(cfg["chat_template"])
+        chat_template = cfg.get("chat_template")
+        if chat_template is None:
+            template_path = self.model_dir / "chat_template.jinja"
+            if not template_path.exists():
+                raise FileNotFoundError(f"Missing chat template: {template_path}")
+            chat_template = template_path.read_text(encoding="utf-8")
+        template = Environment().from_string(chat_template)
 
         messages = [
             {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": prompt}]},
@@ -226,6 +234,11 @@ class GlmOcrOnnx:
             feeds["image_grid_thw"] = grid_thw
         features = self.vision_session.run(None, feeds)[0]
         if self.merger_session is not None:
+            merger_input_type = self.merger_session.get_inputs()[0].type
+            if merger_input_type == "tensor(float16)":
+                features = features.astype(np.float16, copy=False)
+            elif merger_input_type == "tensor(float)":
+                features = features.astype(np.float32, copy=False)
             features = self.merger_session.run(None, {"hidden_states": features})[0]
         return features
 

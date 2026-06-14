@@ -6,9 +6,9 @@ import urllib.request
 import urllib.error
 import numpy as np
 from config import (GEMINI_API_URL, EMBED_MODEL_PATH, STEP_API_KEY, STEP_BASE_URL,
-                              STEP_MODEL,
+                              STEP_MODEL, GEMINI_API_KEY,
                               DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
-                              OPENROUTER_KEY, OPENROUTER_BASE_URL, OPENROUTER_MODEL,
+                              OPENROUTER_KEY, OPENROUTER_BASE_URL,
                               DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
                               MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL,
                               GLM_OCR_GGUF, GLM_OCR_N_GPU_LAYERS)
@@ -39,7 +39,6 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         return []
     session, tokenizer = _get_embed_session()
     encoded = [tokenizer.encode(t) for t in texts]
-    import numpy as np
     input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
     attention_mask = np.array([e.attention_mask for e in encoded], dtype=np.int64)
     token_type_ids = np.zeros_like(input_ids)
@@ -62,6 +61,8 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 def call_gemini(payload: dict, timeout: int = 120) -> dict | None:
+    if not GEMINI_API_KEY:
+        return None
     data = json.dumps(payload, ensure_ascii=False).encode()
     req = urllib.request.Request(GEMINI_API_URL, data=data, headers={"Content-Type": "application/json"})
     try:
@@ -94,8 +95,41 @@ def call_step(prompt: str, system: str = "你是视频分析助手。", max_toke
     return _call_openai_compat(STEP_BASE_URL, STEP_API_KEY, STEP_MODEL, prompt, system, max_tokens)
 
 
-def call_step_with_images(prompt: str, images: list, system: str = "你是视频分析助手。", max_tokens: int = 1024) -> str:
-    return _call_openai_compat(OPENROUTER_BASE_URL, OPENROUTER_KEY, "stepfun/step-3.7-flash", prompt, system, max_tokens, images)
+def call_step_with_images(prompt: str, images: list, system: str = "你是视频分析助手。", max_tokens: int = 4096) -> str:
+    if STEP_API_KEY:
+        r = _call_openai_compat(STEP_BASE_URL, STEP_API_KEY, STEP_MODEL, prompt, system, max_tokens, images)
+        if r and len(r) > 20:
+            return r
+    if not GEMINI_API_KEY:
+        return ""
+    return _call_gemini_vision(prompt, images, system, max_tokens)
+
+
+def _call_gemini_vision(prompt: str, images: list, system: str, max_tokens: int) -> str:
+    if not GEMINI_API_KEY:
+        return ""
+    parts = [{"text": prompt}]
+    for img in images:
+        b64 = _pil_to_base64(img) if hasattr(img, 'save') else img
+        parts.append({"inline_data": {"mime_type": "image/jpeg", "data": b64}})
+    payload = {
+        "contents": [{"role": "user", "parts": parts}],
+        "systemInstruction": {"parts": [{"text": system}]},
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0},
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    data = json.dumps(payload, ensure_ascii=False).encode()
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode())
+            for c in result.get("candidates", []):
+                for part in c.get("content", {}).get("parts", []):
+                    if part.get("text"):
+                        return part["text"]
+    except Exception as e:
+        print(f"  Gemini vision error: {e}", flush=True)
+    return ""
 
 
 def call_deepseek_tools(messages: list[dict], tools: list[dict], max_tokens: int = 1024) -> dict:
@@ -105,6 +139,8 @@ def call_deepseek_tools(messages: list[dict], tools: list[dict], max_tokens: int
 
 def _call_openai_compat_raw(base_url: str, api_key: str, model: str, messages: list[dict], max_tokens: int, tools: list[dict] = None) -> dict:
     """Raw OpenAI-compatible call returning full response dict (for tool-calling)."""
+    if not api_key:
+        return {}
     url = f"{base_url}/chat/completions"
     payload = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0}
     if tools:
@@ -128,6 +164,8 @@ def _call_openai_compat_raw(base_url: str, api_key: str, model: str, messages: l
 
 
 def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, system: str, max_tokens: int, images: list = None) -> str:
+    if not api_key:
+        return ""
     url = f"{base_url}/chat/completions"
     messages = [{"role": "system", "content": system}]
     if images:
@@ -148,7 +186,11 @@ def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, sy
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read().decode())
-            return result["choices"][0]["message"]["content"]
+            msg = result["choices"][0]["message"]
+            content = msg.get("content") or ""
+            if not content and (msg.get("reasoning") or msg.get("reasoning_content")):
+                content = (msg.get("reasoning") or msg.get("reasoning_content", ""))[:max_tokens]
+            return content
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:500]
         print(f"  API Error {e.code}: {body}", flush=True)
@@ -192,9 +234,54 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
         return ""
 
 
-def call_openrouter(prompt: str, model: str = None,
+# ── Parallel GLM-OCR via multiprocessing ──────────────────────
+
+_ocr_pool = None
+
+def _ocr_worker_init():
+    """Each worker process loads its own GlmOcrLlama instance."""
+    global _ocr_worker_engine
+    from glm_ocr_llama import GlmOcrLlama
+    _ocr_worker_engine = GlmOcrLlama(gguf_path=GLM_OCR_GGUF, n_gpu_layers=GLM_OCR_N_GPU_LAYERS)
+
+def _ocr_worker_call(args):
+    """Worker function: (image_bytes, prompt, max_tokens) -> text."""
+    import io
+    from PIL import Image as PILImage
+    image_bytes, prompt, max_tokens = args
+    try:
+        img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+        return _ocr_worker_engine.ocr(img, prompt=prompt, max_tokens=min(max_tokens, 2048))
+    except Exception as e:
+        return f"ERROR: {e}"
+
+def ocr_parallel(images_prompts, num_workers=2):
+    """Run GLM-OCR on multiple images in parallel.
+    images_prompts: list of (PIL.Image, prompt, max_tokens)
+    Returns: list of str results, same order.
+    """
+    import io
+    from concurrent.futures import ProcessPoolExecutor
+    global _ocr_pool
+
+    serialized = []
+    for img, prompt, max_tokens in images_prompts:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        serialized.append((buf.getvalue(), prompt, max_tokens))
+
+    if _ocr_pool is None:
+        _ocr_pool = ProcessPoolExecutor(
+            max_workers=num_workers,
+            initializer=_ocr_worker_init,
+        )
+
+    results = list(_ocr_pool.map(_ocr_worker_call, serialized))
+    return results
+
+
+def call_openrouter(prompt: str, model: str = "google/gemini-2.5-flash",
                     system: str = "You are a helpful assistant.", max_tokens: int = 4096) -> str:
-    model = model or OPENROUTER_MODEL
     url = f"{OPENROUTER_BASE_URL}/chat/completions"
     payload = {
         "model": model,
@@ -244,6 +331,35 @@ def call_doubao(prompt: str, system: str = "You are a helpful assistant.", max_t
         return ""
 
 
+def call_doubao_with_image(prompt: str, image_b64: str,
+                           system: str = "You are a helpful assistant.", max_tokens: int = 4096) -> str:
+    url = f"{DOUBAO_BASE_URL}/chat/completions"
+    payload = {
+        "model": DOUBAO_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                {"type": "text", "text": prompt},
+            ]},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0.3,
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode()
+    req = urllib.request.Request(url, data=data, headers={
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DOUBAO_API_KEY}",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode())
+            return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"  Doubao vision API error: {e}", flush=True)
+        return ""
+
+
 def call_vision_for_corners(image_b64: str, img_width: int, img_height: int,
                             provider: str = "gemini") -> dict | None:
     """Ask a vision model to detect the 4 corner points of the main content area.
@@ -268,7 +384,7 @@ def call_vision_for_corners(image_b64: str, img_width: int, img_height: int,
 
     if provider == "gemini":
         text = _call_openai_compat(
-            OPENROUTER_BASE_URL, OPENROUTER_KEY, OPENROUTER_MODEL,
+            OPENROUTER_BASE_URL, OPENROUTER_KEY, "google/gemini-2.5-flash",
             prompt, "You detect corners in images. Return JSON only.",
             max_tokens=500, images=[image_b64],
         )
@@ -321,7 +437,28 @@ def call_knowledge_llm(prompt: str, max_tokens: int = 4096) -> str:
     r = call_doubao(prompt, max_tokens=max_tokens)
     if r and len(r) > 50:
         return r
-    r = call_openrouter(prompt, model=OPENROUTER_MODEL, max_tokens=max_tokens)
+    r = call_openrouter(prompt, model="google/gemini-2.5-flash", max_tokens=max_tokens)
     if r and len(r) > 50:
         return r
     return ""
+
+
+def ocr_long_image(image, max_chunk_height: int = 1800, overlap: int = 50,
+                   prompt: str = "Text Recognition:") -> str:
+    if image.height <= max_chunk_height:
+        return call_glm_ocr(image, prompt)
+    results = []
+    y = 0
+    while y < image.height:
+        bottom = min(y + max_chunk_height, image.height)
+        chunk = image.crop((0, y, image.width, bottom))
+        results.append(call_glm_ocr(chunk, prompt))
+        if bottom >= image.height:
+            break
+        y = max(bottom - overlap, y + 1)
+    if len(results) == 1:
+        return results[0]
+    merge_prompt = "以下是对同一段内容的多段 OCR 识别结果，内容有重叠。请合并为一份完整、不重复的内容。\n\n"
+    for i, r in enumerate(results, 1):
+        merge_prompt += f"【第 {i} 段】\n{r}\n\n"
+    return call_deepseek(merge_prompt, max_tokens=4096)

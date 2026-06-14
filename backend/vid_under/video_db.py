@@ -6,11 +6,9 @@ import time
 import numpy as np
 from pathlib import Path
 
-import av
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import minicpmv_llama
-from preprocess import preprocess_frame
+from preprocess import preprocess_frame, extract_frames
 from config import EXPORT_DIR, GGUF_PATH
 
 
@@ -38,7 +36,7 @@ from config import (
     DB_DIR, CLIP_SECS, VIDEO_FPS, FRAMES_PER_CLIP,
     MAX_SLICE_NUMS, GGUF_PATH, EXPORT_DIR,
     N_CTX, N_GPU_LAYERS, N_BATCH, N_PREDICT, KV_CACHE_TYPE,
-    TOKENS_DIR, NPPS, EMBED_DIM,
+    TOKENS_DIR,
 )
 from srt_utils import parse_srt, transcript_for_timerange
 
@@ -72,7 +70,7 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
         transcript = transcript_for_timerange(srt_entries, start, end)
 
         caption, vis = _caption_frames(
-            frames, transcript, video_path, model, ctx, sampler,
+            frames, transcript, model, ctx, sampler,
             siglip_sess, resampler_sess,
         )
 
@@ -94,14 +92,6 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
             progress_cb("caption", i + 1, n_clips)
 
     ctx.clear_kv()
-    del ctx, sampler, model
-    del siglip_sess, resampler_sess
-    import gc; gc.collect()
-    try:
-        import torch; torch.cuda.empty_cache()
-    except ImportError:
-        pass
-
     db = {"video_path": str(video_path), "duration": duration,
           "srt_path": str(srt_path), "n_clips": n_clips,
           "clip_secs": clip_secs, "video_fps": video_fps,
@@ -116,46 +106,58 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
 
 
 def _get_duration(path: str) -> float:
-    c = av.open(path)
-    d = float(c.duration / av.time_base) if c.duration else 0.0
-    if d == 0.0:
-        stream = c.streams.video[0]
-        d = float(stream.duration * stream.time_base) if stream.duration else 0.0
-    c.close()
-    if d == 0.0:
-        import subprocess, json
-        r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path], capture_output=True, text=True)
-        d = float(json.loads(r.stdout)["format"]["duration"])
-    return d
+    import subprocess, json
+    r = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path],
+        capture_output=True, text=True, check=True)
+    return float(json.loads(r.stdout)["format"]["duration"])
 
 
 def _extract_clip_frames(video_path: str, start: float, end: float,
                          video_fps: float = None, frames_per_clip: int = None) -> list:
+    import subprocess, os
+    from PIL import Image
     video_fps = video_fps or VIDEO_FPS
     frames_per_clip = frames_per_clip or FRAMES_PER_CLIP
-    c = av.open(video_path)
-    video_stream = c.streams.video[0]
-    fps = float(video_stream.average_rate) if video_stream.average_rate else 30.0
     clip_duration = end - start
-    min_raw = frames_per_clip + 2
-    interval = max(1, min(int(fps / video_fps), int(fps * clip_duration / min_raw)))
-    time_base = float(video_stream.time_base)
-    start_pts = int(start / time_base)
-    end_pts = int(end / time_base)
-    c.seek(start_pts, stream=video_stream)
-    frames, count = [], 0
-    for frame in c.decode(video_stream):
-        if frame.pts is not None and frame.pts > end_pts:
-            break
-        if count % interval == 0:
-            img = frame.to_image()
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-            frames.append(img)
-            if len(frames) >= frames_per_clip * 3:
-                break
-        count += 1
-    c.close()
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name,width,height", "-of", "csv=p=0", video_path],
+        capture_output=True, text=True, check=True)
+    codec, width, height = probe.stdout.strip().split(",")
+    width, height = int(width), int(height)
+
+    hwaccel = os.environ.get("VIDUNDER_HWACCEL", "none")
+    if hwaccel == "cuda":
+        hwaccel_args = ["-c:v", f"{codec}_cuvid"]
+    elif hwaccel == "vaapi":
+        hwaccel_args = ["-hwaccel", "vaapi"]
+    else:
+        hwaccel_args = []
+
+    cmd = ["ffmpeg", "-y"] + hwaccel_args + [
+        "-ss", str(start), "-t", str(clip_duration),
+        "-i", video_path,
+        "-vf", f"fps={video_fps}",
+        "-f", "rawvideo", "-pix_fmt", "rgb24",
+        "-v", "quiet", "-"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, check=True)
+    except subprocess.CalledProcessError:
+        cmd_fallback = ["ffmpeg", "-y",
+                        "-ss", str(start), "-t", str(clip_duration),
+                        "-i", video_path,
+                        "-vf", f"fps={video_fps}",
+                        "-f", "rawvideo", "-pix_fmt", "rgb24",
+                        "-v", "quiet", "-"]
+        proc = subprocess.run(cmd_fallback, capture_output=True, check=True)
+    raw = proc.stdout
+
+    frame_size = width * height * 3
+    frames = [Image.frombytes("RGB", (width, height), raw[i:i + frame_size])
+              for i in range(0, len(raw), frame_size)
+              if i + frame_size <= len(raw)]
     if len(frames) > frames_per_clip:
         indices = np.linspace(0, len(frames) - 1, frames_per_clip, dtype=int)
         frames = [frames[i] for i in indices]
@@ -176,7 +178,7 @@ def _load_onnx():
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     siglip = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_siglip.fp32.onnx"), sess_options=opts, providers=providers)
-    resampler = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_resampler_temporal.fp32.onnx"), sess_options=opts, providers=providers)
+    resampler = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_resampler_temporal.fp16.onnx"), sess_options=opts, providers=providers)
     return siglip, resampler
 
 
@@ -191,15 +193,15 @@ def _compute_onnx_inputs_v45(h, w, npps=70, resampler_embed_dim=4096):
 
 
 
-def _caption_frames(frames, transcript, video_path, model, ctx, sampler, siglip_sess, resampler_sess):
+def _caption_frames(frames, transcript, model, ctx, sampler, siglip_sess, resampler_sess):
+    from config import NPPS, EMBED_DIM, VIDEO_PATH as _VIDEO
     if not frames:
         return "(无画面)", np.empty((0, EMBED_DIM), dtype=np.float32)
 
     tiles, meta = _preprocess_frames(frames, max_slice_nums=MAX_SLICE_NUMS)
-    vid_fps = _get_video_fps(str(video_path))
+    vid_fps = _get_video_fps(str(_VIDEO))
 
     siglip_features, patch_counts = [], []
-    _t0 = time.time()
     for tile in tiles:
         h, w = tile["h"], tile["w"]
         inputs = _compute_onnx_inputs_v45(h, w, NPPS)
@@ -207,7 +209,6 @@ def _caption_frames(frames, transcript, video_path, model, ctx, sampler, siglip_
         feat = siglip_sess.run(["siglip_features"], {"pixel_values": pv, "pos_ids": inputs["pos_ids"]})[0]
         siglip_features.append(feat)
         patch_counts.append(h * w)
-    _t_siglip = time.time() - _t0
 
     from preprocess import (
         get_2d_sincos_pos_embed_numpy, encode_video_temporal_ids,
@@ -219,14 +220,12 @@ def _caption_frames(frames, transcript, video_path, model, ctx, sampler, siglip_
     gf = np.concatenate(siglip_features, axis=0)
     sp = np.concatenate([get_2d_sincos_pos_embed_numpy(EMBED_DIM, (tiles[i]["h"], tiles[i]["w"])).reshape(tiles[i]["h"] * tiles[i]["w"], -1) for i in range(len(tiles))], axis=0)
     te = compute_temporal_embeddings_for_group(patch_counts, tids, EMBED_DIM)
-    _t0 = time.time()
     vt = resampler_sess.run(None, {
-        "siglip_features": gf,
-        "spatial_pos_embeds": sp,
-        "temporal_pos_embeds": te,
+        "siglip_features": gf.astype(np.float16),
+        "spatial_pos_embeds": sp.astype(np.float16),
+        "temporal_pos_embeds": te.astype(np.float16),
     })[0]
-    vis = vt
-    _t_resampler = time.time() - _t0
+    vis = vt.astype(np.float32)
     ctx.clear_kv()
 
     transcript_hint = f"\n该时间段字幕:\n{transcript}" if transcript else ""
@@ -239,10 +238,7 @@ def _caption_frames(frames, transcript, video_path, model, ctx, sampler, siglip_
         "4. 所有屏幕上可见的重要文字信息（标题、按钮、提示语）都要体现在描述中"
         f"{transcript_hint}"
     )
-    _t0 = time.time()
     answer = _ask(model, ctx, sampler, vis, question, N_PREDICT)
-    _t_llm = time.time() - _t0
-    print(f"    [perf] siglip={_t_siglip*1000:.0f}ms resampler={_t_resampler*1000:.0f}ms llm={_t_llm*1000:.0f}ms", flush=True)
     cleaned = _strip_think(answer.strip())
     if not cleaned or cleaned == "(无视觉描述)":
         print(f"    [WARN] empty caption, raw[:300]={repr(answer.strip()[:300])}")

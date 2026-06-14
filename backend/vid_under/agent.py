@@ -11,13 +11,7 @@ from external_api import (
     call_glm_ocr, _pil_to_base64,
 )
 from srt_utils import search_transcript, transcript_for_timerange
-from config import (
-    DEEPSEEK_API_KEY,
-    STEP_API_KEY,
-    N_PREDICT,
-    SUMMARY_SLIDES_PER_CHAPTER,
-    SUMMARY_LANG,
-)
+from config import DEEPSEEK_API_KEY, STEP_API_KEY, N_PREDICT, GGUF_PATH, EXPORT_DIR, N_CTX, N_GPU_LAYERS, N_BATCH, KV_CACHE_TYPE, ONNX_PROVIDER, SUMMARY_SLIDES_PER_CHAPTER, SUMMARY_LANG, MEDIA_VIDUNDER
 
 
 # ── DeepSeek tool definitions ─────────────────────────────────
@@ -323,7 +317,6 @@ _SUMMARIZE_TOOL_DEFS = [
     if t["function"]["name"] in _SUMMARIZE_TOOL_NAMES
 ]
 
-
 class VideoAgent:
     def __init__(self, db, srt_entries, model=None, ctx=None, sampler=None,
                  siglip_sess=None, resampler_sess=None, video_path=None, lang=None):
@@ -341,12 +334,9 @@ class VideoAgent:
         self._lang = lang or SUMMARY_LANG
         if self._lang != "中文":
             self._SYSTEM_PROMPT = self._SYSTEM_PROMPT.replace("用中文回答", f"用{self._lang}回答")
+            self._SYSTEM_PROMPT_NO_SRT = self._SYSTEM_PROMPT_NO_SRT.replace("用中文回答", f"用{self._lang}回答")
             self._SUMMARIZE_SYSTEM_PROMPT = self._SUMMARIZE_SYSTEM_PROMPT.replace("用中文输出（原始字幕/代码保持原文）", f"用{self._lang}输出（原始字幕/代码保持原文）")
-        caps = [c["caption"] for c in db["clips"]]
-        if caps:
-            print(f"  计算 {len(caps)} 条 caption 的 embedding...")
-            self._clip_embeds = embed_texts(caps)
-            print("  embedding 完成.")
+        self._clip_count = len(db.get("clips", []))
 
     def _fmt(self, sec):
         m, s = divmod(int(sec), 60)
@@ -362,27 +352,66 @@ class VideoAgent:
         print("  [lazy] models loaded")
 
     def unload_models(self):
-        if self._model is None:
+        if self._model is None and self._ctx is None and self._siglip is None and self._resampler is None:
             return
-        del self._model
-        self._model = None
+        if self._sampler is not None and hasattr(self._sampler, "free"):
+            self._sampler.free()
         self._ctx = None
         self._sampler = None
-        if self._siglip is not None:
-            del self._siglip
-            self._siglip = None
-        if self._resampler is not None:
-            del self._resampler
-            self._resampler = None
+        self._siglip = None
+        self._resampler = None
+        self._model = None
         import gc
         gc.collect()
         print("  [unload] models released")
+
+    def _ensure_clip_embeds(self):
+        if self._clip_embeds is not None:
+            return bool(self._clip_embeds)
+        caps = [c.get("caption", "") for c in self.db.get("clips", [])]
+        if not caps:
+            self._clip_embeds = []
+            return False
+        print(f"  计算 {len(caps)} 条 caption 的 embedding...")
+        self._clip_embeds = embed_texts(caps)
+        print("  embedding 完成.")
+        return bool(self._clip_embeds)
+
+    def _parse_tool_arguments(self, tool_call):
+        raw = (tool_call.get("function") or {}).get("arguments") or "{}"
+        try:
+            parsed = _json.loads(raw)
+        except Exception as exc:
+            return None, {
+                "_source": "tool_argument_parser",
+                "error": f"Invalid tool arguments JSON: {exc}",
+                "raw_arguments": str(raw)[:1000],
+            }
+        if not isinstance(parsed, dict):
+            return None, {
+                "_source": "tool_argument_parser",
+                "error": "Tool arguments must decode to a JSON object",
+                "raw_arguments": str(raw)[:1000],
+            }
+        return parsed, None
 
     def _extract_json_path(self):
         import glob as _glob
         from pathlib import Path as _Path
         base = _Path(self.db.get("video_path", "")).stem
+        output_root = _Path(MEDIA_VIDUNDER) / "output"
+        explicit_output = self.db.get("extract_output")
+        explicit_structure = self.db.get("structure_path")
+        explicit_patterns = []
+        if explicit_structure:
+            explicit_patterns.append(str(explicit_structure))
+        if explicit_output:
+            explicit_patterns.append(str(_Path(explicit_output) / "*_structure.json"))
         for pattern in [
+            *explicit_patterns,
+            str(output_root / base / "*_structure.json"),
+            str(output_root / f"{base}_extract" / "*_structure.json"),
+            str(output_root / f"*{base}*" / "*_structure.json"),
             f"/tmp/{base}/*_structure.json",
             f"/tmp/{base}_test/*_structure.json",
             f"/tmp/*/{base}*_structure.json",
@@ -673,8 +702,17 @@ class VideoAgent:
 
             for tc in tool_calls:
                 fn_name = tc["function"]["name"]
-                fn_args = _json.loads(tc["function"]["arguments"])
                 tc_id = tc["id"]
+                fn_args, parse_error = self._parse_tool_arguments(tc)
+                if parse_error:
+                    result_str = _json.dumps(parse_error, ensure_ascii=False)
+                    print(f"  [warn] malformed summarize tool args for {fn_name}: {result_str[:300]}")
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": result_str,
+                    })
+                    continue
 
                 call_sig = f"{fn_name}:{sorted(fn_args.items())}"
                 recent_tool_calls.append(call_sig)
@@ -953,6 +991,68 @@ class VideoAgent:
             chapters[0]["start_seconds"] = 0
             chapters[0]["start_time"] = "00:00"
 
+        # Fallback: energy minima when embedding fails (≤2 chapters for >10min video)
+        duration = self.srt[-1]["end"] if self.srt else 0
+        if len(chapters) <= 2 and duration > 600:
+            import numpy as _np2
+            target = max(3, int(duration / 240) + 1)  # ~4min per chapter
+            # Take N-1 lowest-similarity points as boundaries, sorted by time
+            ranked = sorted(enumerate(sims), key=lambda x: x[1])
+            fallback = [0]
+            for idx, _ in ranked[:target - 1]:
+                if idx > 0:
+                    fallback.append(idx)
+            fallback.sort()
+            # Merge by min distance
+            merged_fb = [fallback[0]]
+            for idx in fallback[1:]:
+                last_t = times[merged_fb[-1]] if merged_fb[-1] < len(times) else 0
+                cur_t = times[idx] if idx < len(times) else 0
+                if cur_t - last_t >= min_chapter_secs:
+                    merged_fb.append(idx)
+            # Build chapters from fallback boundaries
+            chapters_fb = []
+            prev_time = 0
+            for j, b_idx in enumerate(merged_fb):
+                start_time = prev_time
+                next_idx = merged_fb[j + 1] if j + 1 < len(merged_fb) else len(times) - 1
+                end_time = times[next_idx] if next_idx < len(times) else self.srt[-1]["end"]
+                if end_time - start_time < min_chapter_secs:
+                    continue
+                chapters_fb.append({
+                    "chapter": len(chapters_fb) + 1,
+                    "title": f"分组 {len(chapters_fb) + 1}",
+                    "start_seconds": round(start_time, 1),
+                    "end_seconds": round(end_time, 1),
+                    "start_time": self._fmt(start_time),
+                    "end_time": self._fmt(end_time),
+                    "duration": round(end_time - start_time),
+                    "preview": " ".join(
+                        e["text"] for e in self.srt if start_time <= e["start"] <= end_time
+                    )[:300],
+                })
+                prev_time = end_time
+            if chapters_fb:
+                from external_api import call_doubao
+                outlines = "\n".join(
+                    f"{ch['chapter']}. ({ch['start_time']}-{ch['end_time']}) {ch.get('preview', '')[:200]}"
+                    for ch in chapters_fb
+                )
+                title_resp = call_doubao(
+                    f"为以下视频分组各生成一个简短标题（5-15字，不要序号和标点）。\n每行输出格式：序号. 标题\n\n{outlines}",
+                    max_tokens=500,
+                )
+                for line in title_resp.split("\n"):
+                    m2 = re.match(r'(\d+)[\.\)、]\s*(.+)', line.strip())
+                    if m2:
+                        idx2 = int(m2.group(1)) - 1
+                        if 0 <= idx2 < len(chapters_fb):
+                            chapters_fb[idx2]["title"] = m2.group(2).strip()
+                chapters_fb[0]["start_seconds"] = 0
+                chapters_fb[0]["start_time"] = "00:00"
+                chapters = chapters_fb
+                threshold = float(_np2.mean([s[1] for s in ranked[:target-1]]))
+
         return {
             "_source": f"detect_chapters (adaptive threshold={threshold:.3f}, mean_sim={mean_sim:.3f})",
             "total_chapters": len(chapters),
@@ -1086,8 +1186,8 @@ class VideoAgent:
         prompt = (
             f"请为视频章节「{chapter_title}」（{self._fmt(start_sec)}-{self._fmt(end_sec)}）生成详细的结构化摘要。\n\n"
             f"该章节字幕：\n{transcript}\n\n"
-            f"该章节画面描述（AI caption）：\n{caption_text}"
-            f"{ocr_code_section}{terminal_section}{slides_section}\n\n"
+            f"{terminal_section}{ocr_code_section}{slides_section}\n\n"
+            f"该章节画面描述（AI caption，仅供参考；优先采用上方 OCR 逐字抄录的终端/代码/幻灯片文字）：\n{caption_text}"
             f"要求：\n"
             f"- 严格按照时间顺序，逐段展开叙述，不要遗漏任何重要内容\n"
             f"- 每个知识点/操作步骤必须展开描述：先说明背景/目的，再写出具体内容（代码要完整写出，命令要写出完整命令行，配置要写出具体参数值）\n"
@@ -1149,7 +1249,7 @@ class VideoAgent:
         "9. read_summary - 读取已生成 summary 的目录或指定章节内容\n"
         "10. update_summary - 修改已生成 summary 中的指定章节文本\n"
         "11. inspect_slide - 使用 GLM-OCR 分析指定幻灯片图片\n"
-        "12. identify_image - 使用云端 VLM 分析指定时间段的帧。默认 1 帧（中间帧），可设 frames=2-8 均匀采样多帧\n\n"
+        "12. identify_image - 使用云端 VLM 分析指定时间段的视频帧（支持多帧采样）\n\n"
         "字幕中的别名：x-ui = 三叉UI = 叉杠UI = 3X-UI\n\n"
         "分析策略：\n"
         "- 先用 search_transcript 或 search_similar_clips 定位大致时间\n"
@@ -1161,6 +1261,33 @@ class VideoAgent:
         "重要：\n"
         "- 当你已经有足够信息时，**立即停止调用工具并直接给出最终答案**\n"
         "- 最终答案必须包含：具体事实 + 时间戳 + 来源（字幕/视觉）\n"
+        "- 用中文回答"
+    )
+
+    _SYSTEM_PROMPT_NO_SRT = (
+        "你是视频分析助手。当前视频没有字幕，所有信息必须从画面中提取。\n\n"
+        "可用工具：\n"
+        "1. search_similar_clips - 通过 caption embedding 语义搜索定位相关片段（首要定位手段）\n"
+        "2. inspect_scrolling - 密集抽帧拼接长图，GLM-OCR 精确识别画面中所有可见文本【核心工具】\n"
+        "3. visual_inspect - MiniCPM-V 8B 视觉描述（仅用于理解画面大意，不可信精确文本）\n"
+        "4. get_extracted_content - 获取已提取的 slides/code/terminal OCR 内容\n"
+        "5. identify_image - 云端 VLM 分析画面（识别物体/人物/Logo 等非文字内容）\n"
+        "6. inspect_slide - GLM-OCR 读取指定幻灯片图片\n"
+        "7. read_summary / update_summary - 读取/修改已生成的摘要\n\n"
+        "无字幕分析策略（严格按此顺序）：\n"
+        "1. 用 search_similar_clips 根据问题语义定位相关 clip 的时间范围\n"
+        "2. 对定位到的时间范围调用 inspect_scrolling 做精确 OCR（这是获取具体文本/数字/代码/命令的唯一可靠来源）\n"
+        "3. 只有在需要理解画面整体结构（如界面布局、操作流程）时才用 visual_inspect\n"
+        "4. 绝不要仅凭 caption 或 visual_inspect 的结果回答涉及具体文本/数字/命令的问题\n\n"
+        "工具可靠性排序（高→低）：\n"
+        "  inspect_scrolling (GLM-OCR 精确文本) > get_extracted_content (已提取OCR) "
+        "> identify_image (云端VLM) > visual_inspect (8B本地VLM, 可能幻觉) "
+        "> search_similar_clips (caption, 仅供参考定位)\n\n"
+        "caption 和 visual_inspect 可能产生幻觉（编造不存在的命令、数字、文件名），"
+        "涉及具体事实时必须用 inspect_scrolling 交叉验证。\n\n"
+        "重要：\n"
+        "- 当你已经有足够信息时，**立即停止调用工具并直接给出最终答案**\n"
+        "- 最终答案必须包含：具体事实 + 时间戳 + 来源（OCR/视觉）\n"
         "- 用中文回答"
     )
 
@@ -1182,7 +1309,11 @@ class VideoAgent:
     )
 
     def reset_conversation(self):
-        self._messages = [{"role": "system", "content": self._SYSTEM_PROMPT}]
+        if not self.srt or len(self.srt) < 5:
+            prompt = self._SYSTEM_PROMPT_NO_SRT
+        else:
+            prompt = self._SYSTEM_PROMPT
+        self._messages = [{"role": "system", "content": prompt}]
 
     def ask(self, question, max_rounds=6, on_event=None):
         if not DEEPSEEK_API_KEY:
@@ -1227,8 +1358,19 @@ class VideoAgent:
 
             for tc in tool_calls:
                 fn_name = tc["function"]["name"]
-                fn_args = _json.loads(tc["function"]["arguments"])
                 tc_id = tc["id"]
+                fn_args, parse_error = self._parse_tool_arguments(tc)
+                if parse_error:
+                    result_str = _json.dumps(parse_error, ensure_ascii=False)
+                    print(f"  [warn] malformed tool args for {fn_name}: {result_str[:300]}")
+                    if on_event:
+                        on_event({"type": "tool_result", "name": fn_name, "summary": parse_error["error"]})
+                    self._messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": result_str,
+                    })
+                    continue
 
                 if on_event:
                     on_event({"type": "tool_call", "name": fn_name, "args": fn_args})
@@ -1268,33 +1410,18 @@ class VideoAgent:
         return answer
 
     def _run_glm_ocr(self, image, prompt="Text Recognition:") -> str:
+        self._unload_minicpmv_before_ocr()
         return call_glm_ocr(image, prompt)
 
     def _chunked_ocr(self, image: PILImage.Image, max_chunk_height: int = 1800) -> str:
-        overlap = 50
-        if image.height <= max_chunk_height:
-            return call_glm_ocr(image, "Text Recognition:")
+        self._unload_minicpmv_before_ocr()
+        from external_api import ocr_long_image
+        return ocr_long_image(image, max_chunk_height=max_chunk_height, prompt="Text Recognition:")
 
-        results = []
-        y = 0
-        while y < image.height:
-            bottom = min(y + max_chunk_height, image.height)
-            chunk = image.crop((0, y, image.width, bottom))
-            results.append(call_glm_ocr(chunk, "Text Recognition:"))
-            if bottom >= image.height:
-                break
-            y = max(bottom - overlap, y + 1)
-
-        if len(results) == 1:
-            return results[0]
-
-        merge_prompt = (
-            "以下是对同一段内容的多段 OCR 识别结果，内容有重叠。"
-            "请合并为一份完整、不重复的内容。\n\n"
-        )
-        for i, result in enumerate(results, 1):
-            merge_prompt += f"【第 {i} 段】\n{result}\n\n"
-        return call_deepseek(merge_prompt, max_tokens=4096)
+    def _unload_minicpmv_before_ocr(self):
+        if any(x is not None for x in (self._model, self._ctx, self._siglip, self._resampler)):
+            print("  [model-switch] unloading MiniCPM-V before GLM-OCR")
+            self.unload_models()
 
     def _stitch_frames(self, frames, pad=4):
         from frame_stitcher import deduplicate_frames, stitch_scrolling_frames
@@ -1384,7 +1511,7 @@ class VideoAgent:
             frame = self._extract_mid_frame(s, e)
             if frame is None:
                 return {"_source": "compare_ocr", "error": f"无法提取 [{self._fmt(s)}-{self._fmt(e)}] 画面"}
-            glm_result = call_glm_ocr(frame, "Text Recognition:")
+            glm_result = self._run_glm_ocr(frame, "Text Recognition:")
             cp_v_result = ""
             try:
                 self._ensure_models()
@@ -1416,7 +1543,7 @@ class VideoAgent:
                 ocr_result = self._chunked_ocr(stitched)
                 method = f"提取 {len(frames)} 帧，垂直拼接为 {stitched.height}px 长图后分块 OCR，并用 DeepSeek 合并去重"
             else:
-                ocr_result = call_glm_ocr(stitched, prompt)
+                ocr_result = self._run_glm_ocr(stitched, prompt)
                 method = f"提取 {len(frames)} 帧，垂直拼接为长图后一次性 OCR（via llama-server MTP）"
             return {
                 "_source": "inspect_scrolling (GLM-OCR 0.9B llama.cpp server on stitched long image)",
@@ -1426,9 +1553,9 @@ class VideoAgent:
             }
 
         if name == "search_similar_clips":
-            qe = embed_texts([args["query"]])[0]
-            if self._clip_embeds is None:
+            if not self._ensure_clip_embeds():
                 return {"_source": "search_similar_clips", "error": "片段 embedding 未就绪"}
+            qe = embed_texts([args["query"]])[0]
             scored = [(i, cosine_similarity(qe, self._clip_embeds[i])) for i in range(len(self.db["clips"]))]
             scored.sort(key=lambda x: x[1], reverse=True)
             top_k = args.get("top_k", 5)
@@ -1528,8 +1655,8 @@ class VideoAgent:
             question = args["question"]
             q_lower = question.lower()
             if any(kw.lower() in q_lower for kw in ["识别", "文字", "text", "OCR", "读取"]):
-                return call_glm_ocr(img, "Text Recognition:")
-            return call_glm_ocr(img, question)
+                return self._run_glm_ocr(img, "Text Recognition:")
+            return self._run_glm_ocr(img, question)
 
         if name == "identify_image":
             s, e = args["start_seconds"], args["end_seconds"]
@@ -1918,9 +2045,7 @@ class VideoAgent:
             get_2d_sincos_pos_embed_numpy, encode_video_temporal_ids,
             compute_temporal_embeddings_for_group,
         )
-        from video_db import _get_video_fps
-        from importlib import import_module
-        export_mod = import_module("01-Export-Vision-Encoder")
+        from video_db import _get_video_fps, _compute_onnx_inputs_v45
 
         tiles, meta = _preprocess_frames(frames, max_slice_nums=MAX_SLICE_NUMS)
         vid_fps = _get_video_fps(self._video_path)
@@ -1928,7 +2053,7 @@ class VideoAgent:
         siglip_features, patch_counts = [], []
         for tile in tiles:
             h, w = tile["h"], tile["w"]
-            inputs = export_mod.compute_onnx_inputs_v45(h, w, NPPS)
+            inputs = _compute_onnx_inputs_v45(h, w, NPPS)
             pv = tile["pixel_values"].astype(np.float32)
             feat = self._siglip.run(["siglip_features"], {"pixel_values": pv, "pos_ids": inputs["pos_ids"]})[0]
             siglip_features.append(feat)
@@ -1940,7 +2065,7 @@ class VideoAgent:
         gf = np.concatenate(siglip_features, axis=0)
         sp = np.concatenate([get_2d_sincos_pos_embed_numpy(EMBED_DIM, (tiles[i]["h"], tiles[i]["w"])).reshape(tiles[i]["h"] * tiles[i]["w"], -1) for i in range(len(tiles))], axis=0)
         te = compute_temporal_embeddings_for_group(patch_counts, tids, EMBED_DIM)
-        vt = self._resampler.run(["visual_tokens"], {
+        vt = self._resampler.run(None, {
             "siglip_features": gf.astype(np.float16),
             "spatial_pos_embeds": sp.astype(np.float16),
             "temporal_pos_embeds": te.astype(np.float16),
@@ -1960,8 +2085,9 @@ class VideoAgent:
 
         clip_idx = self._find_clip_idx(start_sec)
         if clip_idx is not None:
+            clip = self.db["clips"][clip_idx]
             vis = self._load_dense_tokens(clip_idx)
-            if vis is not None:
+            if vis is not None and end_sec <= clip["end"] + 0.5:
                 print(f"  [frame_inspect] using cached tokens ({vis.shape[0]} tokens)")
                 from srt_utils import transcript_for_timerange
                 transcript = transcript_for_timerange(self.srt, start_sec, end_sec)
@@ -1987,9 +2113,7 @@ class VideoAgent:
             get_2d_sincos_pos_embed_numpy, encode_video_temporal_ids,
             compute_temporal_embeddings_for_group,
         )
-        from video_db import _get_video_fps
-        from importlib import import_module
-        export_mod = import_module("01-Export-Vision-Encoder")
+        from video_db import _get_video_fps, _compute_onnx_inputs_v45
 
         frames = _extract_clip_frames(self._video_path, start_sec, end_sec)
         if not frames:
@@ -2001,7 +2125,7 @@ class VideoAgent:
         siglip_features, patch_counts = [], []
         for tile in tiles:
             h, w = tile["h"], tile["w"]
-            inputs = export_mod.compute_onnx_inputs_v45(h, w, NPPS)
+            inputs = _compute_onnx_inputs_v45(h, w, NPPS)
             pv = tile["pixel_values"].astype(np.float32)
             feat = self._siglip.run(["siglip_features"], {"pixel_values": pv, "pos_ids": inputs["pos_ids"]})[0]
             siglip_features.append(feat)
@@ -2013,7 +2137,7 @@ class VideoAgent:
         gf = np.concatenate(siglip_features, axis=0)
         sp = np.concatenate([get_2d_sincos_pos_embed_numpy(EMBED_DIM, (tiles[i]["h"], tiles[i]["w"])).reshape(tiles[i]["h"] * tiles[i]["w"], -1) for i in range(len(tiles))], axis=0)
         te = compute_temporal_embeddings_for_group(patch_counts, tids, EMBED_DIM)
-        vt = self._resampler.run(["visual_tokens"], {
+        vt = self._resampler.run(None, {
             "siglip_features": gf.astype(np.float16),
             "spatial_pos_embeds": sp.astype(np.float16),
             "temporal_pos_embeds": te.astype(np.float16),
@@ -2038,55 +2162,160 @@ class VideoAgent:
         return self._visual_ask(vqa_prompt, vis, N_PREDICT)
 
     def _visual_ask(self, prompt, vis, n_predict):
+        import math
         import minicpmv_llama
-        _pad_id = self._model.tokenize("<|image_pad|>", parse_special=True)[0]
-        n_tiles = vis.shape[0] // 64
-        tile_str = "<image>" + "<|image_pad|>" * 64 + "</image>"
-        slice_str = "<slice>" + "<|image_pad|>" * 64 + "</slice>"
-        image_str = tile_str if n_tiles == 1 else tile_str + slice_str * (n_tiles - 1)
-        full_prompt = f"<|im_start|>user\n{image_str}\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-        tokens = self._model.tokenize(full_prompt, add_special=True, parse_special=True)
+        if vis is None or getattr(vis, "shape", (0,))[0] <= 0:
+            return "视觉 token 为空，无法进行本地视觉问答。"
 
-        segments = []
-        current_text = []
-        for tok in tokens:
-            if tok == _pad_id:
-                if current_text:
-                    segments.append(("text", current_text))
-                    current_text = []
-                if segments and segments[-1][0] == "visual":
-                    segments[-1] = ("visual", segments[-1][1] + 1)
+        if not isinstance(vis, np.ndarray):
+            vis = np.asarray(vis, dtype=np.float32)
+        if vis.dtype != np.float32 or not vis.flags["C_CONTIGUOUS"]:
+            vis = np.ascontiguousarray(vis.astype(np.float32, copy=False))
+
+        _pad_id = self._model.tokenize("<|image_pad|>", parse_special=True)[0]
+        tile_tokens = 64
+        n_tiles_total = vis.shape[0] // tile_tokens
+        if n_tiles_total <= 0:
+            return "视觉 token 数量不足，无法进行本地视觉问答。"
+        vis = vis[:n_tiles_total * tile_tokens]
+
+        def _sample_tiles(source_vis, n_tiles):
+            if n_tiles >= n_tiles_total:
+                return source_vis, n_tiles_total
+            tiles = source_vis.reshape(n_tiles_total, tile_tokens, source_vis.shape[1])
+            idx = np.linspace(0, n_tiles_total - 1, n_tiles, dtype=int)
+            sampled = tiles[idx].reshape(n_tiles * tile_tokens, source_vis.shape[1])
+            return np.ascontiguousarray(sampled.astype(np.float32, copy=False)), n_tiles
+
+        def _truncate_middle(text, max_chars):
+            if len(text) <= max_chars:
+                return text
+            marker = "\n\n[...上下文过长，已截断以适配本地模型上下文...]\n\n"
+            if max_chars <= len(marker) + 200:
+                return text[:max_chars]
+            head = max_chars // 2
+            tail = max_chars - head - len(marker)
+            return text[:head] + marker + text[-tail:]
+
+        def _build_segments(prompt_text, n_tiles):
+            tile_str = "<image>" + "<|image_pad|>" * tile_tokens + "</image>"
+            slice_str = "<slice>" + "<|image_pad|>" * tile_tokens + "</slice>"
+            image_str = tile_str if n_tiles == 1 else tile_str + slice_str * (n_tiles - 1)
+            full_prompt = f"<|im_start|>user\n{image_str}\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
+            tokens = self._model.tokenize(full_prompt, add_special=True, parse_special=True)
+
+            segments = []
+            current_text = []
+            visual_tokens = 0
+            for tok in tokens:
+                if tok == _pad_id:
+                    visual_tokens += 1
+                    if current_text:
+                        segments.append(("text", current_text))
+                        current_text = []
+                    if segments and segments[-1][0] == "visual":
+                        segments[-1] = ("visual", segments[-1][1] + 1)
+                    else:
+                        segments.append(("visual", 1))
                 else:
-                    segments.append(("visual", 1))
-            else:
-                current_text.append(tok)
-        if current_text:
-            segments.append(("text", current_text))
+                    current_text.append(tok)
+            if current_text:
+                segments.append(("text", current_text))
+            return segments, len(tokens), visual_tokens
+
+        requested_predict = max(1, int(n_predict or 1))
+        reserved_gen = min(requested_predict, max(64, N_CTX // 4))
+        input_budget = max(128, N_CTX - reserved_gen - 4)
+        prompt_text = prompt
+        n_tiles = n_tiles_total
+        sampled_visual = False
+        truncated_prompt = False
+
+        for _ in range(12):
+            segments, input_tokens, visual_tokens = _build_segments(prompt_text, n_tiles)
+            if input_tokens <= input_budget:
+                break
+            overflow = input_tokens - input_budget
+            if n_tiles > 1 and visual_tokens > tile_tokens:
+                remove_tiles = max(1, math.ceil(overflow / tile_tokens))
+                new_tiles = max(1, n_tiles - remove_tiles)
+                if new_tiles < n_tiles:
+                    n_tiles = new_tiles
+                    sampled_visual = True
+                    continue
+
+            max_chars = max(300, int(len(prompt_text) * input_budget / max(input_tokens, 1) * 0.85))
+            if len(prompt_text) > max_chars:
+                next_prompt = _truncate_middle(prompt_text, max_chars)
+                if next_prompt != prompt_text:
+                    prompt_text = next_prompt
+                    truncated_prompt = True
+                    continue
+            break
+
+        segments, input_tokens, visual_tokens = _build_segments(prompt_text, n_tiles)
+        if input_tokens >= N_CTX:
+            return (
+                f"本地视觉模型上下文不足：输入 {input_tokens} tokens >= N_CTX {N_CTX}。"
+                "请缩短时间范围后重试。"
+            )
+
+        vis, n_tiles = _sample_tiles(vis, n_tiles)
+        if visual_tokens != vis.shape[0]:
+            usable = min(visual_tokens, vis.shape[0])
+            usable -= usable % tile_tokens
+            if usable <= 0:
+                return "视觉 token 与 prompt 占位符不匹配，无法进行本地视觉问答。"
+            vis = vis[:usable]
+            n_tiles = usable // tile_tokens
+            segments, input_tokens, visual_tokens = _build_segments(prompt_text, n_tiles)
+
+        n_predict = min(requested_predict, max(1, N_CTX - input_tokens))
+        batch_limit = max(1, min(int(N_BATCH or 512), N_CTX))
+        if sampled_visual:
+            print(f"  [visual_ask] sampled visual tiles {n_tiles}/{n_tiles_total} to fit N_CTX={N_CTX}")
+        if truncated_prompt:
+            print(f"  [visual_ask] truncated prompt to fit N_CTX={N_CTX}")
+
+        def _check_decode(ret, stage):
+            if ret not in (0, None):
+                raise RuntimeError(f"llama decode failed during {stage}: {ret}")
 
         self._ctx.clear_kv()
         pos, vis_idx = 0, 0
         for stype, sdata in segments:
             if stype == "text":
-                batch = minicpmv_llama.LlamaBatch(len(sdata), embd_dim=0)
-                batch.set_tokens(sdata, pos_offset=pos)
-                self._ctx.decode(batch)
-                pos += len(sdata)
+                for off in range(0, len(sdata), batch_limit):
+                    chunk = sdata[off:off + batch_limit]
+                    if pos + len(chunk) > N_CTX:
+                        return f"本地视觉模型上下文不足：prefill pos={pos}, chunk={len(chunk)}, N_CTX={N_CTX}"
+                    batch = minicpmv_llama.LlamaBatch(len(chunk), embd_dim=0)
+                    batch.set_tokens(chunk, pos_offset=pos)
+                    _check_decode(self._ctx.decode(batch), "text prefill")
+                    pos += len(chunk)
             else:
                 n = sdata
-                batch = minicpmv_llama.LlamaBatch(n, embd_dim=self._model.n_embd)
-                batch.set_embd(vis[vis_idx:vis_idx + n], pos_offset=pos)
-                self._ctx.decode(batch)
+                for off in range(0, n, batch_limit):
+                    chunk_n = min(batch_limit, n - off)
+                    if pos + chunk_n > N_CTX:
+                        return f"本地视觉模型上下文不足：visual pos={pos}, chunk={chunk_n}, N_CTX={N_CTX}"
+                    chunk = vis[vis_idx + off:vis_idx + off + chunk_n]
+                    batch = minicpmv_llama.LlamaBatch(chunk_n, embd_dim=self._model.n_embd)
+                    batch.set_embd(chunk, pos_offset=pos)
+                    _check_decode(self._ctx.decode(batch), "visual prefill")
+                    pos += chunk_n
                 vis_idx += n
-                pos += n
 
         raw = bytearray()
         for _ in range(n_predict):
+            if pos >= N_CTX:
+                break
             tok = self._sampler.sample(self._ctx)
             self._sampler.accept(tok)
             if tok == self._model.eos_token:
                 break
             raw.extend(self._model.detokenize(tok))
-            self._ctx.decode_token(tok, pos=pos)
+            _check_decode(self._ctx.decode_token(tok, pos=pos), "token decode")
             pos += 1
         return raw.decode("utf-8", errors="replace").strip()
 
@@ -2123,7 +2352,7 @@ class VideoAgent:
         return [{**self.srt[i], "score": round(sim, 3)} for i, sim in scored[:top_k]]
 
     def _search_captions_embed(self, query, top_k=10):
-        if not self._clip_embeds:
+        if not self._ensure_clip_embeds():
             return "", []
         qe = embed_texts([query])[0]
         scored = [(i, cosine_similarity(qe, self._clip_embeds[i]))
