@@ -6,6 +6,7 @@ matching the Whisper model API style without reusing its subprocess downloader.
 """
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -24,7 +25,7 @@ CHUNK_SIZE = 1024 * 1024
 REQUEST_TIMEOUT = (15, 60)
 
 
-DownloadSource = Literal["hf", "ms"]
+DownloadSource = Literal["hf", "ms", "modelscope"]
 
 
 class ModelFile(TypedDict):
@@ -78,57 +79,67 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
             {
                 "repo_path": "glm-ocr/onnx/vision_encoder_q4.onnx",
                 "local_path": "glm-ocr/glm-ocr-onnx/onnx/vision_encoder_q4.onnx",
-                "size": 424697,
+                "size": 28832622,
             },
             {
-                "repo_path": "glm-ocr/onnx/vision_encoder_q4.onnx_data",
-                "local_path": "glm-ocr/glm-ocr-onnx/onnx/vision_encoder_q4.onnx_data",
-                "size": 373217280,
+                "repo_path": "glm-ocr/onnx/vision_encoder_q4.onnx.data",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/vision_encoder_q4.onnx.data",
+                "size": 218726400,
             },
             {
                 "repo_path": "glm-ocr/onnx/embed_tokens_q4.onnx",
                 "local_path": "glm-ocr/glm-ocr-onnx/onnx/embed_tokens_q4.onnx",
-                "size": 854,
+                "size": 356930,
             },
             {
-                "repo_path": "glm-ocr/onnx/embed_tokens_q4.onnx_data",
-                "local_path": "glm-ocr/glm-ocr-onnx/onnx/embed_tokens_q4.onnx_data",
-                "size": 58441728,
+                "repo_path": "glm-ocr/onnx/embed_tokens_q4.onnx.data",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/embed_tokens_q4.onnx.data",
+                "size": 48463872,
             },
             {
                 "repo_path": "glm-ocr/onnx/merger_fp16.onnx",
                 "local_path": "glm-ocr/glm-ocr-onnx/onnx/merger_fp16.onnx",
-                "size": 47195673,
+                "size": 9301,
+            },
+            {
+                "repo_path": "glm-ocr/onnx/merger_fp16.onnx.data",
+                "local_path": "glm-ocr/glm-ocr-onnx/onnx/merger_fp16.onnx.data",
+                "size": 47185920,
             },
             {
                 "repo_path": "glm-ocr/tokenizer.json",
                 "local_path": "glm-ocr/glm-ocr-onnx/tokenizer.json",
-                "size": 5420559,
+                "size": 6838609,
             },
             {
                 "repo_path": "glm-ocr/config.json",
                 "local_path": "glm-ocr/glm-ocr-onnx/config.json",
-                "size": 2022,
+                "size": 1570,
             },
             {
                 "repo_path": "glm-ocr/generation_config.json",
                 "local_path": "glm-ocr/glm-ocr-onnx/generation_config.json",
-                "size": 166,
+                "size": 165,
             },
             {
                 "repo_path": "glm-ocr/preprocessor_config.json",
                 "local_path": "glm-ocr/glm-ocr-onnx/preprocessor_config.json",
-                "size": 366,
+                "size": 367,
             },
             {
                 "repo_path": "glm-ocr/processor_config.json",
                 "local_path": "glm-ocr/glm-ocr-onnx/processor_config.json",
-                "size": 1495,
+                "size": 499,
             },
             {
                 "repo_path": "glm-ocr/tokenizer_config.json",
                 "local_path": "glm-ocr/glm-ocr-onnx/tokenizer_config.json",
-                "size": 5855,
+                "size": 1066,
+            },
+            {
+                "repo_path": "glm-ocr/chat_template.jinja",
+                "local_path": "glm-ocr/glm-ocr-onnx/chat_template.jinja",
+                "size": 4606,
             },
         ],
     },
@@ -168,6 +179,156 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
             },
         ],
     },
+    "fun-asr": {
+        "label": "FUN-ASR Nano",
+        "description": "Fun-ASR speech recognition (ONNX encoder + GGUF decoder)",
+        "files": [
+            {
+                "repo_path": "fun-asr/Fun-ASR-Nano-Encoder-Adaptor.fp16.onnx",
+                "local_path": "fun-asr/Fun-ASR-Nano-Encoder-Adaptor.fp16.onnx",
+                "size": 464166581,
+                "dest": "asr",
+            },
+            {
+                "repo_path": "fun-asr/Fun-ASR-Nano-CTC.fp16.onnx",
+                "local_path": "fun-asr/Fun-ASR-Nano-CTC.fp16.onnx",
+                "size": 78186984,
+                "dest": "asr",
+            },
+            {
+                "repo_path": "fun-asr/Fun-ASR-Nano-Decoder.q5_k.gguf",
+                "local_path": "fun-asr/Fun-ASR-Nano-Decoder.q5_k.gguf",
+                "size": 444414752,
+                "dest": "asr",
+            },
+            {
+                "repo_path": "fun-asr/tokens.txt",
+                "local_path": "fun-asr/tokens.txt",
+                "size": 939804,
+                "dest": "asr",
+            },
+        ],
+    },
+    "glm-asr": {
+        "label": "GLM-ASR Stack",
+        "description": "GLM-ASR Nano + Qwen3 ForceAligner for timestamp alignment",
+        "files": [
+            # --- GLM-ASR-Nano-2512 ---
+            {
+                "repo_path": "model.safetensors",
+                "local_path": "glm-asr/glm-asr-nano-2512/model.safetensors",
+                "size": 4515776712,
+                "repo": "zai-org/GLM-ASR-Nano-2512",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "config.json",
+                "local_path": "glm-asr/glm-asr-nano-2512/config.json",
+                "size": 1448,
+                "repo": "zai-org/GLM-ASR-Nano-2512",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "generation_config.json",
+                "local_path": "glm-asr/glm-asr-nano-2512/generation_config.json",
+                "size": 151,
+                "repo": "zai-org/GLM-ASR-Nano-2512",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "processor_config.json",
+                "local_path": "glm-asr/glm-asr-nano-2512/processor_config.json",
+                "size": 537,
+                "repo": "zai-org/GLM-ASR-Nano-2512",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "tokenizer_config.json",
+                "local_path": "glm-asr/glm-asr-nano-2512/tokenizer_config.json",
+                "size": 817,
+                "repo": "zai-org/GLM-ASR-Nano-2512",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "chat_template.jinja",
+                "local_path": "glm-asr/glm-asr-nano-2512/chat_template.jinja",
+                "size": 851,
+                "repo": "zai-org/GLM-ASR-Nano-2512",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "tokenizer.json",
+                "local_path": "glm-asr/glm-asr-nano-2512/tokenizer.json",
+                "size": 6834995,
+                "repo": "zai-org/GLM-ASR-Nano-2512",
+                "dest": "asr",
+            },
+            # --- Qwen3-ForcedAligner-0.6B ---
+            {
+                "repo_path": "model.safetensors",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/model.safetensors",
+                "size": 1835544544,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "mel_filterbank.bin",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/mel_filterbank.bin",
+                "size": 102912,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "config.json",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/config.json",
+                "size": 5573,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "generation_config.json",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/generation_config.json",
+                "size": 115,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "preprocessor_config.json",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/preprocessor_config.json",
+                "size": 330,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "tokenizer_config.json",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/tokenizer_config.json",
+                "size": 12666,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "chat_template.json",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/chat_template.json",
+                "size": 1161,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "vocab.json",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/vocab.json",
+                "size": 2776833,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+            {
+                "repo_path": "merges.txt",
+                "local_path": "glm-asr/qwen3-forcealigner-0.6b/merges.txt",
+                "size": 1671853,
+                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+                "dest": "asr",
+            },
+        ],
+    },
 }
 
 
@@ -196,10 +357,16 @@ def _model_files(group: ModelGroup) -> list[ModelFile]:
 
 
 def _file_path(file_info: ModelFile) -> Path:
-    model_root = os.environ.get("VIDUNDER_MODEL_ROOT", "")
-    if model_root:
-        return Path(model_root) / file_info["local_path"]
-    return PROJECT_DIR / file_info["local_path"]
+    dest = file_info.get("dest", "vid_under")
+    if dest == "asr":
+        base = Path(os.environ.get(
+            "VIDUNDER_ASR_MODELS_ROOT",
+            str(Path(__file__).resolve().parent.parent / "models"),
+        ))
+    else:
+        from vid_under.config import MODEL_ROOT
+        base = MODEL_ROOT
+    return base / file_info["local_path"]
 
 
 def _file_size(file_info: ModelFile) -> int:
@@ -234,11 +401,20 @@ def _calculate_model_status(model_name: str) -> dict[str, int | str]:
     }
 
 
-def _source_url(source: DownloadSource, repo_path: str) -> str:
+def _source_url(source: DownloadSource, repo_path: str, repo: str | None = None) -> str:
     encoded_path = quote(repo_path, safe="/")
+    if repo:
+        if source == "hf":
+            return f"https://huggingface.co/{repo}/resolve/main/{encoded_path}"
+        if source in ("ms", "modelscope"):
+            return (
+                f"https://modelscope.cn/api/v1/models/{repo}/repo"
+                f"?Revision=master&FilePath={encoded_path}"
+            )
+        raise ValueError(f"Unknown source: {source}")
     if source == "hf":
         return f"https://huggingface.co/JazerJu/VideoMiner/resolve/main/{encoded_path}"
-    if source == "ms":
+    if source in ("ms", "modelscope"):
         return (
             "https://modelscope.cn/api/v1/models/modelmo/VideoMiner/repo"
             f"?Revision=master&FilePath={encoded_path}"
@@ -246,9 +422,12 @@ def _source_url(source: DownloadSource, repo_path: str) -> str:
     raise ValueError(f"Unknown source: {source}")
 
 
-def _source_proxies(source: DownloadSource) -> dict[str, str] | None:
+def _source_proxies(source: DownloadSource, proxy_override: str | None = None) -> dict[str, str] | None:
+    if proxy_override:
+        return {"http": proxy_override, "https": proxy_override}
     if source == "hf":
-        return {"http": HF_PROXY, "https": HF_PROXY}
+        proxy = os.environ.get("VIDUNDER_HF_PROXY", HF_PROXY)
+        return {"http": proxy, "https": proxy} if proxy else None
     return None
 
 
@@ -332,7 +511,7 @@ class DownloadCancelled(Exception):
     """Raised when a background download sees its cancellation flag."""
 
 
-def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile) -> int:
+def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile, proxy_override: str | None = None) -> int:
     repo_path = file_info["repo_path"]
     local_path = _file_path(file_info)
     part_path = local_path.with_name(f"{local_path.name}.part")
@@ -349,8 +528,8 @@ def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile
         return expected_size
 
     local_path.parent.mkdir(parents=True, exist_ok=True)
-    url = _source_url(source, repo_path)
-    proxies = _source_proxies(source)
+    url = _source_url(source, repo_path, file_info.get("repo"))
+    proxies = _source_proxies(source, proxy_override)
 
     _set_file_progress(
         model_name,
@@ -423,7 +602,7 @@ def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile
         raise
 
 
-def _download_model(model_name: str, source: DownloadSource) -> None:
+def _download_model(model_name: str, source: DownloadSource, proxy_override: str | None = None) -> None:
     group = MODEL_GROUPS[model_name]
     total_size = sum(file_info["size"] for file_info in group["files"])
     cached_size = sum(
@@ -454,7 +633,7 @@ def _download_model(model_name: str, source: DownloadSource) -> None:
             previous_status = _download_progress[model_name]["files"][repo_path][
                 "status"
             ]
-            completed_size = _download_file(model_name, source, file_info)
+            completed_size = _download_file(model_name, source, file_info, proxy_override)
 
             if previous_status == "cached":
                 continue
@@ -537,13 +716,14 @@ class VidUnderModelDownloadAPIView(View):
 
         model_name = data.get("model_name")
         source = data.get("source", "hf")
+        proxy = data.get("proxy") or None
 
         if model_name not in MODEL_GROUPS:
             return _json_response(
                 {"success": False, "error": f"Unknown model: {model_name}"},
                 status=400,
             )
-        if source not in {"hf", "ms"}:
+        if source not in {"hf", "ms", "modelscope"}:
             return _json_response(
                 {"success": False, "error": f"Unknown source: {source}"},
                 status=400,
@@ -565,7 +745,7 @@ class VidUnderModelDownloadAPIView(View):
 
         thread = threading.Thread(
             target=_download_model,
-            args=(model_name, source),
+            args=(model_name, source, proxy),
             daemon=True,
         )
         thread.start()
