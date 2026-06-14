@@ -122,3 +122,9 @@ Skills.md
 AGENTS.md
 docker/Docker容器构建.md
 *.webm
+
+# Runtime data: local config, database, downloaded media, generated subtitles.
+/data/*
+!/data/config/
+/data/config/*
+!/data/config/config.ini.example

@@ -1,0 +1,107 @@
+[DEFAULT]
+selected_model_provider = deepseek
+enable_thinking = true
+deepseek_api_key =
+deepseek_base_url = https://api.deepseek.com
+glm_api_key =
+glm_base_url = https://open.bigmodel.cn/api/paas/v4
+openai_api_key =
+openai_base_url = https://api.openai.com/v1
+qwen_api_key =
+qwen_base_url = https://dashscope.aliyuncs.com/compatible-mode/v1
+split_use_proxy = false
+translate_use_proxy = false
+plain_translate = false
+translate_selected_model_provider = deepseek
+translate_deepseek_api_key =
+translate_deepseek_base_url = https://api.deepseek.com
+translate_openai_api_key =
+translate_openai_base_url = https://api.openai.com/v1
+translate_glm_api_key =
+translate_glm_base_url = https://open.bigmodel.cn/api/paas/v4
+translate_qwen_api_key =
+translate_qwen_base_url = https://dashscope.aliyuncs.com/compatible-mode/v1
+translate_local_api_key =
+translate_local_base_url =
+
+[Video watch]
+raw_language = zh
+default_translate_lang = zh
+
+[Subtitle settings]
+font_family = 宋体
+preview_text = 这是字幕预设文本
+font_color = #ea9749
+font_size = 18
+font_weight = 400
+background_color = #000000
+border_radius = 4
+text_shadow = false
+text_stroke = false
+text_stroke_color = #000000
+text_stroke_width = 2
+background_style = semi-transparent
+bottom_distance = 80
+
+[Foreign Subtitle settings]
+foreign_font_family = Arial
+foreign_preview_text = This is foreign subtitle preview
+foreign_font_color = #ffffff
+foreign_font_size = 16
+foreign_font_weight = 400
+foreign_background_color = #000000
+foreign_border_radius = 4
+foreign_text_shadow = false
+foreign_text_stroke = false
+foreign_text_stroke_color = #000000
+foreign_text_stroke_width = 2
+foreign_background_style = semi-transparent
+foreign_bottom_distance = 120
+
+[Media Credentials]
+bilibili_sessdata =
+proxy_url =
+download_use_proxy = false
+bili_download_use_proxy = false
+
+[Transcription Engine]
+primary_engine = funasr_gguf
+fallback_engine =
+transcription_mode = local
+fwsr_model = large-v3
+use_gpu = false
+elevenlabs_api_key =
+elevenlabs_model = scribe_v1
+include_punctuation = true
+alibaba_api_key =
+alibaba_model = paraformer-realtime-v2
+openai_api_key =
+openai_base_url = https://api.openai.com/v1
+vad_backend = silero
+
+[Remote VidGo Service]
+host =
+port = 8000
+use_ssl = false
+
+[Video Understanding]
+vu_thinking_budget = low
+vu_n_gpu_layers = 36
+vu_glm_ocr_n_gpu_layers = 17
+vu_corner_provider = gemini
+vu_corner_gemini_api_key =
+vu_corner_gemini_base_url = https://openrouter.ai/api/v1
+vu_corner_gemini_model = google/gemini-2.5-flash
+vu_corner_mimo_api_key =
+vu_corner_mimo_base_url =
+vu_corner_mimo_model = mimo-v2.5
+vu_corner_openai_api_key =
+vu_corner_openai_base_url =
+vu_corner_openai_model =
+vu_summary_api_key =
+vu_summary_base_url = https://api.deepseek.com
+vu_summary_model = deepseek-chat
+vu_knowledge_provider = doubao
+vu_knowledge_api_key =
+vu_knowledge_base_url =
+vu_knowledge_model =
