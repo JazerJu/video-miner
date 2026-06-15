@@ -1,77 +1,43 @@
 services:
   vidgo:
-    image: ${VIDGO_IMAGE:-jaceju68/vidgo:cuda-latest}
+    image: ${VIDGO_IMAGE}
     container_name: vidgo-app
     restart: unless-stopped
     runtime: nvidia
-    user: "${UID:-1000}:${GID:-1000}"  # 使用宿主机用户运行，避免权限问题
+    user: "${UID}:${GID}"  # 使用宿主机用户运行，避免权限问题
+    env_file:
+      - .env
     ports:
-      - "${VIDGO_PORT:-8010}:8000"
+      - "${VIDGO_PORT}:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"  # 让容器能通过 host.docker.internal 访问宿主机
     environment:
-      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
-      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
-
-      # VidGo Configuration
-      # Set your deployment URL for automatic CORS, CSRF, and host configuration
-      VIDGO_URL: ${VIDGO_URL:-http://localhost:8010}
-      VIDGO_ALLOWED_HOSTS: ${VIDGO_ALLOWED_HOSTS:-*}
-      VIDGO_CORS_ALLOWED_ORIGINS: ${VIDGO_CORS_ALLOWED_ORIGINS:-http://localhost:8010,http://127.0.0.1:8010}
-      VIDGO_CSRF_TRUSTED_ORIGINS: ${VIDGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8010,http://127.0.0.1:8010}
-      APP_CONFIG_DIR: ${APP_CONFIG_DIR:-/app/config}
-
-      # Model roots
-      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
-      HUGGINGFACE_HUB_CACHE: ${HUGGINGFACE_HUB_CACHE:-/app/models/.cache/huggingface}
-      VIDUNDER_MODEL_ROOT: ${VIDUNDER_MODEL_ROOT:-/app/models}
-      VIDUNDER_ASR_MODELS_ROOT: ${VIDUNDER_ASR_MODELS_ROOT:-/app/models}
-
-      # VidUnder runtime
-      VIDUNDER_N_CTX: ${VIDUNDER_N_CTX:-4096}
-      VIDUNDER_N_GPU_LAYERS: ${VIDUNDER_N_GPU_LAYERS:-99}
-      VIDUNDER_GLM_OCR_N_GPU_LAYERS: ${VIDUNDER_GLM_OCR_N_GPU_LAYERS:-17}
-      VIDUNDER_N_BATCH: ${VIDUNDER_N_BATCH:-512}
-      VIDUNDER_KV_CACHE_TYPE: ${VIDUNDER_KV_CACHE_TYPE:-q4_0}
-      VIDUNDER_ONNX_PROVIDER: ${VIDUNDER_ONNX_PROVIDER:-cuda}
-      VIDUNDER_THINKING_BUDGET: ${VIDUNDER_THINKING_BUDGET:-low}
-      VIDUNDER_HWACCEL: ${VIDUNDER_HWACCEL:-none}
-
-      # ASR engines
-      FUNASR_GGUF_DIR: ${FUNASR_GGUF_DIR:-/app/asr_utils/fun-asr-stack}
-      GLM_ASR_STACK_ROOT: ${GLM_ASR_STACK_ROOT:-/app/asr_utils/glm-asr-stack}
-      GLM_ASR_MODEL_CACHE: ${GLM_ASR_MODEL_CACHE:-/app/models/glm-asr}
-      GLM_ASR_MODEL: ${GLM_ASR_MODEL:-/app/models/glm-asr/glm-asr-nano-2512}
-      GLM_ASR_MODEL_DIR: ${GLM_ASR_MODEL_DIR:-/app/models/glm-asr/glm-asr-nano-2512}
-      GLM_ASR_FA_MODEL: ${GLM_ASR_FA_MODEL:-/app/models/glm-asr/qwen3-forcealigner-0.6b}
-      GLM_ASR_MEL: ${GLM_ASR_MEL:-/app/asr_utils/glm-asr-stack/resources/mel_filters.bin}
-      GLMASR_VRAM_UTIL: ${GLMASR_VRAM_UTIL:-0.9}
-      GLMASR_MAX_SEQS: ${GLMASR_MAX_SEQS:-256}
-      GLMASR_MAX_BATCHED_TOKENS: ${GLMASR_MAX_BATCHED_TOKENS:-10000}
-      GLMASR_MAX_NEW_TOKENS: ${GLMASR_MAX_NEW_TOKENS:-256}
-      GLMASR_ENCODER_FA_PIPELINED: ${GLMASR_ENCODER_FA_PIPELINED:-1}
-      GLMASR_ENCODER_FA_VLLM: ${GLMASR_ENCODER_FA_VLLM:-1}
-      GLMASR_ENCODER_FA_LONG_MIN_SEQ: ${GLMASR_ENCODER_FA_LONG_MIN_SEQ:-1}
-      GLMASR_ENCODER_FA_MIN_SEQ: ${GLMASR_ENCODER_FA_MIN_SEQ:-1}
-      GLMASR_GPU_COMPUTE_CAP: ${GLMASR_GPU_COMPUTE_CAP:-}
-
-      LD_LIBRARY_PATH: ${VIDGO_LD_LIBRARY_PATH:-/app/vid_under/bin:/usr/local/cuda/lib64}
-      HTTP_PROXY: ${VIDGO_HTTP_PROXY:-}
-      HTTPS_PROXY: ${VIDGO_HTTPS_PROXY:-}
+      # Most settings are passed through from .env. These map VidGo's
+      # prefixed names to process env names expected by runtimes/libraries.
+      LD_LIBRARY_PATH: ${VIDGO_LD_LIBRARY_PATH}
+      HTTP_PROXY: ${VIDGO_HTTP_PROXY}
+      HTTPS_PROXY: ${VIDGO_HTTPS_PROXY}
+      NO_PROXY: ${VIDGO_NO_PROXY}
     volumes:
       # 数据库文件
-      - ${VIDGO_DB_FILE:-./data/videos.db}:/app/database/videos.db
+      - ${VIDGO_DB_FILE}:/app/database/videos.db
       # 媒体文件目录
-      - ${VIDGO_MEDIA_DIR:-./data/media}:/app/media
+      - ${VIDGO_MEDIA_DIR}:/app/media
       # 用户配置目录
-      - ${VIDGO_CONFIG_DIR:-./data/config}:/app/config
+      - ${VIDGO_CONFIG_DIR}:/app/config
       # 模型根目录：承载 VidUnder、FunASR、GLM-ASR 等模型
-      - ${VIDGO_MODELS_DIR:-./data/models}:/app/models
+      - ${VIDGO_MODELS_DIR}:/app/models
+      # 可选：分开挂载已有的 VidUnder / ASR 模型目录，覆盖 /app/models 下的对应子目录
+      - ${VIDUNDER_MINICPM_MODEL_DIR}:/app/models/minicpm-v4.5:ro
+      - ${VIDUNDER_GLM_OCR_MODEL_DIR}:/app/models/glm-ocr:ro
+      - ${VIDUNDER_EMBEDDING_MODEL_DIR}:/app/models/embedding:ro
+      - ${FUNASR_MODEL_DIR}:/app/models/fun-asr:ro
+      - ${GLM_ASR_MODEL_ROOT_DIR}:/app/models/glm-asr:ro
       # VidUnder MiniCPM-V / GLM-OCR llama.cpp 共享库
-      - ${VIDUNDER_LLAMA_BIN_DIR:-./backend/vid_under/bin}:/app/vid_under/bin:ro
+      - ${VIDUNDER_LLAMA_BIN_DIR}:/app/vid_under/bin:ro
       # FunASR-GGUF llama.cpp 共享库
-      - ${FUNASR_LLAMA_BIN_DIR:-./backend/vid_under/bin}:/app/asr_utils/fun-asr-stack/fun_asr_gguf/inference/bin:ro
+      - ${FUNASR_LLAMA_BIN_DIR}:/app/asr_utils/fun-asr-stack/fun_asr_gguf/inference/bin:ro
       # GLM-ASR native engines
-      - ${GLM_ASR_INFER_ENGINE_DIR:-./backend/asr_utils/glm-asr-stack/Infer-engine}:/app/asr_utils/glm-asr-stack/Infer-engine:ro
-      - ${GLM_ASR_FORCEALIGNER_ENGINE_DIR:-./backend/asr_utils/glm-asr-stack/forcealigner-engine}:/app/asr_utils/glm-asr-stack/forcealigner-engine:ro
-      - ${GLM_ASR_LIB_DIR:-./backend/asr_utils/glm-asr-stack/lib}:/app/asr_utils/glm-asr-stack/lib:ro
+      - ${GLM_ASR_INFER_ENGINE_DIR}:/app/asr_utils/glm-asr-stack/Infer-engine:ro
+      - ${GLM_ASR_FORCEALIGNER_ENGINE_DIR}:/app/asr_utils/glm-asr-stack/forcealigner-engine:ro
+      - ${GLM_ASR_LIB_DIR}:/app/asr_utils/glm-asr-stack/lib:ro
