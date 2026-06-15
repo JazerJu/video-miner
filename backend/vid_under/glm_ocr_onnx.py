@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -50,30 +51,46 @@ class GlmOcrOnnx:
 
         self.tokenizer = Tokenizer.from_file(str(self.model_dir / "tokenizer.json"))
         self.providers = self._select_providers()
+        self.precision = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PRECISION", "q4").lower()
 
-        vision_onnx = self.onnx_dir / "vision_encoder_fp32.onnx"
-        if not vision_onnx.exists():
-            vision_onnx = self.onnx_dir / "vision_encoder_q4.onnx"
+        vision_onnx = self._select_model_file("vision_encoder", ["q4", "fp32"])
         self.vision_session = self._new_session(vision_onnx)
-        embed_onnx = self.onnx_dir / "embed_tokens_q4.onnx"
-        if not embed_onnx.exists():
-            embed_onnx = self.onnx_dir / "embed_tokens_fp32.onnx"
+        embed_onnx = self._select_model_file("embed_tokens", ["q4", "fp32"])
         self.embed_session = self._new_session(embed_onnx)
 
         # Merger ONNX: proj -> LayerNorm -> GELU -> FFN (projects ViT output to LLM embedding space)
-        merger_onnx = self.onnx_dir / "merger_fp16.onnx"
-        if not merger_onnx.exists():
-            merger_onnx = self.onnx_dir / "merger_fp32.onnx"
+        merger_onnx = self._select_model_file("merger", ["fp16", "fp32"])
         self.merger_session = self._new_session(merger_onnx) if merger_onnx.exists() else None
 
         self._decoder_session = None
         self._decoder_output_names = None
 
+    def _select_model_file(self, stem: str, default_order: list[str]) -> Path:
+        if self.precision == "auto":
+            order = default_order
+        elif self.precision == "fp32":
+            order = ["fp32", "fp16", "q4"]
+        elif self.precision == "fp16":
+            order = ["fp16", "fp32", "q4"]
+        elif self.precision == "q4":
+            order = ["q4", "fp16", "fp32"]
+        else:
+            raise ValueError(f"Unsupported GLM-OCR ONNX precision: {self.precision}")
+
+        for precision in order:
+            path = self.onnx_dir / f"{stem}_{precision}.onnx"
+            if path.exists():
+                return path
+        raise FileNotFoundError(f"Missing ONNX file for {stem}; tried {order}")
+
     @staticmethod
     def _select_providers() -> list[str]:
+        provider = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER", "cpu").lower()
         available = ort.get_available_providers()
+        if provider == "cpu":
+            return ["CPUExecutionProvider"]
         providers: list[str] = []
-        if "CUDAExecutionProvider" in available:
+        if provider == "cuda" and "CUDAExecutionProvider" in available:
             providers.append("CUDAExecutionProvider")
         providers.append("CPUExecutionProvider")
         return providers
@@ -81,6 +98,10 @@ class GlmOcrOnnx:
     def _new_session(self, path: Path) -> ort.InferenceSession:
         options = ort.SessionOptions()
         options.log_severity_level = 3
+        threads = int(os.environ.get("VIDUNDER_GLM_OCR_ONNX_THREADS", "4"))
+        if threads > 0:
+            options.intra_op_num_threads = threads
+            options.inter_op_num_threads = 1
         try:
             return ort.InferenceSession(str(path), sess_options=options, providers=self.providers)
         except Exception:
@@ -246,6 +267,27 @@ class GlmOcrOnnx:
         pixel_values, grid_thw = self._preprocess_image(image)
         image_features = self._run_vision_encoder(pixel_values, grid_thw)
         return image_features, grid_thw
+
+    def encode_for_llama(self, image: Image.Image, prompt: str) -> dict[str, np.ndarray]:
+        """Prepare GLM-OCR llama.cpp inputs without running the decoder."""
+        image_features, image_grid_thw = self._encode_image(image)
+        num_image_tokens = int(image_features.shape[0])
+        input_ids = self._build_input_ids(prompt, num_image_tokens)
+        inputs_embeds = self._embed_input_ids(input_ids)
+
+        image_positions = np.where(input_ids[0] == self.image_token_id)[0]
+        if len(image_positions) != num_image_tokens:
+            raise ValueError(
+                f"image token count ({len(image_positions)}) does not match "
+                f"vision features ({image_features.shape[0]})"
+            )
+        inputs_embeds[0, image_positions, :] = image_features.astype(inputs_embeds.dtype, copy=False)
+
+        return {
+            "input_ids": np.ascontiguousarray(input_ids[0].astype(np.int64, copy=False)),
+            "embeds": np.ascontiguousarray(inputs_embeds[0].astype(np.float32, copy=False)),
+            "grid_thw": np.ascontiguousarray(image_grid_thw.astype(np.int64, copy=False)),
+        }
 
     def _smart_resize(self, height: int, width: int) -> tuple[int, int]:
         factor = self.patch_size * self.spatial_merge_size  # 28

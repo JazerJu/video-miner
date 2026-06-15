@@ -17,7 +17,6 @@ References:
 import numpy as np
 from PIL import Image
 import cv2
-import imagehash
 
 # ── Thresholds ──────────────────────────────────────────────────
 _PHASH_THRESHOLD = 3          # perceptual hash distance for near-dup
@@ -51,9 +50,9 @@ def _preprocess(gray: np.ndarray, x_margin: int = 8) -> tuple[np.ndarray, np.nda
 
 def _is_near_duplicate(a: Image.Image, b: Image.Image) -> bool:
     """True if frames are near-identical (allows cursor blink)."""
-    ha = imagehash.phash(a)
-    hb = imagehash.phash(b)
-    if ha - hb > _PHASH_THRESHOLD:
+    ha = _compute_phash(a)
+    hb = _compute_phash(b)
+    if _hash_distance(ha, hb) > _PHASH_THRESHOLD:
         return False
     # Also check pixel-level change ratio to distinguish cursor blink from real scroll
     ga = _to_gray(a).astype(np.int16)
@@ -61,6 +60,22 @@ def _is_near_duplicate(a: Image.Image, b: Image.Image) -> bool:
     diff = np.abs(ga - gb)
     changed_ratio = (diff > 35).mean()
     return changed_ratio < _CHANGED_RATIO_MAX
+
+
+def _compute_phash(img: Image.Image) -> int:
+    gray = np.array(img.convert("L").resize((32, 32)), dtype=np.float32)
+    dct = cv2.dct(gray)
+    low = dct[:8, :8].copy()
+    median = np.median(low[1:])
+    bits = low > median
+    value = 0
+    for bit in bits.ravel():
+        value = (value << 1) | int(bit)
+    return value
+
+
+def _hash_distance(a: int, b: int) -> int:
+    return (a ^ b).bit_count()
 
 
 def deduplicate_frames(frames: list[Image.Image]) -> list[Image.Image]:

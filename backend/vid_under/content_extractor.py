@@ -2,7 +2,6 @@
 import numpy as np
 from PIL import Image
 import cv2
-import imagehash
 from pathlib import Path
 from external_api import call_glm_ocr
 
@@ -11,8 +10,20 @@ def _pil_to_cv2(img: Image.Image) -> np.ndarray:
     return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
 
 
-def _compute_phash(img: Image.Image) -> imagehash.ImageHash:
-    return imagehash.phash(img.convert("RGB").resize((128, 128)))
+def _compute_phash(img: Image.Image) -> int:
+    gray = np.array(img.convert("L").resize((32, 32)), dtype=np.float32)
+    dct = cv2.dct(gray)
+    low = dct[:8, :8].copy()
+    median = np.median(low[1:])
+    bits = low > median
+    value = 0
+    for bit in bits.ravel():
+        value = (value << 1) | int(bit)
+    return value
+
+
+def _hash_distance(a: int, b: int) -> int:
+    return (a ^ b).bit_count()
 
 
 def _frame_quality_score(img: Image.Image) -> float:
@@ -102,7 +113,7 @@ def extract_unique_slides(
 
         is_dup = False
         for seen_h in seen_hashes:
-            if h - seen_h <= hash_threshold:
+            if _hash_distance(h, seen_h) <= hash_threshold:
                 is_dup = True
                 break
 
@@ -112,7 +123,7 @@ def extract_unique_slides(
                 "clip_idx": clip_idx,
                 "time": 0.0,
                 "image": best_frame,
-                "phash": str(h),
+                "phash": f"{h:016x}",
             }
             unique_slides.append(entry)
 

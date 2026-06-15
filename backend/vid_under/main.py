@@ -15,13 +15,16 @@ from agent import VideoAgent
 
 def _load_models():
     import external_api as _ext
-    engine = getattr(_ext, "_glm_ocr_engine", None)
-    if engine is not None:
-        if hasattr(engine, "close"):
-            engine.close()
-        _ext._glm_ocr_engine = None
-        import gc
-        gc.collect()
+    if hasattr(_ext, "shutdown_glm_ocr_workers"):
+        _ext.shutdown_glm_ocr_workers(stop_decoder=True)
+    else:
+        engine = getattr(_ext, "_glm_ocr_engine", None)
+        if engine is not None:
+            if hasattr(engine, "close"):
+                engine.close()
+            _ext._glm_ocr_engine = None
+            import gc
+            gc.collect()
 
     import minicpmv_llama
     import onnxruntime as ort
@@ -491,8 +494,12 @@ if __name__ == "__main__":
     elif args.cmd == "external":
         cmd_external(" ".join(args.question))
     elif args.cmd == "extract":
-        cmd_extract(args.video, srt_path=args.srt,
-                    clip_secs=args.clip_secs, output_dir=args.output,
-                    perspective=args.perspective)
+        try:
+            cmd_extract(args.video, srt_path=args.srt,
+                        clip_secs=args.clip_secs, output_dir=args.output,
+                        perspective=args.perspective)
+        finally:
+            from external_api import shutdown_glm_ocr_workers
+            shutdown_glm_ocr_workers()
     else:
         p.print_help()

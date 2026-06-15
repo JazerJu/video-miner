@@ -7,12 +7,22 @@ from pathlib import Path
 
 import numpy as np
 
-from llama_cpp_bindings import (
-    LlamaModel, LlamaContext, LlamaBatch, LlamaSampler
-)
+import minicpmv_llama
+
+LlamaBatch = minicpmv_llama.LlamaBatch
+LlamaSampler = minicpmv_llama.LlamaSampler
+
+
+class _OcrLlamaModel(minicpmv_llama.LlamaModel):
+    def __del__(self):
+        self.ptr = None
+
+
+class _OcrLlamaContext(minicpmv_llama.LlamaContext):
+    def __del__(self):
+        self.ptr = None
 
 from config import GLM_OCR_ONNX_DIR
-from glm_ocr_onnx import GlmOcrOnnx
 
 
 class GlmOcrLlama:
@@ -26,17 +36,21 @@ class GlmOcrLlama:
         onnx_dir: str | None = None,
         n_ctx: int = 4096,
         n_gpu_layers: int = 99,
+        load_onnx: bool = True,
     ):
         if not gguf_path:
             raise ValueError("gguf_path is required (e.g. 'models/GLM-OCR-GGUF/GLM-OCR-Q8_0.gguf')")
         if onnx_dir is None:
             onnx_dir = GLM_OCR_ONNX_DIR
 
-        self.onnx = GlmOcrOnnx(onnx_dir, max_tokens=2048)
+        self.onnx = None
+        if load_onnx:
+            from glm_ocr_onnx import GlmOcrOnnx
+            self.onnx = GlmOcrOnnx(onnx_dir, max_tokens=2048)
 
-        self.model = LlamaModel(gguf_path, n_gpu_layers=n_gpu_layers)
+        self.model = _OcrLlamaModel(gguf_path, n_gpu_layers=n_gpu_layers)
         self.n_embd = self.model.n_embd
-        self.ctx = LlamaContext(self.model, n_ctx=n_ctx, n_batch=n_ctx)
+        self.ctx = _OcrLlamaContext(self.model, n_ctx=n_ctx, n_batch=n_ctx)
 
         with open(Path(onnx_dir) / "config.json") as f:
             cfg = json.load(f)
@@ -48,9 +62,9 @@ class GlmOcrLlama:
         self.spatial_merge_size = cfg["vision_config"]["spatial_merge_size"]
 
     def close(self) -> None:
+        self.onnx = None
         self.ctx = None
         self.model = None
-        self.onnx = None
         import gc
         gc.collect()
 
@@ -62,6 +76,8 @@ class GlmOcrLlama:
 
     def _build_input_ids(self, prompt: str, num_image_tokens: int) -> list[int]:
         """Build token IDs using the ONNX module's Jinja template."""
+        if self.onnx is None:
+            raise RuntimeError("GLM-OCR ONNX encoder is not loaded in this process")
         ids_np = self.onnx._build_input_ids(prompt, num_image_tokens)
         return ids_np[0].tolist()
 
@@ -171,42 +187,59 @@ class GlmOcrLlama:
         repeat_penalty: float = 1.1,
     ) -> list[str]:
         """Run OCR on multiple PIL images sequentially with one reused llama.cpp context."""
+        if self.onnx is None:
+            raise RuntimeError("GLM-OCR ONNX encoder is not loaded in this process")
+
         results: list[str] = []
         for image in images:
-            self.ctx.clear_kv()
+            encoded = self.onnx.encode_for_llama(image, prompt)
+            results.append(self.decode_precomputed(
+                encoded["input_ids"],
+                encoded["embeds"],
+                encoded["grid_thw"],
+                max_tokens=max_tokens,
+                repeat_penalty=repeat_penalty,
+            ))
 
-            # 1. ONNX vision encoder
-            pixel_values, grid_thw = self.onnx._preprocess_image(image)
-            image_features = self.onnx._run_vision_encoder(pixel_values, grid_thw)
-            num_image_tokens = int(image_features.shape[0])
+        return results
 
-            # 2. Build input IDs and embeddings
-            input_ids = self._build_input_ids(prompt, num_image_tokens)
-            embeds = self.onnx._embed_input_ids(np.array([input_ids], dtype=np.int64))
+    def decode_precomputed(
+        self,
+        input_ids,
+        embeds,
+        grid_thw,
+        max_tokens: int = 512,
+        repeat_penalty: float = 1.1,
+    ) -> str:
+        """Decode precomputed ONNX embeddings with the llama.cpp GLM-OCR decoder."""
+        input_ids_np = np.asarray(input_ids, dtype=np.int64).reshape(-1)
+        embeds_np = np.asarray(embeds, dtype=np.float32)
+        if embeds_np.ndim == 3:
+            embeds_np = embeds_np[0]
+        embeds_np = np.ascontiguousarray(embeds_np)
+        grid_thw_np = np.asarray(grid_thw, dtype=np.int64).reshape(-1, 3)
 
-            img_positions = [i for i, tid in enumerate(input_ids) if tid == self.image_token_id]
-            if len(img_positions) != num_image_tokens:
-                raise ValueError(
-                    f"image token count mismatch: {len(img_positions)} vs {num_image_tokens}"
-                )
-            embeds[0, img_positions, :] = image_features.astype(embeds.dtype, copy=False)
+        if embeds_np.shape[0] != input_ids_np.shape[0]:
+            raise ValueError(f"embeds length mismatch: {embeds_np.shape[0]} vs {input_ids_np.shape[0]}")
+        if embeds_np.shape[1] != self.n_embd:
+            raise ValueError(f"embedding dim mismatch: {embeds_np.shape[1]} vs {self.n_embd}")
 
-            # 3. Compute 4D mRoPE positions
-            positions, next_pos = self._compute_mrope_positions(input_ids, grid_thw)
+        self.ctx.clear_kv()
+        input_ids_list = input_ids_np.tolist()
+        positions, next_pos = self._compute_mrope_positions(input_ids_list, grid_thw_np)
 
-            # 4. Prefill
-            batch = self._alloc_mrope_batch(len(input_ids), self.n_embd)
-            self._set_embd_mrope(batch, embeds[0], positions)
+        batch = self._alloc_mrope_batch(len(input_ids_list), self.n_embd)
+        self._set_embd_mrope(batch, embeds_np, positions)
 
-            ret = self.ctx.decode(batch)
-            if ret != 0:
-                raise RuntimeError(f"Prefill decode failed: {ret}")
+        ret = self.ctx.decode(batch)
+        if ret != 0:
+            raise RuntimeError(f"Prefill decode failed: {ret}")
 
-            sampler = LlamaSampler(temperature=0.0, repeat_penalty=repeat_penalty)
+        sampler = LlamaSampler(temperature=0.0, repeat_penalty=repeat_penalty)
+        try:
             token = sampler.sample(self.ctx)
             sampler.accept(token)
 
-            # 5. Auto-regressive decode
             generated: list[int] = []
             for _ in range(max_tokens):
                 if token in self.eos_tokens:
@@ -228,14 +261,13 @@ class GlmOcrLlama:
                     break
                 token = sampler.sample(self.ctx)
                 sampler.accept(token)
-
+        finally:
             sampler.free()
-            raw = bytearray()
-            for t in generated:
-                raw.extend(self.model.detokenize(t))
-            results.append(raw.decode("utf-8", errors="replace").strip())
 
-        return results
+        raw = bytearray()
+        for token_id in generated:
+            raw.extend(self.model.detokenize(token_id))
+        return raw.decode("utf-8", errors="replace").strip()
 
     def ocr(
         self,

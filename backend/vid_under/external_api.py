@@ -2,6 +2,7 @@
 import json
 import base64
 import io
+import os
 import urllib.request
 import urllib.error
 import numpy as np
@@ -11,7 +12,10 @@ from config import (GEMINI_API_URL, EMBED_MODEL_PATH, STEP_API_KEY, STEP_BASE_UR
                               OPENROUTER_KEY, OPENROUTER_BASE_URL,
                               DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
                               MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL,
-                              GLM_OCR_GGUF, GLM_OCR_N_GPU_LAYERS)
+                              GLM_OCR_GGUF, GLM_OCR_N_GPU_LAYERS,
+                              GLM_OCR_ONNX_DIR, GLM_OCR_ONNX_PROVIDER,
+                              GLM_OCR_ONNX_PRECISION, GLM_OCR_ONNX_THREADS,
+                              GLM_OCR_MODE, GLM_OCR_WORKER_TIMEOUT)
 
 
 _embed_session = None
@@ -207,9 +211,34 @@ def _pil_to_base64(img) -> str:
 
 
 _glm_ocr_engine = None
+_glm_ocr_engine_mode = None
+
+
+def _get_glm_ocr_engine(load_onnx: bool):
+    global _glm_ocr_engine, _glm_ocr_engine_mode
+    mode_key = "with_onnx" if load_onnx else "decoder_only"
+    if _glm_ocr_engine is not None and _glm_ocr_engine_mode != mode_key:
+        if hasattr(_glm_ocr_engine, "close"):
+            _glm_ocr_engine.close()
+        _glm_ocr_engine = None
+        _glm_ocr_engine_mode = None
+
+    if _glm_ocr_engine is None:
+        from glm_ocr_llama import GlmOcrLlama
+        _glm_ocr_engine = GlmOcrLlama(
+            gguf_path=GLM_OCR_GGUF,
+            n_gpu_layers=GLM_OCR_N_GPU_LAYERS,
+            load_onnx=load_onnx,
+        )
+        _glm_ocr_engine_mode = mode_key
+    return _glm_ocr_engine
+
+
+def _glm_ocr_runtime_mode() -> str:
+    return os.environ.get("VIDUNDER_GLM_OCR_MODE", GLM_OCR_MODE).lower()
+
 
 def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
-    global _glm_ocr_engine
     from PIL import Image as PILImage
     from pathlib import Path
 
@@ -220,18 +249,59 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
     else:
         return ""
 
-    if _glm_ocr_engine is None:
-        from glm_ocr_llama import GlmOcrLlama
-        _glm_ocr_engine = GlmOcrLlama(
-            gguf_path=GLM_OCR_GGUF,
-            n_gpu_layers=GLM_OCR_N_GPU_LAYERS,
-        )
-
     try:
-        return _glm_ocr_engine.ocr(image, prompt=prompt, max_tokens=min(max_tokens, 2048))
+        mode = _glm_ocr_runtime_mode()
+        if mode in ("cuda_isolated", "isolated_cuda"):
+            from glm_ocr_worker import get_glm_ocr_onnx_worker
+
+            provider = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER")
+            if provider is None:
+                provider = "cuda"
+            precision = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PRECISION", GLM_OCR_ONNX_PRECISION)
+            threads = int(os.environ.get("VIDUNDER_GLM_OCR_ONNX_THREADS", str(GLM_OCR_ONNX_THREADS)))
+            timeout = int(os.environ.get("VIDUNDER_GLM_OCR_WORKER_TIMEOUT", str(GLM_OCR_WORKER_TIMEOUT)))
+            worker = get_glm_ocr_onnx_worker(
+                GLM_OCR_ONNX_DIR,
+                provider=provider.lower(),
+                precision=precision.lower(),
+                threads=threads,
+                timeout=timeout,
+            )
+            encoded = worker.infer(image, prompt, timeout=timeout)
+            engine = _get_glm_ocr_engine(load_onnx=False)
+            return engine.decode_precomputed(
+                encoded["input_ids"],
+                encoded["embeds"],
+                encoded["grid_thw"],
+                max_tokens=min(max_tokens, 2048),
+            )
+
+        if mode not in ("cpu", "same_process", "legacy"):
+            print(f"  Unknown GLM-OCR mode '{mode}', using same-process mode", flush=True)
+        engine = _get_glm_ocr_engine(load_onnx=True)
+        return engine.ocr(image, prompt=prompt, max_tokens=min(max_tokens, 2048))
     except Exception as e:
-        print(f"  GLM-OCR ctypes error: {e}", flush=True)
+        print(f"  GLM-OCR error: {e}", flush=True)
         return ""
+
+
+def shutdown_glm_ocr_workers(stop_decoder: bool = False) -> None:
+    global _glm_ocr_engine, _glm_ocr_engine_mode, _ocr_pool
+    try:
+        from glm_ocr_worker import shutdown_glm_ocr_onnx_worker
+        shutdown_glm_ocr_onnx_worker()
+    except Exception:
+        pass
+
+    if _ocr_pool is not None:
+        _ocr_pool.shutdown(wait=False, cancel_futures=True)
+        _ocr_pool = None
+
+    if stop_decoder and _glm_ocr_engine is not None:
+        if hasattr(_glm_ocr_engine, "close"):
+            _glm_ocr_engine.close()
+        _glm_ocr_engine = None
+        _glm_ocr_engine_mode = None
 
 
 # ── Parallel GLM-OCR via multiprocessing ──────────────────────
