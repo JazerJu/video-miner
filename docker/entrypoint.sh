@@ -21,7 +21,7 @@ fi
 
 # 你之前的数据库迁移等步骤（可选）
 echo "[entrypoint] Running migrations..."
-python manage.py migrate --noinput || true
+python3 manage.py migrate --noinput
 
 echo "[entrypoint] Starting app: $*"
 exec "$@"

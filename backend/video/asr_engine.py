@@ -19,6 +19,8 @@ DEFAULT_MEL_FILTERS = os.path.join(_ASR_UTILS, "resources", "mel_filters.bin")
 DEFAULT_ENGINE_ENV = {
     "GLMASR_VRAM_UTIL": "0.9",
     "GLMASR_MAX_SEQS": "256",
+    "GLMASR_MAX_BATCHED_TOKENS": "10000",
+    "GLMASR_MAX_NEW_TOKENS": "256",
     "GLMASR_ENCODER_FA_PIPELINED": "1",
     "GLMASR_ENCODER_FA_VLLM": "1",
     "GLMASR_ENCODER_FA_LONG_MIN_SEQ": "1",
@@ -117,7 +119,7 @@ class ASREngineDaemon:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
-            env={**os.environ, **DEFAULT_ENGINE_ENV},
+            env={**DEFAULT_ENGINE_ENV, **os.environ},
         )
         self._stderr_lines = []
         self._stderr_thread = threading.Thread(

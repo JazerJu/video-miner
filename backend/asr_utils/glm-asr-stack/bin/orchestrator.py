@@ -39,6 +39,16 @@ OUTPUT_DIR = BASE_DIR / "output"
 TASKS_DIR = BASE_DIR / "tasks"
 LIVE_DIR = BASE_DIR / "live_sessions"
 ASR_WINDOW_CHUNKS = 256
+DEFAULT_ENGINE_ENV = {
+    "GLMASR_VRAM_UTIL": "0.9",
+    "GLMASR_MAX_SEQS": "256",
+    "GLMASR_MAX_BATCHED_TOKENS": "10000",
+    "GLMASR_MAX_NEW_TOKENS": "256",
+    "GLMASR_ENCODER_FA_PIPELINED": "1",
+    "GLMASR_ENCODER_FA_VLLM": "1",
+    "GLMASR_ENCODER_FA_LONG_MIN_SEQ": "1",
+    "GLMASR_ENCODER_FA_MIN_SEQ": "1",
+}
 
 
 def file_md5(path: str, chunk_size: int = 8 * 1024 * 1024) -> str:
@@ -312,15 +322,7 @@ class InferDaemon:
             encoding="utf-8",
             errors="replace",
             bufsize=1,
-            env={
-                **os.environ,
-                "GLMASR_VRAM_UTIL": "0.9",
-                "GLMASR_MAX_SEQS": "256",
-                "GLMASR_ENCODER_FA_PIPELINED": "1",
-                "GLMASR_ENCODER_FA_VLLM": "1",
-                "GLMASR_ENCODER_FA_LONG_MIN_SEQ": "1",
-                "GLMASR_ENCODER_FA_MIN_SEQ": "1",
-            },
+            env={**DEFAULT_ENGINE_ENV, **os.environ},
         )
         self._cmd(f"LOAD {model_dir}")
         self._wait_ready()
