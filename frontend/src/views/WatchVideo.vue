@@ -487,7 +487,6 @@ onMounted(() => {
             maxBufferHole: 0.3, // 允许0.3秒缓冲空洞
 
             // === 片段加载优化 ===
-            maxLoadingTimeout: 10000, // 减少超时时间
             fragLoadingTimeOut: 8000, // 片段加载超时
             fragLoadingMaxRetry: 3, // 减少重试次数，快速失败
             fragLoadingRetryDelay: 500, // 重试间隔500ms
@@ -532,12 +531,6 @@ onMounted(() => {
 
           hls.on(Hls.Events.FRAG_LOADED, (event: any, data: any) => {
             console.log('[HLS] Fragment loaded successfully:', data.frag.url)
-          })
-
-          hls.on(Hls.Events.FRAG_LOAD_ERROR, (event: any, data: any) => {
-            console.error('[HLS] Fragment load error:', data)
-            console.error('[HLS] Failed URL:', data.frag?.url)
-            console.error('[HLS] HTTP Status:', data.response?.code)
           })
 
           hls.on(Hls.Events.ERROR, (event: any, data: any) => {
