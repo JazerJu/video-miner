@@ -2,12 +2,6 @@
 
 # VideoMiner
 
-VidGo是一个专为NAS用户和小型团队设计的本地视频管理平台，提供完整的视频内容管理解决方案。
-
-项目提供[示例网站](https://example.vidgo.cemp.top/)供用户测试使用。
-
-部署和使用中的问题可参考[项目文档](https://doc.vidgo.cemp.top/)。
-
 # 核心功能
 
 **📥1.流媒体视频下载**
