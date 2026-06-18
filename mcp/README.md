@@ -92,6 +92,24 @@ The current MCP server exposes:
 - `get_summary_status`
 - `get_summary_result`
 - `ask_video`
+- `query_download_url`
+- `start_download`
+- `get_download_status`
+- `retry_download_task`
+- `delete_download_task`
+- `start_subtitle_generation`
+- `start_subtitle_translation`
+- `get_subtitle_status`
+- `retry_subtitle_task`
+- `delete_subtitle_task`
+- `get_transcription_status`
+- `list_model_status`
+- `start_model_download`
+- `get_model_download_progress`
+- `cancel_model_download`
+- `get_bilibili_sessdata_status`
+- `set_bilibili_sessdata`
+- `clear_bilibili_sessdata`
 
 Later tools should be migrated from `.agents/skills/*/SKILL.md`, with skills kept
 as fallback documentation for agents that do not support MCP.
