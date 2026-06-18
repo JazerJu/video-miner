@@ -5,13 +5,13 @@
   VIDUNDER_MODEL_ROOT    - 模型根目录，默认 PROJECT_DIR/models
   VIDUNDER_N_CTX          - KV cache 上下文长度，默认 4096
   VIDUNDER_N_GPU_LAYERS   - MiniCPM-V GGUF 放 GPU 的层数，默认 99（全 offload 37 层）
-  VIDUNDER_GLM_OCR_N_GPU_LAYERS - GLM-OCR GGUF 放 GPU 的层数，默认 17（0-17）
+  VIDUNDER_GLM_OCR_N_GPU_LAYERS - GLM-OCR GGUF 放 GPU 的层数，默认 99（全 offload）
   VIDUNDER_KV_CACHE_TYPE  - KV cache 量化类型，默认 q4_0
   VIDUNDER_ONNX_PROVIDER  - ONNX 推理设备，默认 cuda，可改 cpu
-  VIDUNDER_GLM_OCR_ONNX_PROVIDER - GLM-OCR vision ONNX 推理设备，默认 cpu，可改 cuda
+  VIDUNDER_GLM_OCR_ONNX_PROVIDER - GLM-OCR vision ONNX 推理设备，默认 cuda，可改 cpu
   VIDUNDER_GLM_OCR_ONNX_PRECISION - GLM-OCR ONNX 精度，默认 q4，可改 fp32/auto
   VIDUNDER_GLM_OCR_ONNX_THREADS - GLM-OCR CPU ONNX 线程数，默认 4
-  VIDUNDER_GLM_OCR_MODE - GLM-OCR 模式，默认 cpu，可改 cuda_isolated
+  VIDUNDER_GLM_OCR_MODE - GLM-OCR 模式，默认 cuda_isolated，可改 cpu
   VIDUNDER_GLM_OCR_WORKER_TIMEOUT - GLM-OCR ONNX worker 单次超时秒数，默认 180
   VIDUNDER_HWACCEL        - FFmpeg 抽帧硬解，默认 none，可改 cuda/vaapi
   VIDUNDER_VIDEO_PATH     - 输入视频路径
@@ -78,14 +78,14 @@ MIMO_MODEL = "mimo-v2.5"
 # ── LLM 推理参数（环境变量可覆盖）─────────────────────────
 N_CTX = int(os.environ.get("VIDUNDER_N_CTX", "4096"))
 N_GPU_LAYERS = int(os.environ.get("VIDUNDER_N_GPU_LAYERS", "99"))
-GLM_OCR_N_GPU_LAYERS = int(os.environ.get("VIDUNDER_GLM_OCR_N_GPU_LAYERS", "17"))
+GLM_OCR_N_GPU_LAYERS = int(os.environ.get("VIDUNDER_GLM_OCR_N_GPU_LAYERS", "99"))
 N_BATCH = int(os.environ.get("VIDUNDER_N_BATCH", "512"))
 KV_CACHE_TYPE = os.environ.get("VIDUNDER_KV_CACHE_TYPE", "q4_0")
 ONNX_PROVIDER = os.environ.get("VIDUNDER_ONNX_PROVIDER", "cuda")
-GLM_OCR_ONNX_PROVIDER = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER", "cpu")
+GLM_OCR_ONNX_PROVIDER = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER", "cuda")
 GLM_OCR_ONNX_PRECISION = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PRECISION", "q4")
 GLM_OCR_ONNX_THREADS = int(os.environ.get("VIDUNDER_GLM_OCR_ONNX_THREADS", "4"))
-GLM_OCR_MODE = os.environ.get("VIDUNDER_GLM_OCR_MODE", "cpu")
+GLM_OCR_MODE = os.environ.get("VIDUNDER_GLM_OCR_MODE", "cuda_isolated")
 GLM_OCR_WORKER_TIMEOUT = int(os.environ.get("VIDUNDER_GLM_OCR_WORKER_TIMEOUT", "180"))
 N_PREDICT = 512
 VIDEO_PATH = os.environ.get("VIDUNDER_VIDEO_PATH", "")
