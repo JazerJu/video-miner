@@ -666,13 +666,10 @@
             class="p-3 bg-slate-50 rounded-md border border-slate-200 dark:bg-gray-800/50 dark:border-white/10"
           >
             <p class="text-sm text-slate-700 dark:text-gray-200">
-              ✅ <strong>FunASR-GGUF:</strong> {{ t('funasrGgufInfo') }}
+              {{ t('funasrGgufInfo') }}
             </p>
             <p class="text-xs text-slate-500 mt-1 dark:text-gray-400">
               {{ t('funasrGgufSpecs') }}
-            </p>
-            <p class="text-xs text-slate-500 mt-1 dark:text-gray-400">
-              {{ t('funasrGgufPathNote') }}
             </p>
           </div>
         </div>
@@ -947,6 +944,54 @@
             >
               {{ t('refreshStatus') }}
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Token Management -->
+      <div v-if="activeTab === 'apiToken'" class="space-y-6 max-w-3xl">
+        <div class="bg-slate-50 rounded-lg p-5 border border-slate-200 dark:bg-gray-800/50 dark:border-white/10">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h3 class="text-lg font-semibold text-slate-800 dark:text-gray-100">{{ t('apiTokenManagement') }}</h3>
+              <p class="text-sm text-slate-500 mt-1 dark:text-gray-400">{{ t('apiTokenDesc') }}</p>
+            </div>
+            <button
+              @click="openGenerateDialog"
+              class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+              {{ t('generateToken') }}
+            </button>
+          </div>
+
+          <!-- Token List -->
+          <div v-if="tokenLoading" class="py-8 text-center text-sm text-slate-500 dark:text-gray-400">
+            {{ t('loading') }}
+          </div>
+          <div v-else-if="apiTokens.length === 0" class="py-8 text-center text-sm text-slate-500 dark:text-gray-400">
+            {{ t('noApiTokens') }}
+          </div>
+          <div v-else class="space-y-3">
+            <div
+              v-for="(tk, idx) in apiTokens"
+              :key="idx"
+              class="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200 dark:bg-gray-900/40 dark:border-white/10"
+            >
+              <div class="flex items-center gap-3">
+                <div class="flex items-center gap-1.5 font-mono text-sm text-slate-700 dark:text-gray-200">
+                  <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                  {{ tk.key }}
+                </div>
+                <span class="text-xs text-slate-400">{{ new Date(tk.created_at).toLocaleString() }}</span>
+              </div>
+              <button
+                @click="openRevokeDialog()"
+                class="px-3 py-1.5 text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-md transition-colors dark:text-red-400 dark:bg-red-900/20 dark:hover:bg-red-900/30"
+              >
+                {{ t('revoke') }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1610,6 +1655,72 @@
         ></span>
         {{ saving ? t('saving') : t('saveSettings') }}
       </button>
+    </div>
+
+    <!-- Token Credentials Dialog -->
+    <div
+      v-if="tokenCredsDialog"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="tokenCredsDialog = false"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md border border-slate-200 dark:border-white/10 shadow-2xl">
+        <h3 class="text-lg font-semibold text-slate-800 mb-4 dark:text-gray-100">
+          {{ tokenCredsMode === 'generate' ? t('generateToken') : t('revokeToken') }}
+        </h3>
+        <p class="text-sm text-slate-500 mb-4 dark:text-gray-400">{{ t('reEnterCredentials') }}</p>
+        <div class="space-y-3">
+          <input
+            v-model="tokenCredsUsername"
+            type="text"
+            :placeholder="t('username')"
+            class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/50 dark:bg-gray-900/50 dark:border-white/10 dark:text-gray-100"
+            @keyup.enter="submitTokenCreds"
+          />
+          <input
+            v-model="tokenCredsPassword"
+            type="password"
+            :placeholder="t('password')"
+            class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/50 dark:bg-gray-900/50 dark:border-white/10 dark:text-gray-100"
+            @keyup.enter="submitTokenCreds"
+          />
+        </div>
+        <div class="flex justify-end gap-3 mt-6">
+          <button @click="tokenCredsDialog = false" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 dark:text-gray-400 dark:hover:text-gray-200">
+            {{ t('cancel') }}
+          </button>
+          <button @click="submitTokenCreds" class="px-4 py-2 text-sm text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors">
+            {{ t('confirm') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Token Result Dialog (one-time display) -->
+    <div
+      v-if="tokenResultDialog"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      @click.self="closeTokenResult"
+    >
+      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg border border-slate-200 dark:border-white/10 shadow-2xl">
+        <div class="flex items-center gap-2 mb-3">
+          <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <h3 class="text-lg font-semibold text-slate-800 dark:text-gray-100">{{ t('tokenGenerated') }}</h3>
+        </div>
+        <p class="text-sm text-amber-600 mb-4 dark:text-amber-400">{{ t('tokenCopyWarning') }}</p>
+        <div class="flex items-center gap-2">
+          <code class="flex-1 px-3 py-2 bg-slate-100 dark:bg-gray-900/60 rounded-lg text-sm font-mono text-slate-700 dark:text-gray-200 break-all">
+            {{ tokenResultValue }}
+          </code>
+          <button @click="copyToken" class="px-3 py-2 text-sm text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors whitespace-nowrap">
+            {{ t('copy') }}
+          </button>
+        </div>
+        <div class="flex justify-end mt-6">
+          <button @click="closeTokenResult" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 dark:text-gray-400 dark:hover:text-gray-200">
+            {{ t('close') }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -2486,9 +2597,14 @@ const loadVuModels = async () => {
 
 const startVuDownload = async (modelName: string) => {
   try {
+    const model = vuModels.value.find((item) => item.name === modelName)
     const source = vuDownloadSources[modelName] || 'hf'
-    const proxy = settings.vuDownloadUseProxy ? settings.proxyUrl || undefined : undefined
-    await downloadVidUnderModel(modelName, source, proxy)
+    const useProxy = settings.vuDownloadUseProxy
+    const proxy = useProxy ? settings.proxyUrl || undefined : undefined
+    const force =
+      (model ? getVuStatus(model) === 'downloaded' : false) ||
+      vuProgress.value[modelName]?.force === true
+    await downloadVidUnderModel(modelName, source, useProxy, proxy, force)
     const idx = vuModels.value.findIndex((model) => model.name === modelName)
     if (idx >= 0) vuModels.value[idx].status = 'downloading'
     startVuPolling()
@@ -3011,6 +3127,114 @@ onMounted(() => {
 onUnmounted(() => {
   stopVuPolling()
 })
+
+// ===== API Token Management =====
+const apiTokens = ref<Array<{ key: string; created_at: string }>>([])
+const tokenLoading = ref(false)
+const tokenCredsUsername = ref('')
+const tokenCredsPassword = ref('')
+const tokenCredsDialog = ref(false)
+const tokenCredsMode = ref<'generate' | 'revoke'>('generate')
+const tokenResultDialog = ref(false)
+const tokenResultValue = ref('')
+
+const fetchApiTokens = async () => {
+  tokenLoading.value = true
+  try {
+    const res = await fetch(`${BACKEND}/api/auth/tokens/list`, { credentials: 'include' })
+    const data = await res.json()
+    if (data.success) {
+      apiTokens.value = data.tokens
+    }
+  } catch {
+    ElMessage.error(t('loadFailed'))
+  } finally {
+    tokenLoading.value = false
+  }
+}
+
+const openGenerateDialog = () => {
+  tokenCredsMode.value = 'generate'
+  tokenCredsUsername.value = ''
+  tokenCredsPassword.value = ''
+  tokenCredsDialog.value = true
+}
+
+const openRevokeDialog = () => {
+  tokenCredsMode.value = 'revoke'
+  tokenCredsUsername.value = ''
+  tokenCredsPassword.value = ''
+  tokenCredsDialog.value = true
+}
+
+const submitTokenCreds = async () => {
+  if (!tokenCredsUsername.value || !tokenCredsPassword.value) {
+    ElMessage.warning(t('enterUsernamePassword'))
+    return
+  }
+
+  try {
+    if (tokenCredsMode.value === 'generate') {
+      const res = await fetch(`${BACKEND}/api/auth/tokens/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: tokenCredsUsername.value, password: tokenCredsPassword.value }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        tokenResultValue.value = data.token
+        tokenResultDialog.value = true
+        tokenCredsDialog.value = false
+        fetchApiTokens()
+      } else {
+        ElMessage.error(data.error || t('operationFailed'))
+      }
+    } else {
+      const res = await fetch(`${BACKEND}/api/auth/tokens/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: tokenCredsUsername.value,
+          password: tokenCredsPassword.value,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        ElMessage.success(t('tokenRevoked'))
+        tokenCredsDialog.value = false
+        fetchApiTokens()
+      } else {
+        ElMessage.error(data.error || t('operationFailed'))
+      }
+    }
+  } catch {
+    ElMessage.error(t('networkError'))
+  }
+}
+
+const copyToken = async () => {
+  try {
+    await navigator.clipboard.writeText(tokenResultValue.value)
+    ElMessage.success(t('copiedToClipboard'))
+  } catch {
+    ElMessage.error(t('copyManually'))
+  }
+}
+
+const closeTokenResult = () => {
+  tokenResultDialog.value = false
+  tokenResultValue.value = ''
+}
+
+watch(
+  () => props.activeTab,
+  (tab) => {
+    if (tab === 'apiToken') {
+      fetchApiTokens()
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>

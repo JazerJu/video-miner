@@ -25,6 +25,7 @@ import {
   Sun,
   Moon,
   Brain,
+  ShieldCheck,
 } from 'lucide-vue-next'
 import { ElTooltip, ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/composables/useNotification'
@@ -50,6 +51,7 @@ const settingsTabs = [
   { id: 'transcription', label: t('transcriptionSettings'), icon: Mic },
   { id: 'tags', label: t('tagManagement'), icon: Tag },
   { id: 'media', label: t('mediaCredentials'), icon: KeyRound },
+  { id: 'apiToken', label: t('apiTokenManagement'), icon: ShieldCheck },
 ]
 
 const handleSettingsTabClick = (tab: string) => {
