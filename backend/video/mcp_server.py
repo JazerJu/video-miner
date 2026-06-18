@@ -10,11 +10,14 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from asgiref.sync import sync_to_async
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
+from django.db.models import Count
+from django.utils import timezone
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.server import TransportSecuritySettings
 
-from video.models import Video
+from video.models import Category, Tag, Video
+from video.tag_colors import get_random_tag_color
 from video.views.videos import VideoSearchView
 
 
@@ -101,6 +104,7 @@ def _video_payload(video: Video, include_filename: bool = True) -> dict[str, Any
         "duration_seconds": video.video_length_seconds,
         "raw_lang": video.raw_lang or "",
         "category": video.category.name if video.category else None,
+        "category_id": video.category_id,
         "tags": list(video.tags.values_list("name", flat=True)),
         "video_source": video.video_source or "",
         "source_url": video.source_url or "",
@@ -338,13 +342,115 @@ async def _resolve_video_for_task(
     return resolved
 
 
+def _tag_payload(tag: Tag, video_count: int | None = None) -> dict[str, Any]:
+    count = video_count
+    if count is None:
+        count = tag.videos.count()
+    return {
+        "id": tag.id,
+        "name": tag.name,
+        "color": tag.color,
+        "video_count": count,
+    }
+
+
+def _category_payload(
+    category: Category,
+    video_count: int | None = None,
+) -> dict[str, Any]:
+    count = video_count
+    if count is None:
+        count = category.categories.count()
+    return {
+        "id": category.id,
+        "name": category.name,
+        "video_count": count,
+    }
+
+
+def _clean_name_list(names: list[str] | None) -> list[str]:
+    cleaned = []
+    seen = set()
+    for name in names or []:
+        text = str(name).strip()
+        if text and text not in seen:
+            cleaned.append(text)
+            seen.add(text)
+    return cleaned
+
+
+def _find_tag(tag_id: int | None = None, name: str | None = None) -> Tag | None:
+    if tag_id is not None:
+        return Tag.objects.filter(id=tag_id).first()
+    if name:
+        return Tag.objects.filter(name__iexact=name.strip()).first()
+    return None
+
+
+def _find_category(
+    category_id: int | None = None,
+    name: str | None = None,
+) -> Category | None:
+    if category_id is not None:
+        return Category.objects.filter(id=category_id).first()
+    if name:
+        return Category.objects.filter(name__iexact=name.strip()).first()
+    return None
+
+
+def _resolve_target_videos(
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> tuple[list[Video], dict[str, Any] | None]:
+    requested_ids = []
+    for item in video_ids or []:
+        try:
+            requested_ids.append(int(item))
+        except (TypeError, ValueError):
+            return [], {"success": False, "error": f"invalid video id: {item}"}
+    if video_id is not None:
+        requested_ids.append(int(video_id))
+
+    resolved_by_text = None
+    if filename or title:
+        resolved_by_text = _find_video(filename=filename, title=title)
+        if resolved_by_text is None:
+            return [], {"success": False, "error": "video not found"}
+        requested_ids.append(resolved_by_text.id)
+
+    requested_ids = list(dict.fromkeys(requested_ids))
+    if not requested_ids:
+        return [], {
+            "success": False,
+            "error": "Provide video_ids, video_id, filename, or title",
+        }
+
+    videos = list(
+        Video.objects.select_related("category")
+        .prefetch_related("tags")
+        .filter(id__in=requested_ids)
+    )
+    found_ids = {video.id for video in videos}
+    missing_ids = [item for item in requested_ids if item not in found_ids]
+    if missing_ids:
+        return [], {
+            "success": False,
+            "error": "video not found",
+            "missing_ids": missing_ids,
+        }
+    return videos, None
+
+
 mcp = FastMCP(
     "VidGo",
     instructions=(
         "Use these tools to search VidGo videos, inspect video metadata, submit "
         "long-running summary tasks, poll progress by task_id, fetch summaries, "
         "ask questions about completed video-understanding databases, generate "
-        "subtitles, download source videos, and inspect model readiness."
+        "subtitles, download source videos, organize videos with tags/categories, "
+        "and inspect model readiness."
     ),
     streamable_http_path="/mcp",
     sse_path="/sse",
@@ -477,6 +583,631 @@ def _get_video_info_sync(
     title: str | None = None,
 ) -> str:
     return _json(_resolve_video_sync(video_id, filename, title))
+
+
+@mcp.tool()
+async def list_tags() -> str:
+    """List all video tags with colors and usage counts."""
+    return await _run_sync(_list_tags_sync)
+
+
+def _list_tags_sync() -> str:
+    tags = Tag.objects.annotate(video_count=Count("videos")).order_by("name")
+    return _json(
+        {
+            "success": True,
+            "tags": [
+                _tag_payload(tag, video_count=tag.video_count)
+                for tag in tags
+            ],
+        }
+    )
+
+
+@mcp.tool()
+async def create_tag(name: str, color: str | None = None) -> str:
+    """Create a tag, or return the existing matching tag.
+
+    Args:
+        name: Tag name.
+        color: Optional hex color such as #3B82F6. If omitted, VidGo assigns one.
+    """
+    return await _run_sync(_create_tag_sync, name, color)
+
+
+def _create_tag_sync(name: str, color: str | None = None) -> str:
+    tag_name = (name or "").strip()
+    if not tag_name:
+        return _json({"success": False, "error": "name is required"})
+
+    existing = Tag.objects.filter(name__iexact=tag_name).first()
+    if existing:
+        return _json(
+            {
+                "success": True,
+                "created": False,
+                "tag": _tag_payload(existing),
+            }
+        )
+
+    tag = Tag.objects.create(
+        name=tag_name,
+        color=(color or "").strip()
+        or get_random_tag_color(Tag.objects.values_list("color", flat=True)),
+    )
+    return _json({"success": True, "created": True, "tag": _tag_payload(tag)})
+
+
+@mcp.tool()
+async def update_tag(
+    tag_id: int | None = None,
+    name: str | None = None,
+    new_name: str | None = None,
+    color: str | None = None,
+) -> str:
+    """Rename or recolor a tag.
+
+    Args:
+        tag_id: Numeric tag id. Preferred when available.
+        name: Existing tag name if tag_id is not provided.
+        new_name: Optional replacement tag name.
+        color: Optional replacement hex color.
+    """
+    return await _run_sync(_update_tag_sync, tag_id, name, new_name, color)
+
+
+def _update_tag_sync(
+    tag_id: int | None = None,
+    name: str | None = None,
+    new_name: str | None = None,
+    color: str | None = None,
+) -> str:
+    tag = _find_tag(tag_id=tag_id, name=name)
+    if tag is None:
+        return _json({"success": False, "error": "tag not found"})
+
+    clean_new_name = (new_name or "").strip()
+    if clean_new_name and clean_new_name.lower() != tag.name.lower():
+        if Tag.objects.filter(name__iexact=clean_new_name).exclude(id=tag.id).exists():
+            return _json({"success": False, "error": "tag name already exists"})
+        tag.name = clean_new_name
+
+    clean_color = (color or "").strip()
+    if clean_color:
+        tag.color = clean_color
+
+    tag.save()
+    return _json({"success": True, "tag": _tag_payload(tag)})
+
+
+@mcp.tool()
+async def delete_tag(tag_id: int | None = None, name: str | None = None) -> str:
+    """Delete a tag without deleting any videos.
+
+    Args:
+        tag_id: Numeric tag id. Preferred when available.
+        name: Tag name if tag_id is not provided.
+    """
+    return await _run_sync(_delete_tag_sync, tag_id, name)
+
+
+def _delete_tag_sync(tag_id: int | None = None, name: str | None = None) -> str:
+    tag = _find_tag(tag_id=tag_id, name=name)
+    if tag is None:
+        return _json({"success": False, "error": "tag not found"})
+    payload = _tag_payload(tag)
+    affected_videos = tag.videos.count()
+    tag.delete()
+    return _json(
+        {
+            "success": True,
+            "deleted": payload,
+            "affected_videos": affected_videos,
+            "video_deleted": False,
+        }
+    )
+
+
+@mcp.tool()
+async def merge_tags(
+    source_tag_id: int | None = None,
+    source_name: str | None = None,
+    target_tag_id: int | None = None,
+    target_name: str | None = None,
+) -> str:
+    """Merge one tag into another tag, then delete the source tag.
+
+    Args:
+        source_tag_id: Source tag id.
+        source_name: Source tag name if id is not provided.
+        target_tag_id: Target tag id.
+        target_name: Target tag name if id is not provided.
+    """
+    return await _run_sync(
+        _merge_tags_sync,
+        source_tag_id,
+        source_name,
+        target_tag_id,
+        target_name,
+    )
+
+
+def _merge_tags_sync(
+    source_tag_id: int | None = None,
+    source_name: str | None = None,
+    target_tag_id: int | None = None,
+    target_name: str | None = None,
+) -> str:
+    source = _find_tag(tag_id=source_tag_id, name=source_name)
+    target = _find_tag(tag_id=target_tag_id, name=target_name)
+    if source is None:
+        return _json({"success": False, "error": "source tag not found"})
+    if target is None:
+        return _json({"success": False, "error": "target tag not found"})
+    if source.id == target.id:
+        return _json({"success": False, "error": "source and target are the same tag"})
+
+    with transaction.atomic():
+        videos = list(source.videos.all())
+        for video in videos:
+            video.tags.add(target)
+        source_payload = _tag_payload(source, video_count=len(videos))
+        target_payload = _tag_payload(target)
+        source.delete()
+
+    return _json(
+        {
+            "success": True,
+            "merged_video_count": len(videos),
+            "deleted_source": source_payload,
+            "target": target_payload,
+            "video_deleted": False,
+        }
+    )
+
+
+@mcp.tool()
+async def add_video_tags(
+    tag_names: list[str],
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Add tags to one or more videos, creating tags if needed.
+
+    Args:
+        tag_names: Tag names to add.
+        video_ids: Numeric video ids for batch updates.
+        video_id: Single numeric video id.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial video title.
+    """
+    return await _run_sync(
+        _add_video_tags_sync,
+        tag_names,
+        video_ids,
+        video_id,
+        filename,
+        title,
+    )
+
+
+def _get_or_create_tags(tag_names: list[str]) -> list[Tag]:
+    tags = []
+    for tag_name in _clean_name_list(tag_names):
+        tag = Tag.objects.filter(name__iexact=tag_name).first()
+        if tag is None:
+            tag = Tag.objects.create(
+                name=tag_name,
+                color=get_random_tag_color(Tag.objects.values_list("color", flat=True)),
+            )
+        tags.append(tag)
+    return tags
+
+
+def _add_video_tags_sync(
+    tag_names: list[str],
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    tags = _get_or_create_tags(tag_names)
+    if not tags:
+        return _json({"success": False, "error": "tag_names is required"})
+
+    videos, error = _resolve_target_videos(video_ids, video_id, filename, title)
+    if error:
+        return _json(error)
+
+    with transaction.atomic():
+        for video in videos:
+            video.tags.add(*tags)
+
+    return _json(
+        {
+            "success": True,
+            "updated_video_count": len(videos),
+            "tags": [_tag_payload(tag) for tag in tags],
+            "videos": [_video_payload(video) for video in videos],
+        }
+    )
+
+
+@mcp.tool()
+async def set_video_tags(
+    tag_names: list[str],
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Replace all tags on one or more videos, creating tags if needed.
+
+    Args:
+        tag_names: Complete desired tag list. Use [] to clear all tags.
+        video_ids: Numeric video ids for batch updates.
+        video_id: Single numeric video id.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial video title.
+    """
+    return await _run_sync(
+        _set_video_tags_sync,
+        tag_names,
+        video_ids,
+        video_id,
+        filename,
+        title,
+    )
+
+
+def _set_video_tags_sync(
+    tag_names: list[str],
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    tags = _get_or_create_tags(tag_names)
+    videos, error = _resolve_target_videos(video_ids, video_id, filename, title)
+    if error:
+        return _json(error)
+
+    with transaction.atomic():
+        for video in videos:
+            video.tags.set(tags)
+
+    return _json(
+        {
+            "success": True,
+            "updated_video_count": len(videos),
+            "tags": [_tag_payload(tag) for tag in tags],
+            "videos": [_video_payload(video) for video in videos],
+        }
+    )
+
+
+@mcp.tool()
+async def remove_video_tags(
+    tag_names: list[str],
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Remove tags from one or more videos without deleting the tag objects.
+
+    Args:
+        tag_names: Tag names to remove.
+        video_ids: Numeric video ids for batch updates.
+        video_id: Single numeric video id.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial video title.
+    """
+    return await _run_sync(
+        _remove_video_tags_sync,
+        tag_names,
+        video_ids,
+        video_id,
+        filename,
+        title,
+    )
+
+
+def _remove_video_tags_sync(
+    tag_names: list[str],
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    names = _clean_name_list(tag_names)
+    if not names:
+        return _json({"success": False, "error": "tag_names is required"})
+    tags = []
+    missing_names = []
+    for name in names:
+        tag = Tag.objects.filter(name__iexact=name).first()
+        if tag is None:
+            missing_names.append(name)
+        else:
+            tags.append(tag)
+    if not tags:
+        return _json(
+            {
+                "success": False,
+                "error": "no matching tags found",
+                "missing_tag_names": missing_names,
+            }
+        )
+
+    videos, error = _resolve_target_videos(video_ids, video_id, filename, title)
+    if error:
+        return _json(error)
+
+    with transaction.atomic():
+        for video in videos:
+            video.tags.remove(*tags)
+
+    return _json(
+        {
+            "success": True,
+            "updated_video_count": len(videos),
+            "removed_tags": [_tag_payload(tag) for tag in tags],
+            "missing_tag_names": missing_names,
+            "videos": [_video_payload(video) for video in videos],
+        }
+    )
+
+
+@mcp.tool()
+async def list_categories(include_videos: bool = False, video_limit: int = 20) -> str:
+    """List categories with usage counts.
+
+    Args:
+        include_videos: Include sample videos for each category and unarchived videos.
+        video_limit: Maximum videos per category when include_videos is true.
+    """
+    return await _run_sync(_list_categories_sync, include_videos, video_limit)
+
+
+def _list_categories_sync(include_videos: bool = False, video_limit: int = 20) -> str:
+    video_limit = max(1, min(int(video_limit), 100))
+    categories = Category.objects.annotate(video_count=Count("categories")).order_by(
+        "id"
+    )
+    payload = []
+    for category in categories:
+        item = _category_payload(category, video_count=category.video_count)
+        if include_videos:
+            videos = (
+                Video.objects.filter(category=category)
+                .select_related("category")
+                .prefetch_related("tags")
+                .order_by("-last_modified")[:video_limit]
+            )
+            item["videos"] = [_video_payload(video) for video in videos]
+        payload.append(item)
+
+    unarchived_count = Video.objects.filter(category__isnull=True).count()
+    result: dict[str, Any] = {
+        "success": True,
+        "categories": payload,
+        "unarchived": {
+            "id": None,
+            "name": "unarchived",
+            "video_count": unarchived_count,
+        },
+    }
+    if include_videos:
+        videos = (
+            Video.objects.filter(category__isnull=True)
+            .select_related("category")
+            .prefetch_related("tags")
+            .order_by("-last_modified")[:video_limit]
+        )
+        result["unarchived"]["videos"] = [_video_payload(video) for video in videos]
+    return _json(result)
+
+
+@mcp.tool()
+async def create_category(name: str) -> str:
+    """Create a category, or return the existing matching category."""
+    return await _run_sync(_create_category_sync, name)
+
+
+def _create_category_sync(name: str) -> str:
+    category_name = (name or "").strip()
+    if not category_name:
+        return _json({"success": False, "error": "name is required"})
+
+    existing = Category.objects.filter(name__iexact=category_name).first()
+    if existing:
+        return _json(
+            {
+                "success": True,
+                "created": False,
+                "category": _category_payload(existing),
+            }
+        )
+
+    category = Category.objects.create(name=category_name, created_time=timezone.now())
+    return _json(
+        {"success": True, "created": True, "category": _category_payload(category)}
+    )
+
+
+@mcp.tool()
+async def update_category(
+    category_id: int | None = None,
+    name: str | None = None,
+    new_name: str | None = None,
+) -> str:
+    """Rename a category.
+
+    Args:
+        category_id: Numeric category id. Preferred when available.
+        name: Existing category name if category_id is not provided.
+        new_name: Replacement category name.
+    """
+    return await _run_sync(_update_category_sync, category_id, name, new_name)
+
+
+def _update_category_sync(
+    category_id: int | None = None,
+    name: str | None = None,
+    new_name: str | None = None,
+) -> str:
+    category = _find_category(category_id=category_id, name=name)
+    if category is None:
+        return _json({"success": False, "error": "category not found"})
+
+    category_name = (new_name or "").strip()
+    if not category_name:
+        return _json({"success": False, "error": "new_name is required"})
+
+    if category_name.lower() != category.name.lower():
+        if (
+            Category.objects.filter(name__iexact=category_name)
+            .exclude(id=category.id)
+            .exists()
+        ):
+            return _json({"success": False, "error": "category name already exists"})
+        category.name = category_name
+        category.save(update_fields=["name"])
+
+    return _json({"success": True, "category": _category_payload(category)})
+
+
+@mcp.tool()
+async def delete_category(
+    category_id: int | None = None,
+    name: str | None = None,
+) -> str:
+    """Delete a category without deleting videos.
+
+    Videos in the deleted category become unarchived.
+
+    Args:
+        category_id: Numeric category id. Preferred when available.
+        name: Category name if category_id is not provided.
+    """
+    return await _run_sync(_delete_category_sync, category_id, name)
+
+
+def _delete_category_sync(
+    category_id: int | None = None,
+    name: str | None = None,
+) -> str:
+    category = _find_category(category_id=category_id, name=name)
+    if category is None:
+        return _json({"success": False, "error": "category not found"})
+
+    payload = _category_payload(category)
+    affected_videos = Video.objects.filter(category=category).count()
+    with transaction.atomic():
+        Video.objects.filter(category=category).update(category=None)
+        category.delete()
+    return _json(
+        {
+            "success": True,
+            "deleted": payload,
+            "affected_videos": affected_videos,
+            "video_deleted": False,
+        }
+    )
+
+
+@mcp.tool()
+async def set_video_category(
+    category_id: int | None = None,
+    category_name: str | None = None,
+    create_if_missing: bool = True,
+    clear: bool = False,
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Move one or more videos into a category, or clear their category.
+
+    Args:
+        category_id: Target category id.
+        category_name: Target category name if category_id is not provided.
+        create_if_missing: Create category_name if it does not exist.
+        clear: Set category to unarchived and ignore category_id/category_name.
+        video_ids: Numeric video ids for batch updates.
+        video_id: Single numeric video id.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial video title.
+    """
+    return await _run_sync(
+        _set_video_category_sync,
+        category_id,
+        category_name,
+        create_if_missing,
+        clear,
+        video_ids,
+        video_id,
+        filename,
+        title,
+    )
+
+
+def _set_video_category_sync(
+    category_id: int | None = None,
+    category_name: str | None = None,
+    create_if_missing: bool = True,
+    clear: bool = False,
+    video_ids: list[int] | None = None,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    videos, error = _resolve_target_videos(video_ids, video_id, filename, title)
+    if error:
+        return _json(error)
+
+    category = None
+    created = False
+    if not clear:
+        category = _find_category(category_id=category_id, name=category_name)
+        clean_name = (category_name or "").strip()
+        if category is None and clean_name and create_if_missing:
+            category = Category.objects.create(
+                name=clean_name,
+                created_time=timezone.now(),
+            )
+            created = True
+        if category is None:
+            return _json(
+                {
+                    "success": False,
+                    "error": "category not found",
+                    "hint": "Provide category_id/category_name or set clear=true.",
+                }
+            )
+
+    with transaction.atomic():
+        Video.objects.filter(id__in=[video.id for video in videos]).update(
+            category=category
+        )
+
+    refreshed = list(
+        Video.objects.select_related("category")
+        .prefetch_related("tags")
+        .filter(id__in=[video.id for video in videos])
+    )
+    return _json(
+        {
+            "success": True,
+            "updated_video_count": len(refreshed),
+            "category": _category_payload(category) if category else None,
+            "category_created": created,
+            "videos": [_video_payload(video) for video in refreshed],
+        }
+    )
 
 
 @mcp.tool()
