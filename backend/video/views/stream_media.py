@@ -230,6 +230,7 @@ class DownloadActionView(View):
 
         # 3. 新建 task_id，并在全局状态 dict 里初始化
         task_id = int(time.time() * 1000)
+        task_infos = []
         for idx,cid in enumerate(cids,start=1):
             task_id_per_cid=str(task_id)+str(idx)
             title=f"{filename}-p{idx}-{parts[idx-1]}"
@@ -250,7 +251,19 @@ class DownloadActionView(View):
 
             # 4. 推送到后台队列
             download_queue.put(task_id_per_cid)
-        return JsonResponse({"success": True})
+            task_infos.append({
+                "task_id": task_id_per_cid,
+                "page": idx,
+                "cid": cid,
+                "title": title,
+                "duration": duration,
+            })
+        return JsonResponse({
+            "success": True,
+            "task_id": str(task_id),
+            "task_ids": [task["task_id"] for task in task_infos],
+            "tasks": task_infos,
+        })
 
     def enqueue_youtube_download_task(self, request, url, video_id, filename):
         """

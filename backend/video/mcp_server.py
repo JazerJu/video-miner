@@ -709,7 +709,9 @@ async def start_download(
         payload,
         timeout=120,
     )
-    if result.get("success") and "task_id" not in result:
+    if result.get("success") and result.get("task_ids"):
+        result["next_step"] = "Call get_download_status for each task_id in task_ids."
+    elif result.get("success") and "task_id" not in result:
         result["next_step"] = "Call get_download_status and match by title or source URL."
     elif result.get("success"):
         result["next_step"] = "Call get_download_status with the returned task_id."

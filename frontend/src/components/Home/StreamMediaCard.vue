@@ -163,8 +163,10 @@ async function confirmDownload() {
         filename: filename,
       }),
     })
-    const { task_id } = await res.json()
-    ElMessage.success(t('downloadTaskSubmitted', { taskId: task_id }))
+    const { task_id, task_ids } = await res.json()
+    const displayTaskId =
+      Array.isArray(task_ids) && task_ids.length > 0 ? task_ids.join(', ') : task_id
+    ElMessage.success(t('downloadTaskSubmitted', { taskId: displayTaskId }))
     selectedParts.value = [] // 清空勾选
   } catch (e) {
     ElMessage.error(t('downloadTaskFailed'))
