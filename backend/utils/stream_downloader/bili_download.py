@@ -272,6 +272,12 @@ def get_video_info(bvid: str = None, avid: str = None) -> dict:
 
 # 保存 RESP-JSON 到文件
 def save_json_to_file(json_string: str, file_path: str):
+    if not os.path.isabs(file_path):
+        cache_dir = os.environ.get(
+            "VIDGO_CACHE_DIR", os.path.join(settings.BASE_DIR, "cache")
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+        file_path = os.path.join(cache_dir, file_path)
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(json_string)
 

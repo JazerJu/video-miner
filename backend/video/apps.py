@@ -14,7 +14,12 @@ class VideoConfig(AppConfig):
         if getattr(self, "_worker_started", False):
             return
 
-        from .tasks import process_next_task, process_download_task, process_summary_task
+        from .tasks import (
+            process_next_task,
+            process_download_task,
+            process_summary_task,
+            process_vidunder_download_task,
+        )
 
         # ===== 线程池配置 =====
         # 根据 CPU 核心数动态计算
@@ -96,6 +101,25 @@ class VideoConfig(AppConfig):
                     print(f"Download dispatcher error: {e}")
                     time.sleep(5)
 
+        def _vidunder_download_dispatcher():
+            """vidUnder 模型下载任务调度器"""
+            while True:
+                try:
+                    connection.close_if_unusable_or_obsolete()
+
+                    def task_wrapper():
+                        try:
+                            connection.close_if_unusable_or_obsolete()
+                            process_vidunder_download_task()
+                        except Exception as e:
+                            print(f"vidUnder download task error: {e}")
+
+                    download_executor.submit(task_wrapper)
+                    time.sleep(0.1 + random.random() * 0.1)
+                except Exception as e:
+                    print(f"vidUnder download dispatcher error: {e}")
+                    time.sleep(5)
+
         def _summary_dispatcher():
             """vidUnder 总结任务调度器"""
             while True:
@@ -119,6 +143,7 @@ class VideoConfig(AppConfig):
         # 启动调度器线程（守护线程）
         threading.Thread(target=_subtitle_dispatcher, daemon=True, name="subtitle-dispatcher").start()
         threading.Thread(target=_download_dispatcher, daemon=True, name="download-dispatcher").start()
+        threading.Thread(target=_vidunder_download_dispatcher, daemon=True, name="vidunder-download-dispatcher").start()
         threading.Thread(target=_summary_dispatcher, daemon=True, name="summary-dispatcher").start()
 
         self._worker_started = True

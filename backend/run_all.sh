@@ -16,6 +16,8 @@ fi
 mkdir -p ./logs
 
 export PORT="${PORT:-8080}"
+export ENABLE_MCP="${ENABLE_MCP:-0}"
+export MCP_PORT="${MCP_PORT:-8787}"
 export VIDGO_URL="${VIDGO_URL:-https://vidgo.cemp.top}"
 
 # 你的项目用的是 vid_go.settings -> 对应的 WSGI 入口如下
@@ -33,6 +35,24 @@ if lsof -t -i tcp:"$PORT" >/dev/null 2>&1; then
   echo "ERROR: Port $PORT in use by PID(s): $(lsof -t -i tcp:$PORT | xargs)"
   echo "Hint: fuser -k ${PORT}/tcp   或   pkill -f 'manage.py runserver.*${PORT}'"
   exit 1
+fi
+
+if [[ "$ENABLE_MCP" == "1" ]]; then
+  if lsof -t -i tcp:"$MCP_PORT" >/dev/null 2>&1; then
+    echo "ERROR: MCP port $MCP_PORT in use by PID(s): $(lsof -t -i tcp:$MCP_PORT | xargs)"
+    exit 1
+  fi
+
+  MCP_LOG="./logs/mcp_$(date +%Y%m%d_%H%M%S).log"
+  nohup python -m uvicorn vid_go.mcp_asgi:application \
+    --host "0.0.0.0" \
+    --port "$MCP_PORT" \
+    >> "$MCP_LOG" 2>&1 & MCP_PID=$!
+
+  echo "MCP PID=$MCP_PID"
+  echo "MCP Local:   http://localhost:${MCP_PORT}/mcp"
+  hostname -I | xargs -n1 -I{} echo "MCP Network: http://{}:${MCP_PORT}/mcp"
+  echo "MCP Log:     $(pwd)/$MCP_LOG"
 fi
 
 # 单进程多线程模式：

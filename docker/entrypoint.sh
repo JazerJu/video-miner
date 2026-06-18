@@ -23,5 +23,31 @@ fi
 echo "[entrypoint] Running migrations..."
 python3 manage.py migrate --noinput
 
+if [ "${ENABLE_MCP:-0}" = "1" ]; then
+  MCP_PORT="${MCP_PORT:-8787}"
+  echo "[entrypoint] Starting VidGo MCP on 0.0.0.0:${MCP_PORT}..."
+  python3 -m uvicorn vid_go.mcp_asgi:application \
+    --host 0.0.0.0 \
+    --port "${MCP_PORT}" &
+fi
+
+if [ "${1:-}" = "gunicorn" ]; then
+  PORT="${PORT:-8080}"
+  WORKERS="${VIDGO_GUNICORN_WORKERS:-1}"
+  THREADS="${VIDGO_GUNICORN_THREADS:-16}"
+  TIMEOUT="${VIDGO_GUNICORN_TIMEOUT:-300}"
+  WORKER_CLASS="${VIDGO_GUNICORN_WORKER_CLASS:-gthread}"
+  APP_MODULE="${VIDGO_WSGI_APP:-vid_go.wsgi:application}"
+
+  set -- \
+    gunicorn \
+    --bind "0.0.0.0:${PORT}" \
+    --workers "${WORKERS}" \
+    --threads "${THREADS}" \
+    --worker-class "${WORKER_CLASS}" \
+    --timeout "${TIMEOUT}" \
+    "${APP_MODULE}"
+fi
+
 echo "[entrypoint] Starting app: $*"
 exec "$@"

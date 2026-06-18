@@ -10,7 +10,8 @@ _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ASR_UTILS = os.path.join(_BACKEND_DIR, "asr_utils", "glm-asr-stack")
 _MODELS_DIR = os.path.join(_BACKEND_DIR, "models", "glm-asr")
 
-DEFAULT_ENGINE_PATH = os.path.join(_ASR_UTILS, "Infer-engine", "glm_asr_infer")
+DEFAULT_ENGINE_PATH = os.path.join(_ASR_UTILS, "bin", "glm_asr_infer")
+LEGACY_ENGINE_PATH = os.path.join(_ASR_UTILS, "Infer-engine", "glm_asr_infer")
 DEFAULT_MODEL_DIR = os.environ.get(
     "GLM_ASR_MODEL_DIR",
     os.path.join(_MODELS_DIR, "glm-asr-nano-2512"),
@@ -34,6 +35,8 @@ def _get_engine_config() -> tuple[str, str, str]:
     engine_path = (
         engine_settings.get("glm_asr_engine_path", "").strip() or DEFAULT_ENGINE_PATH
     )
+    if os.path.normpath(engine_path) == os.path.normpath(LEGACY_ENGINE_PATH):
+        engine_path = DEFAULT_ENGINE_PATH
     model_dir = (
         engine_settings.get("glm_asr_model_dir", "").strip() or DEFAULT_MODEL_DIR
     )

@@ -86,8 +86,8 @@ WORKDIR /app
 
 # Create runtime user before COPY --chown so name resolution works at build time.
 RUN useradd --create-home --uid 1000 vidgo \
-    && mkdir -p /app/config /app/media /app/models /app/database /app/work_dir \
-    && chown -R vidgo:vidgo /app/config /app/media /app/models /app/database /app/work_dir
+    && mkdir -p /app/config /app/media /app/models /app/database /app/work_dir /app/cache \
+    && chown -R vidgo:vidgo /app/config /app/media /app/models /app/database /app/work_dir /app/cache
 
 # 仅复制配置的备份文件到镜像固定位置（**不是**挂载点）
 COPY backend/config/config.ini.backup /app/config.ini.backup
@@ -100,13 +100,33 @@ COPY --from=compile-frontend /app/backend/static /app/static
 
 # Copy backend code only
 COPY --chown=vidgo:vidgo backend/ .
+
+# The source tree carries local absolute symlinks in FunASR's llama.cpp bin
+# directory. Replace them with the image's bundled shared libraries so the
+# runtime is self-contained after Docker COPY dereferences or preserves links.
+RUN set -eux; \
+    funasr_bin=/app/asr_utils/fun-asr-stack/fun_asr_gguf/inference/bin; \
+    mkdir -p "$funasr_bin"; \
+    rm -f "$funasr_bin"/libggml-base.so* \
+          "$funasr_bin"/libggml-cpu.so* \
+          "$funasr_bin"/libggml-cuda.so* \
+          "$funasr_bin"/libggml.so* \
+          "$funasr_bin"/libllama.so*; \
+    cp -a /app/vid_under/bin/libggml-base.so* \
+          /app/vid_under/bin/libggml-cpu.so* \
+          /app/vid_under/bin/libggml-cuda.so* \
+          /app/vid_under/bin/libggml.so* \
+          /app/vid_under/bin/libllama.so* \
+          "$funasr_bin"/; \
+    chown -R vidgo:vidgo "$funasr_bin"
+
 # 复制启动脚本
 COPY --chown=vidgo:vidgo docker/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh
 USER vidgo
-# default port at 8000
-EXPOSE 8000
+# default web port plus optional MCP sidecar port
+EXPOSE 8080 8787
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -124,7 +144,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIDUNDER_GLM_OCR_N_GPU_LAYERS=17 \
     VIDUNDER_N_BATCH=512 \
     VIDUNDER_KV_CACHE_TYPE=q4_0 \
-    VIDUNDER_ONNX_PROVIDER=cuda \
+    VIDUNDER_ONNX_PROVIDER=cpu \
     VIDUNDER_THINKING_BUDGET=low \
     VIDUNDER_HWACCEL=none \
     FUNASR_GGUF_DIR=/app/asr_utils/fun-asr-stack \
@@ -149,5 +169,6 @@ VOLUME ["/app/config", "/app/database", "/app/media", "/app/models"]
 # 运行启动脚本
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Use gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "vid_go.wsgi:application"]
+# Use gunicorn for production. The entrypoint expands this to the default
+# single-worker gthread layout unless env vars override it.
+CMD ["gunicorn"]
