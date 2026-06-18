@@ -299,17 +299,17 @@ class GlmOcrOnnx:
         max_pixels_raw = int(size_info.get("longest_edge", 4 * min_pixels))
         max_pixels = min(max_pixels_raw, 1_000_000)
 
-        if height * width <= max_pixels:
-            h_bar = max(factor, round(height / factor) * factor)
-            w_bar = max(factor, round(width / factor) * factor)
-        else:
-            beta = max_pixels / (height * width)
-            beta = float(np.sqrt(beta))
+        beta = 1.0
+        if height * width > max_pixels:
+            beta = float(np.sqrt(max_pixels / (height * width)))
+
+        h_bar = max(factor, round(height * beta / factor) * factor)
+        w_bar = max(factor, round(width * beta / factor) * factor)
+
+        while h_bar * w_bar > max_pixels and beta > 0:
+            beta *= 0.9
             h_bar = max(factor, round(height * beta / factor) * factor)
             w_bar = max(factor, round(width * beta / factor) * factor)
-        if h_bar * w_bar > max_pixels:
-            h_bar = max(factor, round(height * beta * 0.9 / factor) * factor)
-            w_bar = max(factor, round(width * beta * 0.9 / factor) * factor)
         return int(h_bar), int(w_bar)
 
     def _preprocess_image(self, image: Image.Image) -> tuple[np.ndarray, np.ndarray]:
