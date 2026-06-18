@@ -392,7 +392,8 @@ class VideoDataView(JsonView):
             payload.append(
                 {
                     "id": 0,
-                    "name": "未归档",
+                    "name": None,
+                    "system_key": "unarchived",
                     "loose_videos": [self.video_json(v) for v in uncated_vids],
                 }
             )

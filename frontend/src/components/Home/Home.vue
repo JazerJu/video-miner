@@ -494,7 +494,8 @@ async function fetchVideoData() {
     // Since we removed Collections, everything should be in loose_videos or similar
     // We map backend response to Frontend Category structure
     categories.value = catArray.map((cat: any) => {
-      const categoryName = cat.name || t('unarchived')
+      const isUnarchivedCategory = cat.system_key === 'unarchived' || cat.id === 0
+      const categoryName = isUnarchivedCategory ? t('unarchived') : cat.name || t('unarchived')
       return {
         id: cat.id ?? 0,
         name: categoryName,
