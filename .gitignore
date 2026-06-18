@@ -65,6 +65,7 @@ frontend/src/shims-hls.d.ts
 
 # Exclude temp/test files
 *.png
+!frontend/src/assets/*.png
 *.wav
 *.m4a
 backend/visualize_*.py
