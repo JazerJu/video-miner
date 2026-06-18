@@ -1,4 +1,6 @@
-# VidGo 项目概览
+![Latest stable](https://img.shields.io/github/v/release/JazerJu/video-miner?display_name=tag) [![CI](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml)
+
+# VideoMiner
 
 VidGo是一个专为NAS用户和小型团队设计的本地视频管理平台，提供完整的视频内容管理解决方案。
 
