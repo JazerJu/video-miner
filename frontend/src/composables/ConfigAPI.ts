@@ -1,7 +1,9 @@
-// 前端会编译后与后端运行在同一台主机，同一端口，所以生产中使用${window.location.port}
-// export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
-// 开发中前后端端口不统一，使用默认的8000端口
-export const BACKEND = `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_BACKEND_ORIGIN}`
+// Production static files are served by Django/gunicorn on the same origin as the
+// API. Only Vite dev needs an explicit backend port.
+export const BACKEND =
+  import.meta.env.DEV && import.meta.env.VITE_BACKEND_ORIGIN
+    ? `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_BACKEND_ORIGIN}`
+    : window.location.origin
 
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 
@@ -964,6 +966,7 @@ export interface VidUnderProgress {
     status: string
     current_file?: string
     error?: string
+    force?: boolean
   }
 }
 
@@ -999,11 +1002,18 @@ export async function loadVidUnderModels(): Promise<VidUnderModel[]> {
 export async function downloadVidUnderModel(
   modelName: string,
   source: VidUnderModelSource = 'hf',
+  useProxy = false,
   proxy?: string,
+  force = false,
 ): Promise<void> {
   try {
     const csrf = await getCSRFToken()
-    const body: Record<string, string> = { model_name: modelName, source }
+    const body: Record<string, string | boolean> = {
+      model_name: modelName,
+      source,
+      use_proxy: useProxy,
+      force,
+    }
     if (proxy) body.proxy = proxy
     const response = await fetch(`${BACKEND}/api/vidunder-models/download/`, {
       method: 'POST',

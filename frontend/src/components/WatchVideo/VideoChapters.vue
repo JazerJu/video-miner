@@ -79,7 +79,7 @@ const openEditDialog = () => {
 
 const fetchThumbnails = async () => {
   if (!props.id || props.id <= 0) {
-    alert('无效的视频ID，无法获取缩略图')
+    alert(t('invalidVideoId'))
     return
   }
 
@@ -111,7 +111,7 @@ const fetchThumbnails = async () => {
     await ChapterAPI.saveChapters(props.id, chapters.value)
   } catch (error) {
     console.error('Failed to fetch thumbnails:', error)
-    alert('获取缩略图失败，请重试')
+    alert(t('fetchThumbnailsFailed'))
   }
 
   isFetchingImages.value = false
@@ -119,7 +119,7 @@ const fetchThumbnails = async () => {
 
 const saveChapters = async () => {
   if (!props.id || props.id <= 0) {
-    alert('无效的视频ID，无法保存章节')
+    alert(t('invalidVideoIdCannotSave'))
     return
   }
 
@@ -127,14 +127,14 @@ const saveChapters = async () => {
   if (success) {
     showEditDialog.value = false
   } else {
-    alert('保存章节失败，请重试')
+    alert(t('saveChaptersFailed'))
   }
 }
 
 const addChapter = () => {
   const newChapter: Chapter = {
     id: Date.now().toString(),
-    title: `新章节 ${chapters.value.length + 1}`,
+    title: `${t('newChapter')} ${chapters.value.length + 1}`,
     startTime: Math.max(0, props.currentTime),
     children: []
   }
@@ -148,7 +148,7 @@ const addSubChapter = (parentChapter: Chapter) => {
   }
   const newChapter: Chapter = {
     id: Date.now().toString() + Math.random().toString().slice(2, 5),
-    title: `子章节 ${parentChapter.children.length + 1}`,
+    title: `${t('newSubChapter')} ${parentChapter.children.length + 1}`,
     startTime: Math.max(parentChapter.startTime, props.currentTime),
     endTime: undefined
   }
@@ -248,28 +248,28 @@ watch(
           @click="toggleChapterMarkers"
           :class="localShowChapterMarkers ? 'bg-green-600/80 hover:bg-green-600 border-green-500/30 text-white' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-600/80 dark:hover:bg-slate-600 border-slate-200 dark:border-slate-500/30 text-slate-700 dark:text-white'"
           class="px-4 py-2 text-sm rounded-lg transition-colors backdrop-blur-sm border"
-          :title="localShowChapterMarkers ? '隐藏进度条章节标记' : '显示进度条章节标记'"
+          :title="localShowChapterMarkers ? t('hideMarkers') : t('showMarkers')"
         >
           <span v-if="localShowChapterMarkers" class="flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
               <path d="M12 20h9"/>
               <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
             </svg>
-            显示标记
+            {{ t('showMarkers') }}
           </span>
           <span v-else class="flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2">
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
             </svg>
-            隐藏标记
+            {{ t('hideMarkers') }}
           </span>
         </button>
         <button
           @click="openEditDialog"
           class="px-4 py-2 bg-blue-600/80 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors backdrop-blur-sm border border-blue-500/30"
         >
-          编辑章节
+          {{ t('editChapters') }}
         </button>
         <button
           @click="fetchThumbnails"
@@ -297,9 +297,9 @@ watch(
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
               ></path>
             </svg>
-            获取中...
+            {{ t('fetchingThumbnails') }}
           </span>
-          <span v-else>获取缩略图</span>
+          <span v-else>{{ t('fetchThumbnails') }}</span>
         </button>
       </div>
       <div v-else class="text-sm text-slate-500 dark:text-slate-400">{{ t('waitingVideoLoad') }}</div>
@@ -393,7 +393,7 @@ watch(
     >
       <div class="bg-white/95 dark:bg-gradient-to-br dark:from-slate-800/95 dark:to-slate-700/95 rounded-2xl p-8 w-full max-w-4xl max-h-[85vh] overflow-y-auto border border-slate-200 dark:border-slate-600/50 shadow-2xl backdrop-blur-lg">
         <div class="flex justify-between items-center mb-6">
-          <h3 class="text-2xl font-semibold text-slate-900 dark:text-white">编辑章节</h3>
+          <h3 class="text-2xl font-semibold text-slate-900 dark:text-white">{{ t('editChapters') }}</h3>
           <button @click="showEditDialog = false" class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-all">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -410,7 +410,7 @@ watch(
                 v-model="chapter.title"
                 type="text"
                 class="flex-1 px-3 py-2 bg-white dark:bg-slate-600/50 border border-slate-300 dark:border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 transition-all"
-                placeholder="一级章节标题"
+                :placeholder="t('chapterTitlePlaceholder')"
               />
               <div class="flex items-center space-x-1">
                 <input
@@ -419,8 +419,8 @@ watch(
                   min="0"
                   step="1"
                   class="w-20 px-2 py-2 bg-white dark:bg-slate-600/50 border border-slate-300 dark:border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 text-center text-sm"
-                  placeholder="开始"
-                  title="开始时间(秒)"
+                  :placeholder="t('startTimePlaceholder')"
+                  :title="t('startTimeTitle')"
                 />
                 <span class="text-slate-500 dark:text-slate-500">-</span>
                 <input
@@ -429,15 +429,15 @@ watch(
                   min="0"
                   step="1"
                   class="w-20 px-2 py-2 bg-white dark:bg-slate-600/50 border border-slate-300 dark:border-slate-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white placeholder-slate-400 text-center text-sm"
-                  placeholder="结束"
-                  title="结束时间(秒，可选)"
+                  :placeholder="t('endTimePlaceholder')"
+                  :title="t('endTimeTitle')"
                 />
               </div>
               
               <button
                 @click="addSubChapter(chapter)"
                 class="text-blue-400 hover:text-blue-300 p-2 rounded-lg hover:bg-blue-500/20 transition-all"
-                title="添加子章节"
+                :title="t('addSubChapter')"
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -446,7 +446,7 @@ watch(
               <button
                 @click="removeChapter(chapter.id)"
                 class="text-red-400 hover:text-red-300 p-2 rounded-lg hover:bg-red-500/20 transition-all"
-                title="删除章节"
+                :title="t('removeChapter')"
               >
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -462,7 +462,7 @@ watch(
                     v-model="child.title"
                     type="text"
                     class="flex-1 px-3 py-1.5 bg-white dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-sm transition-all"
-                    placeholder="子章节标题"
+                    :placeholder="t('subChapterTitlePlaceholder')"
                   />
                   <div class="flex items-center space-x-1">
                     <input
@@ -471,7 +471,7 @@ watch(
                       min="0"
                       step="1"
                       class="w-16 px-2 py-1.5 bg-white dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-center text-xs"
-                      placeholder="开始"
+                      :placeholder="t('startTimePlaceholder')"
                     />
                     <span class="text-slate-500 dark:text-slate-600">-</span>
                     <input
@@ -480,13 +480,13 @@ watch(
                       min="0"
                       step="1"
                       class="w-16 px-2 py-1.5 bg-white dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-center text-xs"
-                      placeholder="结束"
+                      :placeholder="t('endTimePlaceholder')"
                     />
                   </div>
                   <button
                     @click="removeSubChapter(chapter, child.id)"
                     class="text-red-400 hover:text-red-300 p-1.5 rounded-lg hover:bg-red-500/20 transition-all"
-                    title="删除子章节"
+                    :title="t('removeSubChapter')"
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -503,7 +503,7 @@ watch(
             <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
-            添加新的一级章节
+            {{ t('addNewChapter') }}
           </button>
         </div>
 
@@ -512,13 +512,13 @@ watch(
             @click="showEditDialog = false"
             class="px-6 py-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-white hover:bg-slate-100 dark:bg-slate-700/50 dark:hover:bg-slate-600/70 rounded-lg transition-all border border-slate-200 dark:border-slate-600/30"
           >
-            取消
+            {{ t('cancel') }}
           </button>
           <button
             @click="saveChapters"
             class="px-6 py-2 bg-blue-600/80 hover:bg-blue-600 text-white rounded-lg transition-all border border-blue-500/30 shadow-lg"
           >
-            保存更改
+            {{ t('saveChanges') }}
           </button>
         </div>
       </div>
