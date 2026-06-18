@@ -3,10 +3,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 arch="$($ROOT/bin/detect_arch)"
 bin="$ROOT/Infer-engine/glm_asr_infer_${arch}"
+fallback_bin="$ROOT/Infer-engine/glm_asr_infer"
 if [[ ! -x "$bin" ]]; then
-  echo "ERROR: missing engine binary $bin" >&2
-  echo "hint: run $ROOT/scripts/build_infer_arch.sh $arch" >&2
-  exit 1
+  if [[ -x "$fallback_bin" ]]; then
+    bin="$fallback_bin"
+  else
+    echo "ERROR: missing engine binary $bin" >&2
+    echo "hint: run $ROOT/scripts/build_infer_arch.sh $arch" >&2
+    exit 1
+  fi
 fi
 export LD_LIBRARY_PATH="$ROOT/lib:/usr/local/cuda-12.8/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}"
 export GLMASR_VRAM_UTIL="${GLMASR_VRAM_UTIL:-0.9}"
