@@ -266,6 +266,7 @@ def _find_summary_file(filename):
 def _normalize_summary_slide_links(content: str, db_name: str, summary_dir: str | None = None) -> str:
     output_root = os.path.join(settings.MEDIA_ROOT, "vidunder", "output")
     per_video_dir = os.path.join(output_root, f"{db_name}_slides")
+    extract_dir = os.path.join(output_root, f"{db_name}_extract", "slides")
     shared_dir = os.path.join(output_root, "slides")
     sibling_dir = os.path.join(summary_dir, "slides") if summary_dir else ""
 
@@ -287,11 +288,14 @@ def _normalize_summary_slide_links(content: str, db_name: str, summary_dir: str 
         rel = os.path.relpath(sibling_dir, output_root).replace(os.sep, "/")
         sibling_prefix = f"/media/vidunder/output/{rel}/"
     per_video_prefix = f"/media/vidunder/output/{db_name}_slides/"
+    extract_prefix = f"/media/vidunder/output/{db_name}_extract/slides/"
     shared_prefix = "/media/vidunder/output/slides/"
     if sibling_prefix:
         slide_prefix = sibling_prefix
     elif os.path.isdir(per_video_dir):
         slide_prefix = per_video_prefix
+    elif os.path.isdir(extract_dir):
+        slide_prefix = extract_prefix
     else:
         slide_prefix = shared_prefix
 
@@ -317,7 +321,7 @@ def _normalize_summary_slide_links(content: str, db_name: str, summary_dir: str 
         media_url_prefix = "/media/vidunder/output/"
         content = content.replace(media_output_prefix, media_url_prefix)
 
-    if not sibling_prefix and not os.path.isdir(per_video_dir) and not os.path.isdir(shared_dir):
+    if not sibling_prefix and not os.path.isdir(per_video_dir) and not os.path.isdir(extract_dir) and not os.path.isdir(shared_dir):
         logger.warning("No slide directory found for summary %s", db_name)
 
     return content
@@ -331,6 +335,7 @@ def _find_summary_slide_dir(db_name: str, summary_dir: str | None = None) -> str
     candidates.extend(
         [
             os.path.join(output_root, f"{db_name}_slides"),
+            os.path.join(output_root, f"{db_name}_extract", "slides"),
             os.path.join(output_root, "slides"),
         ]
     )
