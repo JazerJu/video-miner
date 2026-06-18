@@ -690,24 +690,70 @@
       <div v-if="activeTab === 'media'" class="space-y-6 max-w-3xl">
         <div>
           <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">{{ t('bilibiliSessData') }}</label>
-          <div class="flex items-center space-x-2">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
             <el-input
               v-model="settings.bilibiliSessData"
               type="password"
               show-password
               :placeholder="t('enterBilibiliSessData')"
-              class="flex-1"
+              class="min-w-0 flex-1"
             />
             <button
               @click="copyToClipboard(settings.bilibiliSessData)"
-              class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-sm text-slate-700 whitespace-nowrap transition-colors dark:bg-white/10 dark:hover:bg-white/15 dark:text-gray-200"
+              class="w-full px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-md text-sm text-slate-700 whitespace-nowrap transition-colors dark:bg-white/10 dark:hover:bg-white/15 dark:text-gray-200 sm:w-auto"
             >
               {{ t('copy') }}
+            </button>
+            <button
+              @click="handleValidateBilibiliSessData"
+              :disabled="bilibiliSessDataValidating || !settings.bilibiliSessData.trim()"
+              class="w-full px-3 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-sm text-white whitespace-nowrap transition-colors sm:w-auto"
+            >
+              <span v-if="bilibiliSessDataValidating">{{ t('validating') }}</span>
+              <span v-else>{{ t('saveAndValidateBilibiliSessData') }}</span>
             </button>
           </div>
           <p class="mt-2 text-sm text-slate-500 dark:text-gray-400">
             {{ t('bilibiliSessDataNote') }}
           </p>
+          <div
+            v-if="bilibiliSessDataStatus"
+            class="mt-3 rounded-md border px-3 py-2 text-sm"
+            :class="
+              bilibiliSessDataStatus.validation?.valid
+                ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-200'
+                : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
+            "
+          >
+            <div class="font-medium">{{ getBilibiliSessDataStatusText() }}</div>
+            <div
+              v-if="bilibiliSessDataStatus.validation?.username || bilibiliSessDataStatus.validation?.uid"
+              class="mt-1 text-xs"
+            >
+              {{ t('bilibiliAccount') }}:
+              <span v-if="bilibiliSessDataStatus.validation?.username">
+                {{ bilibiliSessDataStatus.validation.username }}
+              </span>
+              <span v-if="bilibiliSessDataStatus.validation?.uid">
+                (UID {{ bilibiliSessDataStatus.validation.uid }})
+              </span>
+            </div>
+            <div v-if="bilibiliSessDataStatus.expires_at" class="mt-1 text-xs">
+              {{ t('bilibiliSessDataExpiresAt') }}:
+              {{ formatBilibiliSessDataTime(bilibiliSessDataStatus.expires_at) }}
+            </div>
+            <div
+              v-if="
+                bilibiliSessDataStatus.validation?.checked &&
+                !bilibiliSessDataStatus.validation?.valid &&
+                bilibiliSessDataStatus.validation?.message
+              "
+              class="mt-1 text-xs"
+            >
+              {{ t('bilibiliSessDataMessage') }}:
+              {{ bilibiliSessDataStatus.validation.message }}
+            </div>
+          </div>
         </div>
 
         <!-- YouTube cookies.txt 管理 -->
@@ -1742,6 +1788,8 @@ import {
   type VidUnderProgress,
   type VidUnderModelSource,
   type VidUnderModelStatus,
+  validateBilibiliSessData,
+  type BilibiliSessDataStatus,
 } from '@/composables/ConfigAPI'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/composables/useNotification'
@@ -2494,6 +2542,8 @@ const cookiesStatus = ref<CookiesStatus | null>(null)
 const cookiesLoading = ref(false)
 const cookiesUploading = ref(false)
 const cookiesHover = ref(false)
+const bilibiliSessDataStatus = ref<BilibiliSessDataStatus | null>(null)
+const bilibiliSessDataValidating = ref(false)
 
 const VIDUNDER_MODELS: Array<Required<Pick<VidUnderModel, 'name' | 'label' | 'description' | 'totalSize'>>> = [
   {
@@ -2764,6 +2814,58 @@ const formatCookiesTime = (isoTime: string): string => {
     second: '2-digit',
   })
 }
+
+const formatBilibiliSessDataTime = (isoTime: string): string => {
+  const date = new Date(isoTime)
+  return date.toLocaleString(locale.value === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const getBilibiliSessDataStatusText = (): string => {
+  const status = bilibiliSessDataStatus.value
+  const validation = status?.validation
+  if (!status?.configured) return t('bilibiliSessDataNotConfigured')
+  if (status.expired) return t('bilibiliSessDataExpired')
+  if (validation?.valid) return t('bilibiliSessDataValid')
+  if (validation?.checked) return t('bilibiliSessDataInvalid')
+  return t('bilibiliSessDataConfigured')
+}
+
+const handleValidateBilibiliSessData = async () => {
+  const sessdata = settings.bilibiliSessData.trim()
+  if (!sessdata) {
+    ElMessage.warning(t('bilibiliSessDataRequired'))
+    return
+  }
+
+  try {
+    bilibiliSessDataValidating.value = true
+    bilibiliSessDataStatus.value = await validateBilibiliSessData(sessdata)
+    const validation = bilibiliSessDataStatus.value.validation
+    if (validation?.valid) {
+      ElMessage.success(t('bilibiliSessDataValid'))
+    } else {
+      ElMessage.warning(validation?.message || t('bilibiliSessDataInvalid'))
+    }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : t('bilibiliSessDataValidateFailed')
+    ElMessage.error(message)
+  } finally {
+    bilibiliSessDataValidating.value = false
+  }
+}
+
+watch(
+  () => settings.bilibiliSessData,
+  () => {
+    bilibiliSessDataStatus.value = null
+  },
+)
 
 const handleInstallDeps = async () => {
   try {

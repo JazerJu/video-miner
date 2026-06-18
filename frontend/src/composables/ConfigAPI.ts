@@ -404,6 +404,83 @@ export interface FrontendSettings {
   vuDownloadUseProxy: boolean
 }
 
+export interface BilibiliSessDataValidation {
+  checked: boolean
+  valid: boolean
+  is_login: boolean
+  username: string | null
+  uid: number | string | null
+  bili_code: number | null
+  message: string
+  error: string | null
+}
+
+export interface BilibiliSessDataStatus {
+  configured: boolean
+  length: number
+  expires_at: string | null
+  expired: boolean | null
+  validation?: BilibiliSessDataValidation
+}
+
+async function requestBilibiliSessData(
+  method: 'GET' | 'POST' | 'DELETE',
+  body?: Record<string, unknown>,
+): Promise<BilibiliSessDataStatus> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (method !== 'GET') {
+    headers['X-CSRFToken'] = await getCSRFToken()
+  }
+
+  const response = await fetch(`${BACKEND}/api/media-credentials/bilibili-sessdata/`, {
+    method,
+    headers,
+    credentials: 'include',
+    body: body ? JSON.stringify(body) : undefined,
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+
+  const result = await response.json()
+  if (!result.success) {
+    throw new Error(result.error || 'Bilibili SESSDATA request failed')
+  }
+
+  return result.data
+}
+
+export async function validateBilibiliSessData(
+  sessdata?: string,
+): Promise<BilibiliSessDataStatus> {
+  const value = sessdata?.trim()
+  if (value) {
+    await requestBilibiliSessData('POST', { sessdata: value })
+  }
+
+  const response = await fetch(`${BACKEND}/api/media-credentials/bilibili-sessdata/?validate=1`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+
+  const result = await response.json()
+  if (!result.success) {
+    throw new Error(result.error || 'Bilibili SESSDATA validation failed')
+  }
+
+  return result.data
+}
+
 export async function loadConfig(): Promise<FrontendSettings> {
   try {
     const response = await fetch(`${BACKEND}/api/config/`, {
