@@ -72,42 +72,6 @@
               </button>
             </div>
           </div>
-
-          <!-- Password Reset Section -->
-          <div class="border-t pt-4">
-            <h4 class="text-md font-medium text-gray-800 mb-4">密码管理</h4>
-            <div v-if="!resetEmailSent">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">邮箱地址</label>
-                <div class="flex items-center space-x-2">
-                  <input
-                    v-model="resetEmail"
-                    type="email"
-                    class="flex-1 p-2 border border-gray-300 rounded-md"
-                    :placeholder="user?.email || '输入您的邮箱地址'"
-                  />
-                  <button
-                    @click="requestPasswordReset"
-                    :disabled="sendingResetEmail"
-                    class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
-                  >
-                    {{ sendingResetEmail ? '发送中...' : '发送重置邮件' }}
-                  </button>
-                </div>
-                <p class="mt-2 text-sm text-gray-500">
-                  我们将向您的邮箱发送一封包含重置链接的邮件。
-                </p>
-              </div>
-            </div>
-            <div v-else class="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div class="flex items-center">
-                <svg class="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-                <span class="text-green-700">重置邮件已发送！请检查您的邮箱。</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -150,11 +114,8 @@ const emit = defineEmits<{
 
 const loading = ref(false)
 const saving = ref(false)
-const sendingResetEmail = ref(false)
-const resetEmailSent = ref(false)
 const user = ref<User | null>(null)
 const email = ref('')
-const resetEmail = ref('')
 
 const fetchProfile = async () => {
   try {
@@ -167,7 +128,6 @@ const fetchProfile = async () => {
       if (data.success) {
         user.value = data.user
         email.value = data.user.email
-        resetEmail.value = data.user.email
       }
     }
   } catch (error) {
@@ -211,39 +171,6 @@ const updateEmail = async () => {
   }
 }
 
-const requestPasswordReset = async () => {
-  if (!resetEmail.value.trim()) {
-    ElMessage.warning('请输入邮箱地址')
-    return
-  }
-
-  try {
-    sendingResetEmail.value = true
-    const response = await fetch(`${BACKEND}/api/auth/password/reset/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({ email: resetEmail.value }),
-    })
-
-    const data = await response.json()
-
-    if (data.success) {
-      resetEmailSent.value = true
-      ElMessage.success('重置邮件已发送')
-    } else {
-      ElMessage.error(data.error || '发送失败')
-    }
-  } catch (error) {
-    console.error('Error requesting password reset:', error)
-    ElMessage.error('发送失败')
-  } finally {
-    sendingResetEmail.value = false
-  }
-}
-
 const closeDialog = () => {
   emit('update:visible', false)
 }
@@ -251,7 +178,6 @@ const closeDialog = () => {
 watch(() => props.visible, (newVal) => {
   if (newVal) {
     fetchProfile()
-    resetEmailSent.value = false
   }
 })
 </script>

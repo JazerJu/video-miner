@@ -190,9 +190,6 @@ onMounted(() => {
           <button @click="switchMode('register')" class="text-blue-600 hover:underline block w-full">
             {{ t('noAccount') }} {{ t('registerNow') }}
           </button>
-          <button @click="router.push('/forgot-password')" class="text-gray-600 hover:underline block w-full">
-            {{ t('forgotPassword') }}
-          </button>
           <button @click="router.push('/')" class="text-gray-600 hover:text-gray-800">
             {{ t('returnTo') }} {{ t('home') }}
           </button>
