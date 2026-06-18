@@ -3,13 +3,8 @@ from django.contrib.auth.hashers import make_password
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.core.mail import send_mail
-from django.conf import settings
-from django.utils import timezone
-from datetime import timedelta
 import json
 import re
-import uuid
 import os
 from .models import User
 
@@ -48,11 +43,17 @@ def register(request):
         if User.objects.filter(username=username).exists():
             return JsonResponse({"error": "Username already exists"}, status=400)
 
+        # Auto-grant root privileges to the first user (memos-style)
+        is_first_user = not User.objects.exists()
+
         user = User.objects.create(
             username=username,
             email=email,
             password=make_password(password),
-            premium_authority=False,
+            is_root=is_first_user,
+            premium_authority=is_first_user,
+            is_staff=is_first_user,
+            is_superuser=is_first_user,
             hidden_categories=[],
         )
 
@@ -63,6 +64,7 @@ def register(request):
                     "id": user.id,
                     "username": user.username,
                     "email": user.email,
+                    "is_root": user.is_root,
                     "premium_authority": user.premium_authority,
                     "hidden_categories": user.hidden_categories,
                 },
@@ -767,132 +769,6 @@ def update_user(request, user_id):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-import uuid
-from django.core.mail import send_mail
-from django.utils import timezone
-from datetime import timedelta
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-def request_password_reset(request):
-    """Request password reset email"""
-    try:
-        data = json.loads(request.body)
-        email = data.get("email", "").strip().lower()
-
-        if not email:
-            return JsonResponse({"error": "Email is required"}, status=400)
-
-        # Check if user exists with this email
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            # Don't reveal whether email exists
-            return JsonResponse(
-                {
-                    "success": True,
-                    "message": "If an account exists with this email, a password reset link will be sent.",
-                }
-            )
-
-        # Generate reset token
-        reset_token = str(uuid.uuid4())
-        user.password_reset_token = reset_token
-        user.password_reset_expires = timezone.now() + timedelta(
-            seconds=getattr(settings, "PASSWORD_RESET_TIMEOUT", 3600)
-        )
-        user.save(update_fields=["password_reset_token", "password_reset_expires"])
-
-        # Build reset URL
-        # Try to auto-detect backend URL from request, fallback to env var or default
-        host = request.get_host()
-        scheme = "https" if request.is_secure() else "http"
-        frontend_url = os.getenv("FRONTEND_URL", f"{scheme}://{host}")
-        reset_url = f"{frontend_url}/reset-password?token={reset_token}&email={email}"
-
-        # Send email (console backend in development)
-        try:
-            send_mail(
-                subject="VidGo Password Reset",
-                message=f"Click the following link to reset your password: {reset_url}\n\nThis link will expire in 1 hour.",
-                from_email=getattr(
-                    settings, "DEFAULT_FROM_EMAIL", "noreply@vidgo.local"
-                ),
-                recipient_list=[email],
-                fail_silently=False,
-            )
-        except Exception as e:
-            # In development, just log the URL
-            print(f"Password reset URL: {reset_url}")
-            print(f"Email send error: {str(e)}")
-
-        return JsonResponse(
-            {
-                "success": True,
-                "message": "If an account exists with this email, a password reset link will be sent.",
-            }
-        )
-
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON"}, status=400)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-@csrf_exempt
-@require_http_methods(["POST"])
-def reset_password(request):
-    """Reset password with token"""
-    try:
-        data = json.loads(request.body)
-        email = data.get("email", "").strip().lower()
-        token = data.get("token", "").strip()
-        new_password = data.get("new_password")
-
-        if not email or not token or not new_password:
-            return JsonResponse(
-                {"error": "Email, token, and new password are required"}, status=400
-            )
-
-        # Validate password
-        is_valid, message = validate_password(new_password)
-        if not is_valid:
-            return JsonResponse({"error": message}, status=400)
-
-        # Find user and verify token
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return JsonResponse({"error": "Invalid or expired reset token"}, status=400)
-
-        # Check token validity
-        if (
-            user.password_reset_token != token
-            or user.password_reset_expires is None
-            or timezone.now() > user.password_reset_expires
-        ):
-            return JsonResponse({"error": "Invalid or expired reset token"}, status=400)
-
-        # Update password
-        user.password = make_password(new_password)
-        user.password_reset_token = None
-        user.password_reset_expires = None
-        user.save()
-
-        return JsonResponse(
-            {
-                "success": True,
-                "message": "Password reset successfully. You can now login with your new password.",
-            }
-        )
-
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON"}, status=400)
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def update_own_profile(request):
@@ -1026,17 +902,15 @@ def list_api_tokens(request):
 
     try:
         from rest_framework.authtoken.models import Token
-        tokens = Token.objects.filter(user=request.user).values(
-            'id', 'key', 'created'
-        )
+        tokens = Token.objects.filter(user=request.user).values('key', 'created')
 
-        token_list = []
-        for t in tokens:
-            token_list.append({
-                'id': t['id'],
+        token_list = [
+            {
                 'key': t['key'][:8] + '...',
                 'created_at': t['created'].isoformat() if t['created'] else None,
-            })
+            }
+            for t in tokens
+        ]
 
         return JsonResponse({
             "success": True,
@@ -1056,22 +930,18 @@ def revoke_api_token(request):
         data = json.loads(request.body)
         username = data.get("username")
         password = data.get("password")
-        token_id = data.get("token_id")
 
         if not username or not password:
             return JsonResponse(
                 {"error": "Username and password are required"}, status=400
             )
 
-        if not token_id:
-            return JsonResponse({"error": "token_id is required"}, status=400)
-
         user = authenticate(request, username=username, password=password)
         if user is None:
             return JsonResponse({"error": "Invalid credentials"}, status=401)
 
         from rest_framework.authtoken.models import Token
-        token = Token.objects.filter(id=token_id, user=user).first()
+        token = Token.objects.filter(user=user).first()
 
         if not token:
             return JsonResponse({"error": "Token not found"}, status=404)

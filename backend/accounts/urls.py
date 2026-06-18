@@ -11,10 +11,6 @@ urlpatterns = [
     path("create-user/", views.create_user, name="create_user"),
     path("list-users/", views.list_users, name="list_users"),
     path("update-user/<int:user_id>/", views.update_user, name="update_user"),
-    path("password/reset/", views.request_password_reset, name="password_reset"),
-    path(
-        "password/reset/confirm/", views.reset_password, name="password_reset_confirm"
-    ),
     path(
         "user-hidden-categories/",
         views.user_hidden_categories,

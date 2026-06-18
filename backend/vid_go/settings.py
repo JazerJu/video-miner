@@ -236,24 +236,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # 自定义用户模型
 AUTH_USER_MODEL = "accounts.User"
 
-# Email settings
-EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
-)
-EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.qq.com")
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", 465))
-EMAIL_USE_TLS = False
-EMAIL_USE_SSL = True
-EMAIL_HOST_USER = "1632114593@qq.com"
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "neicqumvbnwcdijh")
-# DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@vidgo.local")
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "1632114593@qq.com")
-
-# Password reset settings
-PASSWORD_RESET_TIMEOUT = int(
-    os.getenv("PASSWORD_RESET_TIMEOUT", 3600)
-)  # 1 hour default
-
 LOGGING_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOGGING_DIR, exist_ok=True)
 
