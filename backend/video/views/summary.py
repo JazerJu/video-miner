@@ -1,4 +1,6 @@
+import io
 import json, time, os, re, threading, logging
+import zipfile
 from typing import Any, cast
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -321,6 +323,58 @@ def _normalize_summary_slide_links(content: str, db_name: str, summary_dir: str 
     return content
 
 
+def _find_summary_slide_dir(db_name: str, summary_dir: str | None = None) -> str | None:
+    output_root = os.path.join(settings.MEDIA_ROOT, "vidunder", "output")
+    candidates = []
+    if summary_dir:
+        candidates.append(os.path.join(summary_dir, "slides"))
+    candidates.extend(
+        [
+            os.path.join(output_root, f"{db_name}_slides"),
+            os.path.join(output_root, "slides"),
+        ]
+    )
+    for path in candidates:
+        if path and os.path.isdir(path):
+            return path
+    return None
+
+
+def _slide_zip_path(path: str) -> str | None:
+    normalized = path.strip().replace("\\", "/")
+    if not normalized:
+        return None
+    for marker in ("/slides/", "_slides/"):
+        if marker in normalized:
+            name = normalized.split(marker, 1)[1].lstrip("/")
+            return f"slides/{name}" if name else None
+    if normalized.startswith("./slides/"):
+        return normalized[2:]
+    if normalized.startswith("slides/"):
+        return normalized
+    return None
+
+
+def _rewrite_summary_links_for_zip(content: str) -> str:
+    def replace_markdown(match):
+        path = match.group(2)
+        zip_path = _slide_zip_path(path)
+        if not zip_path:
+            return match.group(0)
+        return f"{match.group(1)}{zip_path}{match.group(3)}"
+
+    def replace_html(match):
+        path = match.group(2)
+        zip_path = _slide_zip_path(path)
+        if not zip_path:
+            return match.group(0)
+        return f"{match.group(1)}{zip_path}{match.group(3)}"
+
+    content = re.sub(r"(!\[[^\]]*\]\()([^)\n]+)(\))", replace_markdown, content)
+    content = re.sub(r"(<img\b[^>]*\bsrc=[\"'])([^\"']+)([\"'])", replace_html, content)
+    return content
+
+
 VALID_SUBTITLE_LANGS = ["en", "zh", "jp", "de"]
 
 
@@ -388,6 +442,47 @@ class VideoSummaryView(View):
             "summary": content,
             "file": os.path.basename(summary_file),
         })
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class VideoSummaryExportView(View):
+    """GET /api/video-summary/<filename>/export?format=zip."""
+
+    def get(self, request, filename):
+        export_format = request.GET.get("format", "zip").lower()
+        if export_format != "zip":
+            return JsonResponse({"error": "Only zip export is supported"}, status=400)
+
+        summary_file = _find_summary_file(filename)
+        if not summary_file:
+            return JsonResponse({"error": f"Summary not found for {filename}"}, status=404)
+
+        with open(summary_file, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        db_name = _summary_base_name(summary_file)
+        summary_dir = os.path.dirname(summary_file)
+        slide_dir = _find_summary_slide_dir(db_name, summary_dir)
+        content = _rewrite_summary_links_for_zip(content)
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("summary.md", content)
+            if slide_dir:
+                for root, _, files in os.walk(slide_dir):
+                    for name in files:
+                        src = os.path.join(root, name)
+                        if not os.path.isfile(src):
+                            continue
+                        rel = os.path.relpath(src, slide_dir).replace(os.sep, "/")
+                        archive.write(src, f"slides/{rel}")
+
+        buffer.seek(0)
+        response = HttpResponse(buffer.getvalue(), content_type="application/zip")
+        response["Content-Disposition"] = (
+            f'attachment; filename="{db_name}_summary_slides.zip"'
+        )
+        return response
 
 
 @method_decorator(csrf_exempt, name='dispatch')

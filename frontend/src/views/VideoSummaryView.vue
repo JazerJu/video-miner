@@ -18,6 +18,8 @@ const isEditing = ref(false)
 const editContent = ref('')
 const rawMarkdown = ref('')
 const saving = ref(false)
+const pdfExporting = ref(false)
+const zipExporting = ref(false)
 
 async function renderMarkdown(mdContent: string) {
   renderedHtml.value = await markdownToHtml(mdContent)
@@ -103,27 +105,119 @@ async function saveEdit() {
     saving.value = false
   }
 }
+
+function downloadBaseName() {
+  return (
+    filename
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .trim() || 'summary'
+  )
+}
+
+async function exportPdf() {
+  if (!containerRef.value) return
+
+  pdfExporting.value = true
+  try {
+    const { default: html2pdf } = await import('html2pdf.js')
+    const options: any = {
+      margin: [10, 12, 10, 12],
+      filename: `${downloadBaseName()}_summary.pdf`,
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      },
+      jsPDF: {
+        unit: 'mm',
+        format: 'a4',
+        orientation: 'portrait',
+      },
+      pagebreak: {
+        mode: ['css', 'legacy'],
+      },
+    }
+
+    await html2pdf()
+      .set(options)
+      .from(containerRef.value)
+      .save()
+  } catch (err) {
+    console.error('Failed to export summary PDF:', err)
+    window.alert('Failed to export PDF.')
+  } finally {
+    pdfExporting.value = false
+  }
+}
+
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function exportMarkdownZip() {
+  zipExporting.value = true
+  try {
+    const res = await fetch(
+      `${BACKEND}/api/video-summary/${encodeURIComponent(filename)}/export?format=zip`,
+      { credentials: 'include' },
+    )
+    if (!res.ok) {
+      throw new Error(`Export failed (${res.status})`)
+    }
+    const blob = await res.blob()
+    downloadBlob(blob, `${downloadBaseName()}_summary_slides.zip`)
+  } catch (err) {
+    console.error('Failed to export summary zip:', err)
+    window.alert('Failed to export Markdown + slides zip.')
+  } finally {
+    zipExporting.value = false
+  }
+}
 </script>
 
 <template>
   <div class="min-h-screen bg-white dark:bg-slate-900">
     <!-- Header -->
     <div class="sticky top-0 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur border-b border-slate-200 dark:border-slate-700">
-      <div class="max-w-4xl mx-auto px-6 py-3 flex items-center gap-3">
+      <div class="max-w-4xl mx-auto px-6 py-3 flex flex-wrap items-center gap-3">
         <a :href="`/watch/${filename}`" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white transition-colors">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </a>
-        <h1 class="text-lg font-semibold text-slate-800 dark:text-white truncate">{{ filename }}</h1>
+        <h1 class="min-w-0 flex-1 text-lg font-semibold text-slate-800 dark:text-white truncate">{{ filename }}</h1>
         <span class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">Summary</span>
-        <button
-          v-if="!loading && !error && !isEditing"
-          @click="startEdit"
-          class="ml-auto text-xs px-3 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
-        >
-          Edit
-        </button>
+        <div v-if="!loading && !error && !isEditing" class="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+          <button
+            @click="exportPdf"
+            :disabled="pdfExporting"
+            class="text-xs px-3 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
+          >
+            {{ pdfExporting ? 'Exporting...' : 'Export PDF' }}
+          </button>
+          <button
+            @click="exportMarkdownZip"
+            :disabled="zipExporting"
+            class="text-xs px-3 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
+          >
+            {{ zipExporting ? 'Exporting...' : 'Markdown + Slides ZIP' }}
+          </button>
+          <button
+            @click="startEdit"
+            class="text-xs px-3 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
+          >
+            Edit
+          </button>
+        </div>
       </div>
     </div>
 
