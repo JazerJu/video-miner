@@ -460,3 +460,221 @@ class UserHiddenCategoriesTests(JsonRequestMixin, TestCase):
 
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json(), {"error": "Not authenticated"})
+
+
+from django.test import RequestFactory
+
+from accounts.views import update_own_profile
+
+
+class AccountViewEdgeCaseTests(JsonRequestMixin, TestCase):
+    def setUp(self):
+        self.root = User.objects.create_user(
+            username="root-edge",
+            password="Root12345",
+            email="root-edge@example.com",
+            is_root=True,
+            premium_authority=True,
+        )
+        self.user = User.objects.create_user(
+            username="user-edge",
+            password="User12345",
+            email="user-edge@example.com",
+        )
+
+    def login_root(self):
+        self.client.force_login(self.root)
+
+    def test_register_rejects_invalid_email_format(self):
+        response = self.post_json(
+            "/api/auth/register/",
+            {"username": "bad-email", "password": "User12345", "email": "not-an-email"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid email format"})
+
+    def test_register_rejects_duplicate_email(self):
+        response = self.post_json(
+            "/api/auth/register/",
+            {
+                "username": "duplicate-email",
+                "password": "User12345",
+                "email": "user-edge@example.com",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Email already registered"})
+
+    def test_register_rejects_invalid_json(self):
+        response = self.client.post(
+            "/api/auth/register/",
+            data="{not-json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid JSON"})
+
+    def test_register_root_requires_username_and_password(self):
+        User.objects.all().delete()
+
+        response = self.post_json("/api/auth/register-root/", {"username": "root"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Username and password are required"})
+
+    def test_register_root_requires_number_in_password(self):
+        User.objects.all().delete()
+
+        response = self.post_json(
+            "/api/auth/register-root/",
+            {"username": "root", "password": "Password"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {"error": "Password must contain at least one number"},
+        )
+
+    def test_create_user_requires_username_and_password_for_root(self):
+        self.login_root()
+
+        response = self.post_json("/api/auth/create-user/", {"username": "created"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Username and password are required"})
+
+    def test_create_user_rejects_duplicate_username_for_root(self):
+        self.login_root()
+
+        response = self.post_json(
+            "/api/auth/create-user/",
+            {"username": "user-edge", "password": "Other12345"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Username already exists"})
+
+    def test_create_user_rejects_invalid_json_for_root(self):
+        self.login_root()
+
+        response = self.client.post(
+            "/api/auth/create-user/",
+            data="{not-json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid JSON"})
+
+    def test_update_user_rejects_invalid_json_for_root(self):
+        self.login_root()
+
+        response = self.client.post(
+            f"/api/auth/update-user/{self.user.id}/",
+            data="{not-json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid JSON"})
+
+    def test_user_hidden_categories_rejects_invalid_json(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            "/api/auth/user-hidden-categories/",
+            data="{not-json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid JSON"})
+
+
+class AccountTokenEdgeCaseTests(JsonRequestMixin, TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="token-user", password="User12345")
+
+    def test_list_tokens_requires_authentication(self):
+        response = self.client.get("/api/auth/tokens/list")
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json(), {"error": "Authentication required"})
+
+    def test_create_token_replaces_existing_token(self):
+        old_token = Token.objects.create(user=self.user)
+
+        response = self.post_json(
+            "/api/auth/tokens/create",
+            {"username": "token-user", "password": "User12345"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertNotEqual(data["token"], old_token.key)
+        self.assertFalse(Token.objects.filter(key=old_token.key).exists())
+        self.assertTrue(Token.objects.filter(user=self.user, key=data["token"]).exists())
+
+    def test_revoke_token_requires_credentials(self):
+        response = self.post_json("/api/auth/tokens/revoke", {"username": "token-user"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Username and password are required"})
+
+    def test_revoke_token_returns_not_found_when_user_has_no_token(self):
+        response = self.post_json(
+            "/api/auth/tokens/revoke",
+            {"username": "token-user", "password": "User12345"},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"error": "Token not found"})
+
+
+class OwnProfileUpdateViewTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(
+            username="profile-user",
+            password="User12345",
+            email="profile@example.com",
+        )
+        self.other = User.objects.create_user(
+            username="other-profile-user",
+            password="User12345",
+            email="other@example.com",
+        )
+
+    def post_profile_update(self, user, payload):
+        request = self.factory.post(
+            "/api/auth/profile/update/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        request.user = user
+        return update_own_profile(request)
+
+    def test_update_own_profile_lowercases_and_saves_email(self):
+        response = self.post_profile_update(self.user, {"email": "  New.Email@Example.COM  "})
+
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertTrue(data["success"])
+        self.assertEqual(data["user"]["email"], "new.email@example.com")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "new.email@example.com")
+
+    def test_update_own_profile_rejects_email_used_by_another_user(self):
+        response = self.post_profile_update(self.user, {"email": "other@example.com"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(json.loads(response.content), {"error": "Email is already in use"})
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "profile@example.com")

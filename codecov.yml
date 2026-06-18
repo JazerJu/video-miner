@@ -19,6 +19,7 @@ ignore:
   - "backend/third_party/**"
   - "backend/**/migrations/**"
   - "backend/**/tests.py"
+  - "backend/**/tests_*.py"
   - "backend/**/tests/**"
   - "backend/manage.py"
   - "backend/run_all.sh"

@@ -727,3 +727,488 @@ class MCPToolsTests(JSONRequestMixin, TestCase):
 
         self.assertEqual(body["success"], False)
         self.assertEqual(body["error"], "video not found")
+
+
+class VideoViewLayer3Tests(JSONRequestMixin, TestCase):
+    def test_set_video_language_updates_raw_lang(self):
+        video = self.create_video(name="Language", url="language.mp4")
+
+        response = self.post_json(f"/api/videos/{video.id}/language", {"raw_lang": "en"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success"], True)
+        self.assertEqual(response.json()["raw_lang"], "en")
+        video.refresh_from_db()
+        self.assertEqual(video.raw_lang, "en")
+
+    def test_set_video_language_rejects_invalid_language(self):
+        video = self.create_video(name="Language", url="language.mp4")
+
+        response = self.post_json(f"/api/videos/{video.id}/language", {"raw_lang": "es"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid language code"})
+
+    def test_set_video_language_rejects_invalid_json(self):
+        video = self.create_video(name="Language", url="language.mp4")
+
+        response = self.client.post(
+            f"/api/videos/{video.id}/language",
+            data="{bad-json",
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid JSON"})
+
+    def test_update_video_props_updates_source_metadata(self):
+        video = self.create_video(name="Props", url="props.mp4")
+
+        response = self.post_json(
+            f"/api/videos/{video.id}/props",
+            {
+                "raw_lang": "zh",
+                "video_source": "youtube",
+                "source_url": "https://youtube.com/watch?v=abc",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success"], True)
+        video.refresh_from_db()
+        self.assertEqual(video.raw_lang, "zh")
+        self.assertEqual(video.video_source, "youtube")
+        self.assertEqual(video.source_url, "https://youtube.com/watch?v=abc")
+
+    def test_update_video_props_rejects_invalid_source(self):
+        video = self.create_video(name="Props", url="props.mp4")
+
+        response = self.post_json(
+            f"/api/videos/{video.id}/props",
+            {"video_source": "vimeo"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {"error": "Invalid source: vimeo"})
+
+    def test_save_and_load_chapters(self):
+        video = self.create_video(name="Chapters", url="chapters.mp4")
+        chapters = [{"title": "Intro", "start": 0}, {"title": "Demo", "start": 90}]
+
+        save_response = self.post_json(
+            f"/api/videos/{video.id}/save_chapters",
+            {"chapters": chapters},
+        )
+        load_response = self.client.get(f"/api/videos/{video.id}/load_chapters")
+
+        self.assertEqual(save_response.status_code, 200)
+        self.assertEqual(save_response.json()["success"], True)
+        self.assertEqual(load_response.status_code, 200)
+        self.assertEqual(load_response.json(), {"success": True, "chapters": chapters})
+
+    def test_move_video_to_category_and_clear_category(self):
+        category = Category.objects.create(name="Archive")
+        video = self.create_video(name="Move", url="move.mp4")
+
+        move_response = self.post_json(
+            f"/api/videos/{video.id}/move_category",
+            {"categoryId": category.id},
+        )
+        clear_response = self.post_json(
+            f"/api/videos/{video.id}/move_category",
+            {"categoryId": None},
+        )
+
+        self.assertEqual(move_response.status_code, 200)
+        self.assertEqual(move_response.json()["success"], True)
+        self.assertEqual(clear_response.status_code, 200)
+        video.refresh_from_db()
+        self.assertIsNone(video.category)
+
+    def test_move_video_to_missing_category_returns_404(self):
+        video = self.create_video(name="Move", url="move.mp4")
+
+        response = self.post_json(
+            f"/api/videos/{video.id}/move_category",
+            {"categoryId": 9999},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["success"], False)
+
+    def test_add_tags_creates_and_attaches_tags(self):
+        video = self.create_video(name="Tagged", url="tagged.mp4")
+
+        response = self.post_json(
+            f"/api/videos/{video.id}/add_tags",
+            {"tagNames": ["django", "tests"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success"], True)
+        self.assertCountEqual(response.json()["tags"], ["django", "tests"])
+        self.assertEqual(video.tags.count(), 2)
+
+    def test_add_tags_requires_tag_names(self):
+        video = self.create_video(name="Tagged", url="tagged.mp4")
+
+        response = self.post_json(f"/api/videos/{video.id}/add_tags", {"tagNames": []})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["success"], False)
+
+    def test_batch_move_category_updates_all_requested_videos(self):
+        category = Category.objects.create(name="Batch Archive")
+        videos = [
+            self.create_video(name="First", url="batch-first.mp4"),
+            self.create_video(name="Second", url="batch-second.mp4"),
+        ]
+
+        response = self.post_json(
+            "/api/videos/batch_action",
+            {
+                "action": "move_category",
+                "videoIds": [video.id for video in videos],
+                "categoryId": category.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success"], True)
+        self.assertEqual(
+            Video.objects.filter(category=category).count(),
+            2,
+        )
+
+    def test_batch_move_category_missing_category_returns_404(self):
+        video = self.create_video(name="Batch", url="batch.mp4")
+
+        response = self.post_json(
+            "/api/videos/batch_action",
+            {"action": "move_category", "videoIds": [video.id], "categoryId": 9999},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["success"], False)
+
+    def test_batch_add_and_remove_tags(self):
+        videos = [
+            self.create_video(name="First", url="tag-first.mp4"),
+            self.create_video(name="Second", url="tag-second.mp4"),
+        ]
+        payload = {"videoIds": [video.id for video in videos], "tagNames": ["shared"]}
+
+        add_response = self.post_json(
+            "/api/videos/batch_action",
+            {"action": "add_tags", **payload},
+        )
+        remove_response = self.post_json(
+            "/api/videos/batch_action",
+            {"action": "remove_tags", **payload},
+        )
+
+        self.assertEqual(add_response.status_code, 200)
+        self.assertEqual(add_response.json()["success"], True)
+        self.assertEqual(remove_response.status_code, 200)
+        self.assertEqual(remove_response.json()["success"], True)
+        self.assertFalse(Video.objects.filter(tags__name="shared").exists())
+
+    def test_batch_remove_tags_returns_404_when_tags_do_not_exist(self):
+        video = self.create_video(name="No Tags", url="no-tags.mp4")
+
+        response = self.post_json(
+            "/api/videos/batch_action",
+            {"action": "remove_tags", "videoIds": [video.id], "tagNames": ["missing"]},
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["success"], False)
+
+    def test_similar_videos_requires_exact_same_category_and_tags(self):
+        category = Category.objects.create(name="Similarity")
+        django_tag = Tag.objects.create(name="django")
+        tests_tag = Tag.objects.create(name="tests")
+        target = self.create_video(name="Target", url="target.mp4", category=category)
+        exact = self.create_video(name="Exact", url="exact.mp4", category=category)
+        extra = self.create_video(name="Extra", url="extra.mp4", category=category)
+        target.tags.add(django_tag)
+        exact.tags.add(django_tag)
+        extra.tags.add(django_tag, tests_tag)
+
+        response = self.client.get(f"/api/videos/{target.id}/similar")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["videos"][0]["id"], exact.id)
+
+    def test_similar_videos_missing_video_returns_404(self):
+        response = self.client.get("/api/videos/9999/similar")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["success"], False)
+
+
+from unittest.mock import MagicMock, mock_open
+
+
+class VideoDownloadViewLayer3Tests(JSONRequestMixin, TestCase):
+    @patch("video.views.download.os.path.getsize")
+    @patch("video.views.download.os.path.exists")
+    def test_head_mp4_returns_file_headers(self, mock_exists, mock_getsize):
+        mock_exists.return_value = True
+        mock_getsize.return_value = 12345
+        video = self.create_video(name="Download", url="download.mp4")
+
+        response = self.client.head(f"/api/videos/{video.id}/download/mp4")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Length"), "12345")
+        self.assertEqual(response.get("Content-Type"), "video/mp4")
+        self.assertEqual(response.get("Accept-Ranges"), "bytes")
+
+    def test_download_missing_video_returns_404(self):
+        response = self.client.get("/api/videos/9999/download/mp4")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"error": "视频不存在"})
+
+    @patch("builtins.open", new_callable=mock_open, read_data=b"video-bytes")
+    @patch("video.views.download.os.path.getsize")
+    @patch("video.views.download.os.path.exists")
+    def test_get_mp4_streams_existing_video(self, mock_exists, mock_getsize, mock_file):
+        mock_exists.return_value = True
+        mock_getsize.return_value = 11
+        video = self.create_video(name="Download", url="download.mp4")
+
+        response = self.client.get(f"/api/videos/{video.id}/download/mp4")
+        content = b"".join(response.streaming_content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Type"), "video/mp4")
+        self.assertEqual(
+            response.get("Content-Disposition"),
+            'attachment; filename="download.mp4"',
+        )
+        self.assertEqual(content, b"video-bytes")
+        mock_file.assert_called_once()
+
+    def test_mp4_download_rejects_audio_source(self):
+        video = self.create_video(name="Audio", url="audio.mp3")
+
+        response = self.client.get(f"/api/videos/{video.id}/download/mp4")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "音频文件无法导出为MP4格式，请选择MP3")
+
+    @patch("builtins.open", new_callable=mock_open, read_data=b"audio-bytes")
+    @patch("video.views.download.os.path.getsize")
+    @patch("video.views.download.os.path.exists")
+    def test_get_mp3_streams_existing_audio_file(self, mock_exists, mock_getsize, mock_file):
+        mock_exists.return_value = True
+        mock_getsize.return_value = 11
+        video = self.create_video(name="Audio", url="audio.mp3")
+
+        response = self.client.get(f"/api/videos/{video.id}/download/mp3")
+        content = b"".join(response.streaming_content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Type"), "audio/mpeg")
+        self.assertEqual(
+            response.get("Content-Disposition"),
+            'attachment; filename="audio.mp3"',
+        )
+        self.assertEqual(content, b"audio-bytes")
+        mock_file.assert_called_once()
+
+    @patch("video.views.download.os.unlink")
+    @patch("builtins.open", new_callable=mock_open, read_data=b"mp3-bytes")
+    @patch("video.views.download.subprocess.run")
+    @patch("video.views.download.tempfile.NamedTemporaryFile")
+    @patch("video.views.download.os.path.getsize")
+    @patch("video.views.download.os.path.exists")
+    def test_get_mp3_extracts_audio_from_video(
+        self,
+        mock_exists,
+        mock_getsize,
+        mock_named_temp,
+        mock_run,
+        mock_file,
+        mock_unlink,
+    ):
+        mock_exists.return_value = True
+        mock_getsize.return_value = 9
+        temp_file = MagicMock()
+        temp_file.name = "/tmp/extracted.mp3"
+        mock_named_temp.return_value.__enter__.return_value = temp_file
+        mock_run.return_value = MagicMock(returncode=0)
+        video = self.create_video(name="Video", url="video.mp4")
+
+        response = self.client.get(f"/api/videos/{video.id}/download/mp3")
+        content = b"".join(response.streaming_content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get("Content-Type"), "audio/mpeg")
+        self.assertEqual(
+            response.get("Content-Disposition"),
+            'attachment; filename="video.mp3"',
+        )
+        self.assertEqual(content, b"mp3-bytes")
+        mock_run.assert_called_once()
+        mock_unlink.assert_called_once_with("/tmp/extracted.mp3")
+
+    @patch("video.views.download.os.unlink")
+    @patch("video.views.download.subprocess.run")
+    @patch("video.views.download.tempfile.NamedTemporaryFile")
+    @patch("video.views.download.os.path.exists")
+    def test_get_mp3_extract_failure_returns_500(
+        self,
+        mock_exists,
+        mock_named_temp,
+        mock_run,
+        mock_unlink,
+    ):
+        mock_exists.return_value = True
+        temp_file = MagicMock()
+        temp_file.name = "/tmp/failed.mp3"
+        mock_named_temp.return_value.__enter__.return_value = temp_file
+        mock_run.return_value = MagicMock(returncode=1)
+        video = self.create_video(name="Video", url="video.mp4")
+
+        response = self.client.get(f"/api/videos/{video.id}/download/mp3")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json(), {"error": "音频提取失败"})
+        mock_unlink.assert_called_once_with("/tmp/failed.mp3")
+
+    def test_head_unsupported_format_returns_404(self):
+        video = self.create_video(name="Download", url="download.mp4")
+
+        response = self.client.head(f"/api/videos/{video.id}/download/wav")
+
+        self.assertEqual(response.status_code, 404)
+
+
+class YtDlpViewLayer3Tests(TestCase):
+    @patch("video.views.yt_dlp._check_node_version")
+    @patch("video.views.yt_dlp._check_node_available")
+    @patch("video.views.yt_dlp._get_yt_dlp_ejs_version")
+    @patch("video.views.yt_dlp._get_yt_dlp_version")
+    def test_status_returns_dependency_versions(
+        self,
+        mock_yt_version,
+        mock_ejs_version,
+        mock_node_available,
+        mock_node_version,
+    ):
+        mock_yt_version.return_value = "2026.01.01"
+        mock_ejs_version.return_value = "0.1.0"
+        mock_node_available.return_value = True
+        mock_node_version.return_value = "v20.11.0"
+
+        response = self.client.get("/api/yt_dlp/status")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["data"]["yt_dlp_version"], "2026.01.01")
+        self.assertEqual(body["data"]["ejs_version"], "0.1.0")
+        self.assertEqual(body["data"]["node_available"], True)
+        self.assertEqual(body["data"]["node_version"], "v20.11.0")
+
+    @patch("video.views.yt_dlp._get_yt_dlp_version", side_effect=RuntimeError("boom"))
+    def test_status_returns_500_when_version_check_fails(self, mock_version):
+        response = self.client.get("/api/yt_dlp/status")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["success"], False)
+        self.assertIn("boom", response.json()["error"])
+
+    @patch("video.views.yt_dlp._is_yt_dlp_ejs_importable")
+    @patch("video.views.yt_dlp._get_yt_dlp_version")
+    @patch("video.views.yt_dlp._run_pip")
+    def test_install_deps_success_requires_ejs_importable(
+        self,
+        mock_run_pip,
+        mock_version,
+        mock_ejs_importable,
+    ):
+        mock_run_pip.return_value = (True, "installed")
+        mock_version.return_value = "2026.01.01"
+        mock_ejs_importable.return_value = True
+
+        response = self.client.post("/api/yt_dlp/install_deps")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success"], True)
+        self.assertEqual(response.json()["yt_dlp_version"], "2026.01.01")
+        self.assertEqual(response.json()["ejs_installed"], True)
+        mock_run_pip.assert_called_once_with(["install", "yt-dlp[default]"])
+
+    @patch("video.views.yt_dlp._is_yt_dlp_ejs_importable")
+    @patch("video.views.yt_dlp._get_yt_dlp_version")
+    @patch("video.views.yt_dlp._run_pip")
+    def test_install_deps_returns_500_when_ejs_missing(
+        self,
+        mock_run_pip,
+        mock_version,
+        mock_ejs_importable,
+    ):
+        mock_run_pip.return_value = (True, "installed without ejs")
+        mock_version.return_value = "2026.01.01"
+        mock_ejs_importable.return_value = False
+
+        response = self.client.post("/api/yt_dlp/install_deps")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["success"], False)
+        self.assertEqual(response.json()["ejs_installed"], False)
+
+    @patch("video.views.yt_dlp._is_yt_dlp_ejs_importable")
+    @patch("video.views.yt_dlp._get_yt_dlp_version")
+    @patch("video.views.yt_dlp._run_pip", side_effect=RuntimeError("pip failed"))
+    def test_install_deps_exception_returns_detail(
+        self,
+        mock_run_pip,
+        mock_version,
+        mock_ejs_importable,
+    ):
+        mock_version.return_value = "未安装"
+        mock_ejs_importable.return_value = False
+
+        response = self.client.post("/api/yt_dlp/install_deps")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["success"], False)
+        self.assertEqual(response.json()["detail"], "pip failed")
+        self.assertEqual(response.json()["yt_dlp_version"], "未安装")
+
+    @patch("video.views.yt_dlp._get_yt_dlp_version")
+    @patch("video.views.yt_dlp._run_pip")
+    def test_upgrade_reports_upgraded_when_version_changes(self, mock_run_pip, mock_version):
+        mock_version.side_effect = ["2025.12.01", "2026.01.01"]
+        mock_run_pip.return_value = (True, "upgraded")
+
+        response = self.client.post("/api/yt_dlp/upgrade")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["current_version"], "2025.12.01")
+        self.assertEqual(body["new_version"], "2026.01.01")
+        self.assertEqual(body["upgraded"], True)
+        mock_run_pip.assert_called_once_with(["install", "-U", "yt-dlp[default]"])
+
+    @patch("video.views.yt_dlp._get_yt_dlp_version")
+    @patch("video.views.yt_dlp._run_pip")
+    def test_upgrade_returns_500_when_pip_fails(self, mock_run_pip, mock_version):
+        mock_version.side_effect = ["2025.12.01", "2025.12.01"]
+        mock_run_pip.return_value = (False, "network failed")
+
+        response = self.client.post("/api/yt_dlp/upgrade")
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["success"], False)
+        self.assertEqual(response.json()["upgraded"], False)
+        self.assertEqual(response.json()["detail"], "network failed")

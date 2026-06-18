@@ -8,6 +8,7 @@ omit =
   third_party/*
   */migrations/*
   */tests.py
+  */tests_*.py
   */tests/*
   manage.py
   run_all.sh
