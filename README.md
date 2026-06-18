@@ -1,4 +1,4 @@
-![Latest stable](https://img.shields.io/github/v/release/JazerJu/video-miner?display_name=tag) [![CI](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml)
+![Latest stable](https://img.shields.io/github/v/release/JazerJu/video-miner?display_name=tag) [![CI](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml) [![Codecov](https://codecov.io/gh/JazerJu/video-miner/graph/badge.svg?branch=main)](https://codecov.io/gh/JazerJu/video-miner)
 
 # VideoMiner
 

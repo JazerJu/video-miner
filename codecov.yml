@@ -1,0 +1,27 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 5%
+    patch:
+      default:
+        target: 50%
+
+ignore:
+  - "backend/vid_under/**"
+  - "backend/asr_utils/**"
+  - "backend/utils/**"
+  - "backend/video/tasks.py"
+  - "backend/third_party/**"
+  - "backend/**/migrations/**"
+  - "backend/**/tests.py"
+  - "backend/manage.py"
+  - "backend/run_all.sh"
+
+comment:
+  layout: "reach, diff, flags, files"
+  show_carryforward_flags: true
