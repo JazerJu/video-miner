@@ -897,7 +897,7 @@ def download_bilibili_video(task_id: str):
         sessdata = settings_data.get("Media Credentials", {}).get(
             "bilibili_sessdata", ""
         )
-        logger.debug("sessdata: %s", sessdata)
+        logger.debug("Bilibili SESSDATA configured: %s", bool(sessdata))
     except Exception as e:
         logger.error("Error loading settings: %s", e)
         sessdata = ""  # fallback to empty string if there's an error

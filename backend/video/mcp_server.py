@@ -1023,6 +1023,22 @@ async def get_bilibili_sessdata_status(ctx: Context | None = None) -> str:
 
 
 @mcp.tool()
+async def validate_bilibili_sessdata(ctx: Context | None = None) -> str:
+    """Validate configured Bilibili SESSDATA and return username/UID if valid.
+
+    The response is sanitized and never includes the cookie value.
+    """
+    return _json(
+        await _call_vidgo_api(
+            ctx,
+            "GET",
+            "/api/media-credentials/bilibili-sessdata/?validate=1",
+            timeout=20,
+        )
+    )
+
+
+@mcp.tool()
 async def set_bilibili_sessdata(
     sessdata: str,
     ctx: Context | None = None,

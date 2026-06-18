@@ -10,6 +10,7 @@ from django.utils.decorators import method_decorator
 import json
 import time
 import urllib.parse
+import requests
 from asr_utils.transcription_engine import TranscriptionEngineFactory
 
 
@@ -386,6 +387,105 @@ def _bilibili_sessdata_status(value: str) -> dict[str, Any]:
     return status
 
 
+def _bilibili_proxy_config(settings_data: dict[str, Any]) -> dict[str, str | None]:
+    media_settings = settings_data.get("Media Credentials", {})
+    if not isinstance(media_settings, dict):
+        return {"http": None, "https": None}
+
+    use_proxy = (
+        str(media_settings.get("bili_download_use_proxy", "false")).lower() == "true"
+    )
+    if not use_proxy:
+        return {"http": None, "https": None}
+
+    proxy_url = str(media_settings.get("proxy_url", "")).strip()
+    if proxy_url:
+        return {"http": proxy_url, "https": proxy_url}
+
+    return {
+        "http": os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"),
+        "https": os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy"),
+    }
+
+
+def _validate_bilibili_sessdata(
+    value: str,
+    settings_data: dict[str, Any],
+) -> dict[str, Any]:
+    status = _bilibili_sessdata_status(value)
+    validation: dict[str, Any] = {
+        "checked": False,
+        "valid": False,
+        "is_login": False,
+        "username": None,
+        "uid": None,
+        "bili_code": None,
+        "message": "",
+        "error": None,
+    }
+    status["validation"] = validation
+
+    if not status["configured"]:
+        validation["message"] = "SESSDATA is not configured"
+        return status
+
+    if status["expired"] is True:
+        validation["checked"] = True
+        validation["message"] = "SESSDATA appears expired"
+        return status
+
+    headers = {
+        "Accept": "application/json",
+        "Cookie": f"SESSDATA={value}",
+        "Referer": "https://www.bilibili.com/",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
+
+    try:
+        response = requests.get(
+            "https://api.bilibili.com/x/web-interface/nav",
+            headers=headers,
+            proxies=_bilibili_proxy_config(settings_data),
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        validation["checked"] = True
+        validation["error"] = str(exc)
+        validation["message"] = "Failed to validate SESSDATA against Bilibili"
+        return status
+
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    if not isinstance(data, dict):
+        data = {}
+
+    is_login = bool(data.get("isLogin"))
+    uid = data.get("mid")
+    username = data.get("uname") or data.get("name")
+    validation.update(
+        {
+            "checked": True,
+            "valid": is_login and bool(uid),
+            "is_login": is_login,
+            "username": username or None,
+            "uid": uid or None,
+            "bili_code": payload.get("code") if isinstance(payload, dict) else None,
+            "message": (
+                "SESSDATA is valid"
+                if is_login and uid
+                else (payload.get("message") or "SESSDATA is not logged in")
+            ),
+        }
+    )
+
+    return status
+
+
 client: Any | None = None
 
 
@@ -477,8 +577,16 @@ class BilibiliSessDataAPIView(View):
             settings_data = load_all_settings()
             media_settings = _get_media_credentials(settings_data)
             sessdata = media_settings.get("bilibili_sessdata", "")
+            should_validate = str(
+                request.GET.get("validate", "")
+            ).lower() in {"1", "true", "yes"}
+            data = (
+                _validate_bilibili_sessdata(sessdata, settings_data)
+                if should_validate
+                else _bilibili_sessdata_status(sessdata)
+            )
             return JsonResponse(
-                {"success": True, "data": _bilibili_sessdata_status(sessdata)}
+                {"success": True, "data": data}
             )
         except Exception as exc:
             return JsonResponse({"error": str(exc)}, status=500)

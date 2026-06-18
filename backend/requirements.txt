@@ -1,5 +1,6 @@
 yt-dlp
 pyspellchecker
+requests>=2.31
 django
 django-cors-headers
 djangorestframework
