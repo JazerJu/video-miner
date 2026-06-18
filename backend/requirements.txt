@@ -11,6 +11,8 @@ openai
 gunicorn
 uvicorn>=0.30
 mcp>=1.28
+starlette>=0.40,<0.49
+sse-starlette>=1.6.1,<3.0
 # Channels for WebSocket handling
 channels>=4.0
 # Audio file decoding for local ASR utilities

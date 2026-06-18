@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
-from urllib.parse import urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 
 from asgiref.sync import sync_to_async
 from django.db import close_old_connections
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.server import TransportSecuritySettings
 
 from video.models import Video
@@ -34,6 +36,10 @@ async def _run_sync(func, *args, **kwargs):
         *args,
         **kwargs,
     )
+
+
+async def _run_blocking(func, *args, **kwargs):
+    return await sync_to_async(func, thread_sensitive=False)(*args, **kwargs)
 
 
 def _csv_env(name: str) -> list[str]:
@@ -105,12 +111,157 @@ def _video_payload(video: Video, include_filename: bool = True) -> dict[str, Any
     return payload
 
 
+def _find_video(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> Video | None:
+    qs = Video.objects.select_related("category").prefetch_related("tags")
+    if video_id is not None:
+        return qs.filter(id=video_id).first()
+    if filename:
+        return qs.filter(url=filename).first()
+    if title:
+        return qs.filter(name__iexact=title).first() or qs.filter(
+            name__icontains=title
+        ).first()
+    return None
+
+
+def _resolve_video_sync(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
+    if video_id is None and not filename and not title:
+        return {
+            "success": False,
+            "error": "Provide one of video_id, filename, or title",
+        }
+    video = _find_video(video_id=video_id, filename=filename, title=title)
+    if video is None:
+        return {"success": False, "error": "video not found"}
+    return {"success": True, "video": _video_payload(video, include_filename=True)}
+
+
+async def _resolve_video(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
+    return await _run_sync(_resolve_video_sync, video_id, filename, title)
+
+
+def _api_base_url() -> str:
+    base = (
+        os.environ.get("VIDGO_INTERNAL_API_BASE")
+        or os.environ.get("VIDGO_API_BASE")
+        or f"http://127.0.0.1:{os.environ.get('PORT', '8080')}"
+    )
+    return base.rstrip("/")
+
+
+def _authorization_from_context(ctx: Context | None) -> str:
+    if ctx is not None:
+        try:
+            request = ctx.request_context.request
+        except ValueError:
+            request = None
+        headers = getattr(request, "headers", None)
+        if headers is not None:
+            authorization = headers.get("authorization") or headers.get("Authorization")
+            if authorization:
+                return authorization
+
+    token = os.environ.get("VIDGO_API_TOKEN", "").strip()
+    return f"Bearer {token}" if token else ""
+
+
+def _api_request_sync(
+    authorization: str,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    if not authorization:
+        return {
+            "success": False,
+            "error": "No Bearer token available for internal VidGo API call",
+        }
+
+    data = None
+    headers = {
+        "Accept": "application/json",
+        "Authorization": authorization,
+    }
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = Request(
+        f"{_api_base_url()}{path}",
+        data=data,
+        headers=headers,
+        method=method.upper(),
+    )
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8")
+            body = json.loads(raw) if raw else {}
+            result = {
+                "success": True,
+                "http_status": response.status,
+            }
+            if isinstance(body, dict):
+                result.update(body)
+            else:
+                result["data"] = body
+            return result
+    except HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            body = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            body = {"raw": raw}
+        error = body.get("error") if isinstance(body, dict) else None
+        return {
+            "success": False,
+            "http_status": exc.code,
+            "error": error or exc.reason,
+            "data": body,
+        }
+    except URLError as exc:
+        return {"success": False, "error": f"VidGo API unavailable: {exc.reason}"}
+    except TimeoutError:
+        return {"success": False, "error": "VidGo API request timed out"}
+
+
+async def _call_vidgo_api(
+    ctx: Context | None,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    authorization = _authorization_from_context(ctx)
+    return await _run_blocking(
+        _api_request_sync,
+        authorization,
+        method,
+        path,
+        payload,
+        timeout,
+    )
+
+
 mcp = FastMCP(
     "VidGo",
     instructions=(
-        "Use these tools to search VidGo videos, inspect video metadata, and "
-        "orchestrate VidGo workflows. Long-running work must be submitted first "
-        "and then polled by the returned task key."
+        "Use these tools to search VidGo videos, inspect video metadata, submit "
+        "long-running summary tasks, poll progress by task_id, fetch summaries, "
+        "and ask questions about completed video-understanding databases."
     ),
     streamable_http_path="/mcp",
     sse_path="/sse",
@@ -242,29 +393,151 @@ def _get_video_info_sync(
     filename: str | None = None,
     title: str | None = None,
 ) -> str:
-    qs = Video.objects.select_related("category").prefetch_related("tags")
-    video: Video | None = None
+    return _json(_resolve_video_sync(video_id, filename, title))
 
-    if video_id is not None:
-        video = qs.filter(id=video_id).first()
-    elif filename:
-        video = qs.filter(url=filename).first()
-    elif title:
-        video = qs.filter(name__iexact=title).first() or qs.filter(
-            name__icontains=title
-        ).first()
+
+@mcp.tool()
+async def check_summary_prerequisites(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Check whether a video has subtitles and language metadata for summary.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+    """
+    resolved = await _resolve_video(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    video = resolved["video"]
+    path = f"/api/video-summary/{quote(video['filename'], safe='')}/prerequisites"
+    result = await _call_vidgo_api(ctx, "GET", path)
+    return _json(result)
+
+
+@mcp.tool()
+async def submit_summary_task(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    language: str = "中文",
+    min_coverage: float | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Submit a long-running video summary task and return its task_id.
+
+    The task is processed by the main VidGo API process. Poll with
+    get_summary_status(task_id) until status is Completed or Failed.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        language: Summary language, for example "中文" or "English".
+        min_coverage: Optional slide/frame coverage threshold. Omit for server default.
+    """
+    resolved = await _resolve_video(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+
+    payload: dict[str, Any] = {
+        "video_id": resolved["video"]["id"],
+        "language": language,
+    }
+    if min_coverage is not None:
+        payload["min_coverage"] = max(0.0, min(1.0, float(min_coverage)))
+
+    result = await _call_vidgo_api(ctx, "POST", "/api/summary/add", payload)
+    if result.get("success"):
+        result["next_step"] = "Call get_summary_status with the returned task_id."
+    return _json(result)
+
+
+@mcp.tool()
+async def get_summary_status(
+    task_id: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Get one summary task status, or all in-memory summary task statuses.
+
+    Args:
+        task_id: Task id returned by submit_summary_task. Omit to list all tasks.
+    """
+    if task_id:
+        path = f"/api/summary/{quote(task_id, safe='')}/status"
     else:
-        return _json(
-            {
-                "success": False,
-                "error": "Provide one of video_id, filename, or title",
-            }
-        )
+        path = "/api/summary/status"
+    return _json(await _call_vidgo_api(ctx, "GET", path))
 
-    if video is None:
-        return _json({"success": False, "error": "video not found"})
 
-    return _json({"success": True, "video": _video_payload(video, include_filename=True)})
+@mcp.tool()
+async def get_summary_result(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    max_chars: int = 20000,
+    ctx: Context | None = None,
+) -> str:
+    """Fetch a completed video summary.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        max_chars: Truncate summary text above this many characters. Use 0 for full text.
+    """
+    resolved = await _resolve_video(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+
+    video = resolved["video"]
+    path = f"/api/video-summary/{quote(video['filename'], safe='')}"
+    result = await _call_vidgo_api(ctx, "GET", path, timeout=120)
+    summary = result.get("summary")
+    if isinstance(summary, str) and max_chars and len(summary) > max_chars:
+        result["summary"] = summary[:max_chars]
+        result["truncated"] = True
+        result["summary_chars"] = len(summary)
+    return _json(result)
+
+
+@mcp.tool()
+async def ask_video(
+    question: str,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Ask a question about a video that already has a VidUnder summary database.
+
+    Args:
+        question: Natural-language question to ask about the video.
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+    """
+    if not question.strip():
+        return _json({"success": False, "error": "question is required"})
+
+    resolved = await _resolve_video(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+
+    video = resolved["video"]
+    path = f"/api/video-ask/{quote(video['filename'], safe='')}"
+    result = await _call_vidgo_api(
+        ctx,
+        "POST",
+        path,
+        {"question": question.strip()},
+        timeout=600,
+    )
+    return _json(result)
 
 
 def streamable_http_app():

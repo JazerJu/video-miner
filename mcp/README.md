@@ -53,12 +53,15 @@ ENABLE_MCP=1
 VIDGO_MCP_PORT=8787
 MCP_PORT=8787
 VIDGO_MCP_PUBLIC_URL=http://192.168.1.20:8787
+VIDGO_INTERNAL_API_BASE=http://127.0.0.1:8080
 VIDGO_MCP_ALLOWED_HOSTS=localhost:*,127.0.0.1:*,192.168.1.20:*
 VIDGO_MCP_ALLOWED_ORIGINS=http://localhost:*,http://127.0.0.1:*
 ```
 
 `VIDGO_MCP_PORT` is the host port exposed to agents. `MCP_PORT` is the port inside
-the container.
+the container. `VIDGO_INTERNAL_API_BASE` is the main VidGo API URL as seen from
+the MCP process. In the default single-container setup, keep it pointed at the
+main app's internal port.
 
 ## Local Source Run
 
@@ -76,14 +79,19 @@ cd backend
 ENABLE_MCP=1 MCP_PORT=8787 bash run_all.sh
 ```
 
-## Initial Tool Set
+## Tool Set
 
-The first MCP version exposes a small pilot set:
+The current MCP server exposes:
 
 - `test_connection`
 - `list_videos`
 - `search_videos`
 - `get_video_info`
+- `check_summary_prerequisites`
+- `submit_summary_task`
+- `get_summary_status`
+- `get_summary_result`
+- `ask_video`
 
 Later tools should be migrated from `.agents/skills/*/SKILL.md`, with skills kept
 as fallback documentation for agents that do not support MCP.
