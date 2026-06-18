@@ -17,12 +17,22 @@ from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
+from video.tasks import (
+    vidunder_download_cancel_flags as _download_cancel_flags,
+    vidunder_download_lock as _download_lock,
+    vidunder_download_progress as _download_progress,
+    vidunder_download_queue,
+    vidunder_download_specs as _download_specs,
+)
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-HF_PROXY = "http://127.0.0.1:36990"
 CHUNK_SIZE = 1024 * 1024
 REQUEST_TIMEOUT = (15, 60)
+MODELSCOPE_REPO_ALIASES = {
+    "zai-org/GLM-ASR-Nano-2512": "ZhipuAI/GLM-ASR-Nano-2512",
+    "Qwen/Qwen3-ForcedAligner-0.6B": "Qwen/Qwen3-ForcedAligner-0.6B",
+}
 
 
 DownloadSource = Literal["hf", "ms", "modelscope"]
@@ -149,32 +159,32 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
         "files": [
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/model.onnx",
-                "local_path": "embedding/bge-small-zh-v1.5-onnx/model.onnx",
+                "local_path": "embedding/bge-small-zh-v1.5/model.onnx",
                 "size": 94835369,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer.json",
-                "local_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer.json",
+                "local_path": "embedding/bge-small-zh-v1.5/tokenizer.json",
                 "size": 439125,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/config.json",
-                "local_path": "embedding/bge-small-zh-v1.5-onnx/config.json",
+                "local_path": "embedding/bge-small-zh-v1.5/config.json",
                 "size": 688,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/special_tokens_map.json",
-                "local_path": "embedding/bge-small-zh-v1.5-onnx/special_tokens_map.json",
+                "local_path": "embedding/bge-small-zh-v1.5/special_tokens_map.json",
                 "size": 695,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer_config.json",
-                "local_path": "embedding/bge-small-zh-v1.5-onnx/tokenizer_config.json",
+                "local_path": "embedding/bge-small-zh-v1.5/tokenizer_config.json",
                 "size": 1273,
             },
             {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/vocab.txt",
-                "local_path": "embedding/bge-small-zh-v1.5-onnx/vocab.txt",
+                "local_path": "embedding/bge-small-zh-v1.5/vocab.txt",
                 "size": 109540,
             },
         ],
@@ -272,16 +282,9 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
                 "dest": "asr",
             },
             {
-                "repo_path": "mel_filterbank.bin",
-                "local_path": "glm-asr/qwen3-forcealigner-0.6b/mel_filterbank.bin",
-                "size": 102912,
-                "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
-                "dest": "asr",
-            },
-            {
                 "repo_path": "config.json",
                 "local_path": "glm-asr/qwen3-forcealigner-0.6b/config.json",
-                "size": 5573,
+                "size": 5982,
                 "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
                 "dest": "asr",
             },
@@ -330,12 +333,6 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
         ],
     },
 }
-
-
-_download_progress: dict[str, dict[str, Any]] = {}
-_download_cancel_flags: dict[str, threading.Event] = {}
-_download_lock = threading.Lock()
-
 
 def _json_response(data: dict[str, Any], status: int = 200) -> JsonResponse:
     response = JsonResponse(data, status=status)
@@ -407,6 +404,7 @@ def _source_url(source: DownloadSource, repo_path: str, repo: str | None = None)
         if source == "hf":
             return f"https://huggingface.co/{repo}/resolve/main/{encoded_path}"
         if source in ("ms", "modelscope"):
+            repo = MODELSCOPE_REPO_ALIASES.get(repo, repo)
             return (
                 f"https://modelscope.cn/api/v1/models/{repo}/repo"
                 f"?Revision=master&FilePath={encoded_path}"
@@ -422,11 +420,52 @@ def _source_url(source: DownloadSource, repo_path: str, repo: str | None = None)
     raise ValueError(f"Unknown source: {source}")
 
 
-def _source_proxies(source: DownloadSource, proxy_override: str | None = None) -> dict[str, str] | None:
+def _env_proxy(*keys: str) -> str:
+    for key in keys:
+        proxy = os.environ.get(key, "").strip()
+        if proxy:
+            return proxy
+    return ""
+
+
+def _as_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _source_proxies(
+    source: DownloadSource,
+    proxy_override: str | None = None,
+    use_proxy: bool = True,
+) -> dict[str, str] | None:
+    if not use_proxy:
+        return None
     if proxy_override:
         return {"http": proxy_override, "https": proxy_override}
     if source == "hf":
-        proxy = os.environ.get("VIDUNDER_HF_PROXY", HF_PROXY)
+        proxy = _env_proxy(
+            "VIDUNDER_HF_PROXY",
+            "VIDUNDER_DOWNLOAD_PROXY",
+            "HTTPS_PROXY",
+            "HTTP_PROXY",
+            "https_proxy",
+            "http_proxy",
+        )
+        return {"http": proxy, "https": proxy} if proxy else None
+    if source in ("ms", "modelscope"):
+        proxy = _env_proxy(
+            "VIDUNDER_MODELSCOPE_PROXY",
+            "VIDUNDER_DOWNLOAD_PROXY",
+            "HTTPS_PROXY",
+            "HTTP_PROXY",
+            "https_proxy",
+            "http_proxy",
+        )
         return {"http": proxy, "https": proxy} if proxy else None
     return None
 
@@ -437,16 +476,31 @@ def _progress_percent(current: int, total: int) -> int:
     return min(int(current * 100 / total), 100)
 
 
-def _initial_file_progress(group: ModelGroup) -> dict[str, dict[str, int | str]]:
+def _file_progress_key(file_info: ModelFile) -> str:
+    repo = file_info.get("repo", "JazerJu/VideoMiner")
+    return f"{repo}:{file_info['repo_path']}"
+
+
+def _initial_file_progress(
+    group: ModelGroup,
+    force: bool = False,
+) -> dict[str, dict[str, int | str]]:
     file_progress = {}
     for file_info in group["files"]:
-        repo_path = file_info["repo_path"]
-        current = file_info["size"] if _is_file_complete(file_info) else 0
-        file_progress[repo_path] = {
+        key = _file_progress_key(file_info)
+        current = (
+            0
+            if force
+            else file_info["size"]
+            if _is_file_complete(file_info)
+            else 0
+        )
+        file_progress[key] = {
             "current": current,
             "total": file_info["size"],
             "percent": _progress_percent(current, file_info["size"]),
             "status": "cached" if current else "pending",
+            "repo_path": file_info["repo_path"],
             "local_path": file_info["local_path"],
         }
     return file_progress
@@ -503,6 +557,7 @@ def _cleanup_later(model_name: str, delay_seconds: int = 30) -> None:
             if progress and progress.get("status") == "downloaded":
                 _download_progress.pop(model_name, None)
                 _download_cancel_flags.pop(model_name, None)
+                _download_specs.pop(model_name, None)
 
     threading.Thread(target=cleanup, daemon=True).start()
 
@@ -511,16 +566,24 @@ class DownloadCancelled(Exception):
     """Raised when a background download sees its cancellation flag."""
 
 
-def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile, proxy_override: str | None = None) -> int:
+def _download_file(
+    model_name: str,
+    source: DownloadSource,
+    file_info: ModelFile,
+    proxy_override: str | None = None,
+    use_proxy: bool = True,
+    force: bool = False,
+) -> int:
     repo_path = file_info["repo_path"]
+    progress_key = _file_progress_key(file_info)
     local_path = _file_path(file_info)
     part_path = local_path.with_name(f"{local_path.name}.part")
     expected_size = file_info["size"]
 
-    if _is_file_complete(file_info):
+    if not force and _is_file_complete(file_info):
         _set_file_progress(
             model_name,
-            repo_path,
+            progress_key,
             current=expected_size,
             percent=100,
             status="cached",
@@ -529,11 +592,11 @@ def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile
 
     local_path.parent.mkdir(parents=True, exist_ok=True)
     url = _source_url(source, repo_path, file_info.get("repo"))
-    proxies = _source_proxies(source, proxy_override)
+    proxies = _source_proxies(source, proxy_override, use_proxy=use_proxy)
 
     _set_file_progress(
         model_name,
-        repo_path,
+        progress_key,
         current=0,
         percent=0,
         status="downloading",
@@ -546,8 +609,11 @@ def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile
         if progress:
             base_current = progress["current"]
 
+    session = None
     try:
-        response = requests.get(
+        session = requests.Session()
+        session.trust_env = use_proxy
+        response = session.get(
             url,
             stream=True,
             proxies=proxies,
@@ -569,7 +635,7 @@ def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile
 
                 _set_file_progress(
                     model_name,
-                    repo_path,
+                    progress_key,
                     current=downloaded,
                     percent=file_percent,
                     status="downloading",
@@ -590,29 +656,46 @@ def _download_file(model_name: str, source: DownloadSource, file_info: ModelFile
         part_path.replace(local_path)
         _set_file_progress(
             model_name,
-            repo_path,
+            progress_key,
             current=expected_size,
             percent=100,
             status="downloaded",
         )
         return expected_size
-    except Exception:
+    except Exception as exc:
+        _set_file_progress(
+            model_name,
+            progress_key,
+            status="error",
+            error=str(exc),
+        )
         if part_path.exists():
             part_path.unlink(missing_ok=True)
         raise
+    finally:
+        if session is not None:
+            session.close()
 
 
-def _download_model(model_name: str, source: DownloadSource, proxy_override: str | None = None) -> None:
+def _download_model(
+    model_name: str,
+    source: DownloadSource,
+    proxy_override: str | None = None,
+    use_proxy: bool = True,
+    force: bool = False,
+) -> None:
     group = MODEL_GROUPS[model_name]
     total_size = sum(file_info["size"] for file_info in group["files"])
-    cached_size = sum(
+    cached_size = 0 if force else sum(
         file_info["size"]
         for file_info in group["files"]
         if _is_file_complete(file_info)
     )
 
     with _download_lock:
-        _download_cancel_flags[model_name] = threading.Event()
+        cancel_flag = _download_cancel_flags.get(model_name)
+        if cancel_flag is None:
+            _download_cancel_flags[model_name] = threading.Event()
         _download_progress[model_name] = {
             "current": cached_size,
             "total": total_size,
@@ -620,20 +703,28 @@ def _download_model(model_name: str, source: DownloadSource, proxy_override: str
             "status": "downloading",
             "current_file": "",
             "source": source,
+            "force": force,
             "error": "",
             "cancel_requested": False,
-            "files": _initial_file_progress(group),
+            "files": _initial_file_progress(group, force=force),
         }
 
     try:
         current = cached_size
         for file_info in group["files"]:
             _raise_if_cancelled(model_name)
-            repo_path = file_info["repo_path"]
-            previous_status = _download_progress[model_name]["files"][repo_path][
+            progress_key = _file_progress_key(file_info)
+            previous_status = _download_progress[model_name]["files"][progress_key][
                 "status"
             ]
-            completed_size = _download_file(model_name, source, file_info, proxy_override)
+            completed_size = _download_file(
+                model_name,
+                source,
+                file_info,
+                proxy_override,
+                use_proxy=use_proxy,
+                force=force,
+            )
 
             if previous_status == "cached":
                 continue
@@ -665,7 +756,24 @@ def _download_model(model_name: str, source: DownloadSource, proxy_override: str
         )
 
 
-def _model_payload(name: str, group: ModelGroup) -> dict[str, Any]:
+def run_queued_model_download(model_name: str) -> None:
+    with _download_lock:
+        spec = _download_specs.get(model_name)
+    if not spec:
+        return
+    _download_model(
+        model_name,
+        spec["source"],
+        spec.get("proxy"),
+        use_proxy=bool(spec.get("use_proxy", True)),
+        force=bool(spec.get("force", False)),
+    )
+
+
+def _model_payload(
+    name: str,
+    group: ModelGroup,
+) -> dict[str, Any]:
     status_info = _calculate_model_status(name)
     with _download_lock:
         active_progress = _download_progress.get(name)
@@ -717,6 +825,24 @@ class VidUnderModelDownloadAPIView(View):
         model_name = data.get("model_name")
         source = data.get("source", "hf")
         proxy = data.get("proxy") or None
+        force = _as_bool(data.get("force"), default=False)
+        use_proxy_raw = data.get("use_proxy")
+        if use_proxy_raw is None:
+            from video.views.set_setting import load_all_settings
+
+            settings_data = load_all_settings()
+            use_proxy = _as_bool(
+                settings_data.get("Video Understanding", {}).get(
+                    "vu_download_use_proxy", "false"
+                ),
+                default=False,
+            )
+            if use_proxy and not proxy:
+                from video.proxy import get_effective_proxy
+
+                proxy = get_effective_proxy(True)
+        else:
+            use_proxy = _as_bool(use_proxy_raw, default=False)
 
         if model_name not in MODEL_GROUPS:
             return _json_response(
@@ -730,7 +856,16 @@ class VidUnderModelDownloadAPIView(View):
             )
 
         status_info = _calculate_model_status(model_name)
-        if status_info["status"] == "downloaded":
+        with _download_lock:
+            previous_progress = _download_progress.get(model_name)
+            if (
+                not force
+                and previous_progress
+                and previous_progress.get("status") in {"error", "cancelled"}
+            ):
+                force = _as_bool(previous_progress.get("force"), default=False)
+
+        if status_info["status"] == "downloaded" and not force:
             return _json_response(
                 {"success": True, "message": "Model already downloaded"}
             )
@@ -742,13 +877,35 @@ class VidUnderModelDownloadAPIView(View):
                     {"success": False, "error": "Model is already being downloaded"},
                     status=409,
                 )
+            group = MODEL_GROUPS[model_name]
+            total_size = sum(file_info["size"] for file_info in group["files"])
+            cached_size = sum(
+                file_info["size"]
+                for file_info in group["files"]
+                if _is_file_complete(file_info)
+            )
+            _download_specs[model_name] = {
+                "source": source,
+                "proxy": proxy,
+                "use_proxy": use_proxy,
+                "force": force,
+            }
+            _download_cancel_flags[model_name] = threading.Event()
+            cached_size = 0 if force else cached_size
+            _download_progress[model_name] = {
+                "current": cached_size,
+                "total": total_size,
+                "percent": _progress_percent(cached_size, total_size),
+                "status": "downloading",
+                "current_file": "",
+                "source": source,
+                "force": force,
+                "error": "",
+                "cancel_requested": False,
+                "files": _initial_file_progress(group, force=force),
+            }
 
-        thread = threading.Thread(
-            target=_download_model,
-            args=(model_name, source, proxy),
-            daemon=True,
-        )
-        thread.start()
+        vidunder_download_queue.put(model_name)
         return _json_response({"success": True, "message": "Download started"})
 
     def delete(self, request):
