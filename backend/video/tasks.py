@@ -30,12 +30,14 @@ subtitle_task_queue: Queue[str] = (
     Queue()
 )  # 改为 str 类型，支持 video_id 和 external_task_id
 download_queue: Queue[int] = Queue()
+vidunder_download_queue: Queue[str] = Queue()
 SAVE_DIR = "media/saved_srt"
 
 # 线程锁保护 download_status 的并发访问
 import threading
 
 download_status_lock = threading.RLock()
+vidunder_download_lock = threading.RLock()
 
 # 外部转录任务状态跟踪
 external_task_status = defaultdict(
@@ -649,6 +651,10 @@ download_status = defaultdict(
         "bvid": "",
     }
 )
+
+vidunder_download_progress = {}
+vidunder_download_specs = {}
+vidunder_download_cancel_flags = {}
 
 
 def dl_set(task_id: str, stage: str, status: str, progress: int = None):
@@ -1287,6 +1293,21 @@ def process_download_task() -> None:
         download_queue.task_done()
 
 
+def process_vidunder_download_task() -> None:
+    """Process one vidUnder model download task from queue."""
+    try:
+        model_name = vidunder_download_queue.get_nowait()
+    except Empty:
+        return
+
+    try:
+        from vid_under.views_download import run_queued_model_download
+
+        run_queued_model_download(model_name)
+    finally:
+        vidunder_download_queue.task_done()
+
+
 
 # ── vidUnder Summary Task ──────────────────────────────────────
 
@@ -1426,12 +1447,15 @@ def _inject_vidunder_config():
     # Summary Orchestration
     summary_provider = g("vu_summary_provider", "deepseek")
     if summary_provider == "deepseek":
-        if g("vu_summary_api_key"):
-            vu_config.DEEPSEEK_API_KEY = g("vu_summary_api_key")
-        if g("vu_summary_base_url"):
-            vu_config.DEEPSEEK_BASE_URL = g("vu_summary_base_url")
-        if g("vu_summary_model"):
-            vu_config.DEEPSEEK_MODEL = g("vu_summary_model")
+        summary_key = g("vu_summary_api_key") or g("deepseek_api_key")
+        summary_base = g("vu_summary_base_url") or g("deepseek_base_url")
+        summary_model = g("vu_summary_model") or g("deepseek_model")
+        if summary_key:
+            vu_config.DEEPSEEK_API_KEY = summary_key
+        if summary_base:
+            vu_config.DEEPSEEK_BASE_URL = summary_base
+        if summary_model:
+            vu_config.DEEPSEEK_MODEL = summary_model
     elif summary_provider == "openai_compatible":
         key = g("vu_summary_api_key")
         base = g("vu_summary_base_url")

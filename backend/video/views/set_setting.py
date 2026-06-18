@@ -170,6 +170,7 @@ def _ensure_ini():
             "vu_corner_use_proxy": "false",
             "vu_summary_use_proxy": "false",
             "vu_knowledge_use_proxy": "false",
+            "vu_download_use_proxy": "false",
             "vu_use_proxy": "false",
             "vu_knowledge_provider": "doubao",
             "vu_knowledge_api_key": "",
@@ -283,6 +284,7 @@ def load_all_settings():
         "vu_knowledge_api_key": "",
         "vu_knowledge_base_url": "",
         "vu_knowledge_model": "",
+        "vu_download_use_proxy": "false",
     }
     if not cfg.has_section("Video Understanding"):
         cfg.add_section("Video Understanding")

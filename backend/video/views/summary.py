@@ -193,6 +193,21 @@ class SummaryRetryView(View):
         return JsonResponse({"task_id": task_id, "status": "Queued"})
 
 
+def _summary_base_name(path_or_name: str) -> str:
+    name = os.path.basename(path_or_name)
+    for suffix in ("_summary_with_slides.md", "_full_summary.md", "_summary.md"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return os.path.splitext(name)[0]
+
+
+def _iter_summary_files(output_dir: str):
+    for root, _, files in os.walk(output_dir):
+        for name in files:
+            if name.endswith(".md"):
+                yield os.path.join(root, name)
+
+
 def _find_summary_file(filename):
     vidunder_dir = os.path.join(settings.MEDIA_ROOT, "vidunder")
     output_dir = os.path.join(vidunder_dir, "output")
@@ -213,37 +228,44 @@ def _find_summary_file(filename):
 
         candidates = []
         suffix = f"_{video.id}"
-        for f in os.listdir(output_dir):
-            if not f.endswith(".md"):
-                continue
-            name = f.replace("_summary_with_slides.md", "").replace("_summary.md", "")
+        for path in _iter_summary_files(output_dir):
+            name = _summary_base_name(path)
             if name.endswith(suffix):
-                candidates.append(f)
-        candidates.sort(key=lambda f: (0 if "_with_slides" in f else 1, f))
+                candidates.append(path)
+        candidates.sort(
+            key=lambda path: (
+                0 if os.path.isdir(os.path.join(os.path.dirname(path), "slides")) else 1,
+                0 if "_with_slides" in os.path.basename(path) else 1,
+                os.path.relpath(path, output_dir),
+            )
+        )
         if candidates:
-            path = os.path.join(output_dir, candidates[0])
-            if os.path.exists(path):
-                return path
+            return candidates[0]
 
     candidates = []
-    for f in os.listdir(output_dir):
-        if not f.endswith(".md"):
-            continue
-        f_stem = f.replace("_summary_with_slides.md", "").replace("_summary.md", "")
+    for path in _iter_summary_files(output_dir):
+        f_stem = _summary_base_name(path)
         if stem.startswith(f_stem) or f_stem.startswith(stem):
-            candidates.append(f)
-    candidates.sort(key=lambda f: (0 if "_with_slides" in f else 1, f))
-    summary_file = os.path.join(output_dir, candidates[0]) if candidates else None
+            candidates.append(path)
+    candidates.sort(
+        key=lambda path: (
+            0 if os.path.isdir(os.path.join(os.path.dirname(path), "slides")) else 1,
+            0 if "_with_slides" in os.path.basename(path) else 1,
+            os.path.relpath(path, output_dir),
+        )
+    )
+    summary_file = candidates[0] if candidates else None
 
     if summary_file and os.path.exists(summary_file):
         return summary_file
     return None
 
 
-def _normalize_summary_slide_links(content: str, db_name: str) -> str:
+def _normalize_summary_slide_links(content: str, db_name: str, summary_dir: str | None = None) -> str:
     output_root = os.path.join(settings.MEDIA_ROOT, "vidunder", "output")
     per_video_dir = os.path.join(output_root, f"{db_name}_slides")
     shared_dir = os.path.join(output_root, "slides")
+    sibling_dir = os.path.join(summary_dir, "slides") if summary_dir else ""
 
     tmp_slide_dirs = set(re.findall(r'(/tmp/[^)\n"\']+/slides)/[^)\n"\']+', content))
     if tmp_slide_dirs:
@@ -258,9 +280,18 @@ def _normalize_summary_slide_links(content: str, db_name: str) -> str:
                 if os.path.isfile(src) and not os.path.exists(dst):
                     shutil.copy2(src, dst)
 
+    sibling_prefix = None
+    if sibling_dir and os.path.isdir(sibling_dir):
+        rel = os.path.relpath(sibling_dir, output_root).replace(os.sep, "/")
+        sibling_prefix = f"/media/vidunder/output/{rel}/"
     per_video_prefix = f"/media/vidunder/output/{db_name}_slides/"
     shared_prefix = "/media/vidunder/output/slides/"
-    slide_prefix = per_video_prefix if os.path.isdir(per_video_dir) else shared_prefix
+    if sibling_prefix:
+        slide_prefix = sibling_prefix
+    elif os.path.isdir(per_video_dir):
+        slide_prefix = per_video_prefix
+    else:
+        slide_prefix = shared_prefix
 
     def replace_markdown_relative(match):
         return f"{match.group(1)}{slide_prefix}"
@@ -284,7 +315,7 @@ def _normalize_summary_slide_links(content: str, db_name: str) -> str:
         media_url_prefix = "/media/vidunder/output/"
         content = content.replace(media_output_prefix, media_url_prefix)
 
-    if not os.path.isdir(per_video_dir) and not os.path.isdir(shared_dir):
+    if not sibling_prefix and not os.path.isdir(per_video_dir) and not os.path.isdir(shared_dir):
         logger.warning("No slide directory found for summary %s", db_name)
 
     return content
@@ -350,13 +381,12 @@ class VideoSummaryView(View):
         with open(summary_file, "r", encoding="utf-8") as f:
             content = f.read()
 
-        base = os.path.basename(summary_file)
-        db_name = base.replace("_summary_with_slides.md", "").replace("_summary.md", "")
-        content = _normalize_summary_slide_links(content, db_name)
+        db_name = _summary_base_name(summary_file)
+        content = _normalize_summary_slide_links(content, db_name, os.path.dirname(summary_file))
 
         return JsonResponse({
             "summary": content,
-            "file": base,
+            "file": os.path.basename(summary_file),
         })
 
 

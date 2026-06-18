@@ -36,7 +36,7 @@ from config import (
     DB_DIR, CLIP_SECS, VIDEO_FPS, FRAMES_PER_CLIP,
     MAX_SLICE_NUMS, GGUF_PATH, EXPORT_DIR,
     N_CTX, N_GPU_LAYERS, N_BATCH, N_PREDICT, KV_CACHE_TYPE,
-    TOKENS_DIR,
+    TOKENS_DIR, ONNX_PROVIDER,
 )
 from srt_utils import parse_srt, transcript_for_timerange
 
@@ -57,39 +57,45 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
     n_clips = int(np.ceil(duration / clip_secs))
 
     model, ctx, sampler = _load_llm()
-    siglip_sess, resampler_sess = _load_onnx()
+    onnx_worker = _load_onnx()
 
     clips = []
-    for i in range(n_clips):
-        start, end = i * clip_secs, min((i + 1) * clip_secs, duration)
-        if end - start < 2:
-            continue
+    try:
+        for i in range(n_clips):
+            start, end = i * clip_secs, min((i + 1) * clip_secs, duration)
+            if end - start < 2:
+                continue
 
-        t0 = time.time()
-        frames = _extract_clip_frames(video_path, start, end, video_fps, frames_per_clip)
-        transcript = transcript_for_timerange(srt_entries, start, end)
+            t0 = time.time()
+            frames = _extract_clip_frames(video_path, start, end, video_fps, frames_per_clip)
+            transcript = transcript_for_timerange(srt_entries, start, end)
 
-        caption, vis = _caption_frames(
-            frames, transcript, model, ctx, sampler,
-            siglip_sess, resampler_sess,
-        )
+            caption, vis = _caption_frames(
+                frames, transcript, model, ctx, sampler, onnx_worker,
+            )
 
-        dense_path = str(TOKENS_DIR / f"{db_name}_dense_{i:04d}.npy")
-        np.save(dense_path, vis.astype(np.float32))
+            dense_path = str(TOKENS_DIR / f"{db_name}_dense_{i:04d}.npy")
+            np.save(dense_path, vis.astype(np.float32))
 
-        clips.append({
-            "idx": i, "start": start, "end": end,
-            "caption": caption, "frames_extracted": len(frames),
-            "has_transcript": len(transcript) > 0,
-            "dense_tokens": dense_path,
-            "n_dense_tokens": int(vis.shape[0]),
-        })
+            clips.append({
+                "idx": i, "start": start, "end": end,
+                "caption": caption, "frames_extracted": len(frames),
+                "has_transcript": len(transcript) > 0,
+                "dense_tokens": dense_path,
+                "n_dense_tokens": int(vis.shape[0]),
+            })
 
-        elapsed = time.time() - t0
-        if (i + 1) % 10 == 0:
-            print(f"  [{i+1}/{n_clips}] {elapsed:.0f}s/clip  ({start:.0f}s-{end:.0f}s)")
-        if progress_cb:
-            progress_cb("caption", i + 1, n_clips)
+            elapsed = time.time() - t0
+            if (i + 1) % 10 == 0:
+                print(f"  [{i+1}/{n_clips}] {elapsed:.0f}s/clip  ({start:.0f}s-{end:.0f}s)")
+            if progress_cb:
+                progress_cb("caption", i + 1, n_clips)
+    finally:
+        try:
+            from minicpmv_onnx_worker import shutdown_minicpmv_onnx_worker
+            shutdown_minicpmv_onnx_worker()
+        except Exception:
+            pass
 
     ctx.clear_kv()
     db = {"video_path": str(video_path), "duration": duration,
@@ -173,13 +179,16 @@ def _load_llm():
 
 
 def _load_onnx():
-    import onnxruntime as ort
-    opts = ort.SessionOptions()
-    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    siglip = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_siglip.fp32.onnx"), sess_options=opts, providers=providers)
-    resampler = ort.InferenceSession(str(Path(EXPORT_DIR) / "minicpmv_v45_resampler_temporal.fp16.onnx"), sess_options=opts, providers=providers)
-    return siglip, resampler
+    import os
+    from minicpmv_onnx_worker import get_minicpmv_onnx_worker
+
+    provider = ONNX_PROVIDER.lower()
+    threads = int(os.environ.get("VIDUNDER_ONNX_THREADS", "4"))
+    timeout = int(os.environ.get("VIDUNDER_ONNX_WORKER_TIMEOUT", "180"))
+    worker = get_minicpmv_onnx_worker(EXPORT_DIR, provider=provider, threads=threads, timeout=timeout)
+    worker.start()
+    print(f"[MiniCPM-V] ONNX worker: {worker.info}")
+    return worker
 
 
 def _compute_onnx_inputs_v45(h, w, npps=70, resampler_embed_dim=4096):
@@ -193,39 +202,14 @@ def _compute_onnx_inputs_v45(h, w, npps=70, resampler_embed_dim=4096):
 
 
 
-def _caption_frames(frames, transcript, model, ctx, sampler, siglip_sess, resampler_sess):
+def _caption_frames(frames, transcript, model, ctx, sampler, onnx_worker):
     from config import NPPS, EMBED_DIM, VIDEO_PATH as _VIDEO
     if not frames:
         return "(无画面)", np.empty((0, EMBED_DIM), dtype=np.float32)
 
     tiles, meta = _preprocess_frames(frames, max_slice_nums=MAX_SLICE_NUMS)
     vid_fps = _get_video_fps(str(_VIDEO))
-
-    siglip_features, patch_counts = [], []
-    for tile in tiles:
-        h, w = tile["h"], tile["w"]
-        inputs = _compute_onnx_inputs_v45(h, w, NPPS)
-        pv = tile["pixel_values"].astype(np.float32)
-        feat = siglip_sess.run(["siglip_features"], {"pixel_values": pv, "pos_ids": inputs["pos_ids"]})[0]
-        siglip_features.append(feat)
-        patch_counts.append(h * w)
-
-    from preprocess import (
-        get_2d_sincos_pos_embed_numpy, encode_video_temporal_ids,
-        compute_temporal_embeddings_for_group,
-    )
-    total = len(frames)
-    tids = encode_video_temporal_ids(np.linspace(0, total - 1, total, dtype=int), vid_fps)
-
-    gf = np.concatenate(siglip_features, axis=0)
-    sp = np.concatenate([get_2d_sincos_pos_embed_numpy(EMBED_DIM, (tiles[i]["h"], tiles[i]["w"])).reshape(tiles[i]["h"] * tiles[i]["w"], -1) for i in range(len(tiles))], axis=0)
-    te = compute_temporal_embeddings_for_group(patch_counts, tids, EMBED_DIM)
-    vt = resampler_sess.run(None, {
-        "siglip_features": gf.astype(np.float16),
-        "spatial_pos_embeds": sp.astype(np.float16),
-        "temporal_pos_embeds": te.astype(np.float16),
-    })[0]
-    vis = vt.astype(np.float32)
+    vis = onnx_worker.encode_tiles(tiles, num_frames=len(frames), video_fps=vid_fps)
     ctx.clear_kv()
 
     transcript_hint = f"\n该时间段字幕:\n{transcript}" if transcript else ""
