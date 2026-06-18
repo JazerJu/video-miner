@@ -19,8 +19,22 @@ ignore:
   - "backend/third_party/**"
   - "backend/**/migrations/**"
   - "backend/**/tests.py"
+  - "backend/**/tests/**"
   - "backend/manage.py"
   - "backend/run_all.sh"
+  # Model/GPU dependent — integration test territory
+  - "backend/video/consumers.py"
+  - "backend/video/stream_transcriber.py"
+  - "backend/video/asr_engine.py"
+  - "backend/video/services/audio_processing.py"
+  # ASGI/WSGI entry points — runtime only
+  - "backend/vid_go/asgi.py"
+  - "backend/vid_go/wsgi.py"
+  - "backend/vid_go/mcp_asgi.py"
+  # Scratch/experimental scripts
+  - "backend/zt_speed_test.py"
+  - "backend/visualize_librispeech_results.py"
+  - "backend/visualize_results.py"
 
 comment:
   layout: "reach, diff, flags, files"

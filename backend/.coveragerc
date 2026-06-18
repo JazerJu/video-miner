@@ -1,6 +1,28 @@
 [run]
 source = .
 branch = True
+omit =
+  vid_under/*
+  asr_utils/*
+  utils/*
+  third_party/*
+  */migrations/*
+  */tests.py
+  */tests/*
+  manage.py
+  run_all.sh
+  config*.py
+  video/tasks.py
+  video/consumers.py
+  video/stream_transcriber.py
+  video/asr_engine.py
+  video/services/audio_processing.py
+  vid_go/asgi.py
+  vid_go/wsgi.py
+  vid_go/mcp_asgi.py
+  zt_speed_test.py
+  visualize_librispeech_results.py
+  visualize_results.py
 
 [report]
 show_missing = True
