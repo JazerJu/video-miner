@@ -9,6 +9,8 @@ Pillow
 openai
 # ASGI server support
 gunicorn
+uvicorn>=0.30
+mcp>=1.28
 # Channels for WebSocket handling
 channels>=4.0
 # Audio file decoding for local ASR utilities
@@ -20,6 +22,7 @@ av>=12.0
 tokenizers>=0.15
 imagehash>=4.3
 numpy>=1.24
+Jinja2>=3.0
 # FunASR-GGUF transcription engine
 gguf>=0.10
 srt>=3.0
