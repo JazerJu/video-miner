@@ -1,0 +1,4 @@
+interface:
+  display_name: "VidGo Endpoint"
+  short_description: "Configure VidGo backend address."
+  default_prompt: "Use $vidgo-endpoint to check or switch the VidGo backend address."

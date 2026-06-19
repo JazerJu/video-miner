@@ -21,6 +21,12 @@ API 令牌用于 Agent 和 CLI 访问 VidGo API。令牌只在创建后显示一
 Authorization: Token <token>
 ```
 
+## Agent 地址与媒体链接
+
+Agent 工具应使用 VidGo Web/API 的可访问地址，例如 `http://localhost:8080`、`http://<server-ip>:8080` 或 HTTPS 反向代理域名。这个地址和 OpenCode MCP 地址不是同一个概念；例如 `http://127.0.0.1:8787/sse` 只表示 MCP transport 入口。
+
+摘要 Markdown 中可能包含 `/media/vidunder/output/.../slide_000.png` 这样的根相对图片链接。默认保持原样；只有需要直接可点击 URL 时，再按用户选择的 VidGo Web/API 地址拼接。使用 SSH tunnel 和 localhost 测试时，需要同时转发 MCP 端口和 VidGo Web/API 端口，例如 `8787` 和 `8080`。
+
 ## 如何生成令牌
 
 1. 点击生成令牌。

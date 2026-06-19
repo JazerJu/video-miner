@@ -21,6 +21,12 @@ Add this request header when calling the VidGo API:
 Authorization: Token <token>
 ```
 
+## Agent endpoint and media links
+
+Agent tools should use a VidGo web/API base URL such as `http://localhost:8080`, `http://<server-ip>:8080`, or your HTTPS reverse-proxy domain. This base URL is separate from an OpenCode MCP URL such as `http://127.0.0.1:8787/sse`, which only points to the MCP transport.
+
+Summary markdown may contain root-relative image links such as `/media/vidunder/output/.../slide_000.png`. Keep those links unchanged unless you want direct clickable URLs. When needed, prepend the VidGo web/API base URL chosen by the user. For SSH tunnel testing with localhost addresses, forward both the MCP port and the VidGo web/API port, for example `8787` and `8080`.
+
 ## How to generate a token
 
 1. Click Generate Token.

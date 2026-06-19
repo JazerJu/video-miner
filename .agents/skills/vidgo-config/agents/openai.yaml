@@ -1,0 +1,4 @@
+interface:
+  display_name: "VidGo Config"
+  short_description: "Manage VidGo server settings."
+  default_prompt: "Use $vidgo-config to check or update VidGo server-side settings."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Transcription Status"
+  short_description: "Check engine and model status."
+  default_prompt: "Check VidGo transcription configuration and model readiness."

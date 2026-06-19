@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Workflows"
+  short_description: "Run multi-step VidGo tasks."
+  default_prompt: "Run an end-to-end VidGo video workflow from a user request."
