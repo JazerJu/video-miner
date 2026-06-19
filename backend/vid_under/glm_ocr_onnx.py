@@ -90,7 +90,7 @@ class GlmOcrOnnx:
         if mode in {"cpu", "same_process", "legacy"}:
             provider = "cpu"
         elif not provider:
-            provider = "cuda" if mode in {"cuda_isolated", "isolated_cuda"} else "cpu"
+            provider = "cuda" if mode in {"cuda", "cuda_isolated", "isolated_cuda"} else "cpu"
         available = ort.get_available_providers()
         if provider == "cpu":
             return ["CPUExecutionProvider"]

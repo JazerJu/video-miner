@@ -13,8 +13,7 @@ from config import (GEMINI_API_URL, EMBED_MODEL_PATH, STEP_API_KEY, STEP_BASE_UR
                               DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
                               MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL,
                               GLM_OCR_GGUF, GLM_OCR_N_GPU_LAYERS,
-                              GLM_OCR_ONNX_DIR, GLM_OCR_ONNX_PROVIDER,
-                              GLM_OCR_ONNX_PRECISION, GLM_OCR_ONNX_THREADS,
+                              GLM_OCR_ONNX_DIR, GLM_OCR_ONNX_PRECISION, GLM_OCR_ONNX_THREADS,
                               GLM_OCR_MODE, GLM_OCR_WORKER_TIMEOUT)
 
 
@@ -235,7 +234,12 @@ def _get_glm_ocr_engine(load_onnx: bool):
 
 
 def _glm_ocr_runtime_mode() -> str:
-    return os.environ.get("VIDUNDER_GLM_OCR_MODE", GLM_OCR_MODE).lower()
+    mode = os.environ.get("VIDUNDER_GLM_OCR_MODE", GLM_OCR_MODE).strip().lower()
+    if mode in {"cuda", "cuda_isolated", "isolated_cuda"}:
+        return "cuda"
+    if mode in {"cpu", "same_process", "legacy"}:
+        return "cpu"
+    return mode
 
 
 def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
@@ -251,7 +255,7 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
 
     try:
         mode = _glm_ocr_runtime_mode()
-        if mode in ("cuda_isolated", "isolated_cuda"):
+        if mode == "cuda":
             from glm_ocr_worker import get_glm_ocr_onnx_worker
 
             provider = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER")
@@ -276,7 +280,7 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
                 max_tokens=min(max_tokens, 2048),
             )
 
-        if mode not in ("cpu", "same_process", "legacy"):
+        if mode != "cpu":
             print(f"  Unknown GLM-OCR mode '{mode}', using same-process mode", flush=True)
         engine = _get_glm_ocr_engine(load_onnx=True)
         return engine.ocr(image, prompt=prompt, max_tokens=min(max_tokens, 2048))

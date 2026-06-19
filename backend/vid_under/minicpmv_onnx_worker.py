@@ -41,6 +41,7 @@ def _worker_main(
     threads: int,
 ) -> None:
     if provider:
+        os.environ["VIDUNDER_MINICPM_ONNX_PROVIDER"] = provider
         os.environ["VIDUNDER_ONNX_PROVIDER"] = provider
     if threads > 0:
         os.environ["OMP_NUM_THREADS"] = str(threads)

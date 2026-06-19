@@ -5,7 +5,7 @@
   VIDUNDER_N_CTX          - KV cache 上下文长度，默认 4096
   VIDUNDER_N_GPU_LAYERS   - GGUF 放 GPU 的层数，默认 99（全部），0=纯 CPU
   VIDUNDER_KV_CACHE_TYPE  - KV cache 量化类型，默认 q4_0
-  VIDUNDER_ONNX_PROVIDER  - ONNX 推理设备，默认 cuda，可改 cpu
+  VIDUNDER_MINICPM_ONNX_PROVIDER - MiniCPM-V vision ONNX 推理设备，默认 cuda，可改 cpu
   VIDUNDER_VIDEO_PATH     - 输入视频路径
   VIDUNDER_SRT_PATH       - 输入字幕路径
 """
@@ -67,5 +67,8 @@ N_CTX = int(os.environ.get("VIDUNDER_N_CTX", "4096"))
 N_GPU_LAYERS = int(os.environ.get("VIDUNDER_N_GPU_LAYERS", "99"))
 N_BATCH = int(os.environ.get("VIDUNDER_N_BATCH", "512"))
 KV_CACHE_TYPE = os.environ.get("VIDUNDER_KV_CACHE_TYPE", "q4_0")
-ONNX_PROVIDER = os.environ.get("VIDUNDER_ONNX_PROVIDER", "cuda")
+ONNX_PROVIDER = os.environ.get(
+    "VIDUNDER_MINICPM_ONNX_PROVIDER",
+    os.environ.get("VIDUNDER_ONNX_PROVIDER", "cuda"),
+)
 N_PREDICT = 256
