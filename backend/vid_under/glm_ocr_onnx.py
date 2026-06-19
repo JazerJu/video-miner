@@ -85,7 +85,12 @@ class GlmOcrOnnx:
 
     @staticmethod
     def _select_providers() -> list[str]:
-        provider = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER", "cpu").lower()
+        mode = os.environ.get("VIDUNDER_GLM_OCR_MODE", "cpu").lower()
+        provider = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER", "").lower()
+        if mode in {"cpu", "same_process", "legacy"}:
+            provider = "cpu"
+        elif not provider:
+            provider = "cuda" if mode in {"cuda_isolated", "isolated_cuda"} else "cpu"
         available = ort.get_available_providers()
         if provider == "cpu":
             return ["CPUExecutionProvider"]
