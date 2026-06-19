@@ -398,11 +398,17 @@ def _calculate_model_status(model_name: str) -> dict[str, int | str]:
     }
 
 
+def _hf_resolve_url(repo: str, encoded_path: str) -> str:
+    endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").strip()
+    endpoint = (endpoint or "https://huggingface.co").rstrip("/")
+    return f"{endpoint}/{repo}/resolve/main/{encoded_path}"
+
+
 def _source_url(source: DownloadSource, repo_path: str, repo: str | None = None) -> str:
     encoded_path = quote(repo_path, safe="/")
     if repo:
         if source == "hf":
-            return f"https://huggingface.co/{repo}/resolve/main/{encoded_path}"
+            return _hf_resolve_url(repo, encoded_path)
         if source in ("ms", "modelscope"):
             repo = MODELSCOPE_REPO_ALIASES.get(repo, repo)
             return (
@@ -411,7 +417,7 @@ def _source_url(source: DownloadSource, repo_path: str, repo: str | None = None)
             )
         raise ValueError(f"Unknown source: {source}")
     if source == "hf":
-        return f"https://huggingface.co/JazerJu/VideoMiner/resolve/main/{encoded_path}"
+        return _hf_resolve_url("JazerJu/VideoMiner", encoded_path)
     if source in ("ms", "modelscope"):
         return (
             "https://modelscope.cn/api/v1/models/modelmo/VideoMiner/repo"

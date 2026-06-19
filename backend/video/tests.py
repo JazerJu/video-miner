@@ -1,5 +1,6 @@
 # pyright: reportAttributeAccessIssue=false, reportImplicitRelativeImport=false, reportUninitializedInstanceVariable=false
 import json
+import os
 import tempfile
 from datetime import timedelta
 from pathlib import Path
@@ -1212,3 +1213,25 @@ class YtDlpViewLayer3Tests(TestCase):
         self.assertEqual(response.json()["success"], False)
         self.assertEqual(response.json()["upgraded"], False)
         self.assertEqual(response.json()["detail"], "network failed")
+
+
+class VidUnderModelDownloadUrlTests(TestCase):
+    def test_hf_source_uses_hf_endpoint_for_videominer_files(self):
+        from vid_under.views_download import _source_url
+
+        with patch.dict(os.environ, {"HF_ENDPOINT": "https://hf-mirror.com"}):
+            self.assertEqual(
+                _source_url("hf", "glm-ocr/GLM-OCR-Q8_0.gguf"),
+                "https://hf-mirror.com/JazerJu/VideoMiner/resolve/main/"
+                "glm-ocr/GLM-OCR-Q8_0.gguf",
+            )
+
+    def test_hf_source_uses_hf_endpoint_for_repo_specific_files(self):
+        from vid_under.views_download import _source_url
+
+        with patch.dict(os.environ, {"HF_ENDPOINT": "https://hf-mirror.com/"}):
+            self.assertEqual(
+                _source_url("hf", "model.safetensors", "zai-org/GLM-ASR-Nano-2512"),
+                "https://hf-mirror.com/zai-org/GLM-ASR-Nano-2512/resolve/main/"
+                "model.safetensors",
+            )
