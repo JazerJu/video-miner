@@ -13,8 +13,9 @@ from config import (GEMINI_API_URL, EMBED_MODEL_PATH, STEP_API_KEY, STEP_BASE_UR
                               DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
                               MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL,
                               GLM_OCR_GGUF, GLM_OCR_N_GPU_LAYERS,
-                              GLM_OCR_ONNX_DIR, GLM_OCR_ONNX_PRECISION, GLM_OCR_ONNX_THREADS,
-                              GLM_OCR_MODE, GLM_OCR_WORKER_TIMEOUT)
+                              GLM_OCR_ONNX_DIR, GLM_OCR_ONNX_PROVIDER,
+                              GLM_OCR_ONNX_PRECISION, GLM_OCR_ONNX_THREADS,
+                              GLM_OCR_WORKER_TIMEOUT)
 
 
 _embed_session = None
@@ -233,13 +234,14 @@ def _get_glm_ocr_engine(load_onnx: bool):
     return _glm_ocr_engine
 
 
-def _glm_ocr_runtime_mode() -> str:
-    mode = os.environ.get("VIDUNDER_GLM_OCR_MODE", GLM_OCR_MODE).strip().lower()
-    if mode in {"cuda", "cuda_isolated", "isolated_cuda"}:
+def _glm_ocr_onnx_provider() -> str:
+    provider = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER", GLM_OCR_ONNX_PROVIDER)
+    provider = provider.strip().lower()
+    if provider in {"cuda", "cuda_isolated", "isolated_cuda"}:
         return "cuda"
-    if mode in {"cpu", "same_process", "legacy"}:
+    if provider in {"cpu", "same_process", "legacy"}:
         return "cpu"
-    return mode
+    return provider
 
 
 def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
@@ -254,19 +256,16 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
         return ""
 
     try:
-        mode = _glm_ocr_runtime_mode()
-        if mode == "cuda":
+        provider = _glm_ocr_onnx_provider()
+        if provider == "cuda":
             from glm_ocr_worker import get_glm_ocr_onnx_worker
 
-            provider = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PROVIDER")
-            if provider is None:
-                provider = "cuda"
             precision = os.environ.get("VIDUNDER_GLM_OCR_ONNX_PRECISION", GLM_OCR_ONNX_PRECISION)
             threads = int(os.environ.get("VIDUNDER_GLM_OCR_ONNX_THREADS", str(GLM_OCR_ONNX_THREADS)))
             timeout = int(os.environ.get("VIDUNDER_GLM_OCR_WORKER_TIMEOUT", str(GLM_OCR_WORKER_TIMEOUT)))
             worker = get_glm_ocr_onnx_worker(
                 GLM_OCR_ONNX_DIR,
-                provider=provider.lower(),
+                provider=provider,
                 precision=precision.lower(),
                 threads=threads,
                 timeout=timeout,
@@ -280,8 +279,8 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
                 max_tokens=min(max_tokens, 2048),
             )
 
-        if mode != "cpu":
-            print(f"  Unknown GLM-OCR mode '{mode}', using same-process mode", flush=True)
+        if provider != "cpu":
+            print(f"  Unknown GLM-OCR ONNX provider '{provider}', using CPU same-process mode", flush=True)
         engine = _get_glm_ocr_engine(load_onnx=True)
         return engine.ocr(image, prompt=prompt, max_tokens=min(max_tokens, 2048))
     except Exception as e:
