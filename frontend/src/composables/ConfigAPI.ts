@@ -230,8 +230,6 @@ export interface ConfigData {
   }
   'Video Understanding': {
     vu_thinking_budget: string
-    vu_n_gpu_layers: string
-    vu_glm_ocr_n_gpu_layers: string
     vu_corner_provider: string
     vu_corner_gemini_api_key: string
     vu_corner_gemini_base_url: string
@@ -374,8 +372,6 @@ export interface FrontendSettings {
   transcriptionIncludePunctuation: boolean
   // Video Understanding settings
   vuThinkingBudget: string
-  vuNGpuLayers: number
-  vuGlmOcrNGpuLayers: number
   vuCornerProvider: string
   vuCornerGeminiApiKey: string
   vuCornerGeminiBaseUrl: string
@@ -638,8 +634,6 @@ export async function loadConfig(): Promise<FrontendSettings> {
       transcriptionIncludePunctuation: data['Transcription Engine']?.include_punctuation === 'true',
       // Video Understanding settings
       vuThinkingBudget: data['Video Understanding']?.vu_thinking_budget || 'low',
-      vuNGpuLayers: parseInt(data['Video Understanding']?.vu_n_gpu_layers || '40'),
-      vuGlmOcrNGpuLayers: parseInt(data['Video Understanding']?.vu_glm_ocr_n_gpu_layers || '17'),
       vuCornerProvider: data['Video Understanding']?.vu_corner_provider || 'gemini',
       vuCornerGeminiApiKey: data['Video Understanding']?.vu_corner_gemini_api_key || '',
       vuCornerGeminiBaseUrl:
@@ -803,8 +797,6 @@ split_use_proxy: settings.splitUseProxy.toString(),
       },
       'Video Understanding': {
         vu_thinking_budget: settings.vuThinkingBudget,
-        vu_n_gpu_layers: settings.vuNGpuLayers.toString(),
-        vu_glm_ocr_n_gpu_layers: settings.vuGlmOcrNGpuLayers.toString(),
         vu_corner_provider: settings.vuCornerProvider,
         vu_corner_gemini_api_key: settings.vuCornerGeminiApiKey,
         vu_corner_gemini_base_url: settings.vuCornerGeminiBaseUrl,

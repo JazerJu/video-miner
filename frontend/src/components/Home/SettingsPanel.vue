@@ -1149,36 +1149,6 @@
                 {{ t('vuThinkingBudgetDesc') }}
               </p>
             </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
-                {{ t('vuNGpuLayers') }}
-              </label>
-              <input
-                v-model.number="settings.vuNGpuLayers"
-                type="number"
-                min="0"
-                max="40"
-                class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
-              />
-              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
-                {{ t('vuNGpuLayersDesc') }}
-              </p>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
-                {{ t('vuGlmOcrNGpuLayers') }}
-              </label>
-              <input
-                v-model.number="settings.vuGlmOcrNGpuLayers"
-                type="number"
-                min="0"
-                max="17"
-                class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
-              />
-              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
-                {{ t('vuGlmOcrNGpuLayersDesc') }}
-              </p>
-            </div>
           </div>
         </div>
 
@@ -2498,8 +2468,6 @@ const settings = reactive<FrontendSettings>({
   hotwords: '',
   // Video Understanding settings
   vuThinkingBudget: 'low',
-  vuNGpuLayers: 40,
-  vuGlmOcrNGpuLayers: 17,
   vuCornerProvider: 'gemini',
   vuCornerGeminiApiKey: '',
   vuCornerGeminiBaseUrl: 'https://openrouter.ai/api/v1',

@@ -22,24 +22,10 @@ services:
       NO_PROXY: ${VIDGO_NO_PROXY}
     volumes:
       # 数据库文件
-      - ${VIDGO_DB_FILE}:/app/database/videos.db
+      - ./data/videos.db:/app/database/videos.db
       # 媒体文件目录
-      - ${VIDGO_MEDIA_DIR}:/app/media
+      - ./data/media:/app/media
       # 用户配置目录
-      - ${VIDGO_CONFIG_DIR}:/app/config
+      - ./data/config:/app/config
       # 模型根目录：承载 VidUnder、FunASR、GLM-ASR 等模型
-      - ${VIDGO_MODELS_DIR}:/app/models
-      # 可选：分开挂载已有的 VidUnder / ASR 模型目录，覆盖 /app/models 下的对应子目录
-      - ${VIDUNDER_MINICPM_MODEL_DIR}:/app/models/minicpm-v4.5
-      - ${VIDUNDER_GLM_OCR_MODEL_DIR}:/app/models/glm-ocr
-      - ${VIDUNDER_EMBEDDING_MODEL_DIR}:/app/models/embedding
-      - ${FUNASR_MODEL_DIR}:/app/models/fun-asr
-      - ${GLM_ASR_MODEL_ROOT_DIR}:/app/models/glm-asr
-      # VidUnder MiniCPM-V / GLM-OCR llama.cpp 共享库
-      - ${VIDUNDER_LLAMA_BIN_DIR}:/app/vid_under/bin:ro
-      # FunASR-GGUF llama.cpp 共享库
-      - ${FUNASR_LLAMA_BIN_DIR}:/app/asr_utils/fun-asr-stack/fun_asr_gguf/inference/bin:ro
-      # GLM-ASR native engines
-      - ${GLM_ASR_INFER_ENGINE_DIR}:/app/asr_utils/glm-asr-stack/Infer-engine:ro
-      - ${GLM_ASR_FORCEALIGNER_ENGINE_DIR}:/app/asr_utils/glm-asr-stack/forcealigner-engine:ro
-      - ${GLM_ASR_LIB_DIR}:/app/asr_utils/glm-asr-stack/lib:ro
+      - ./data/models:/app/models

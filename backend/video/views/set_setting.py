@@ -150,8 +150,6 @@ def _ensure_ini():
         }
         cfg["Video Understanding"] = {
             "vu_thinking_budget": "low",
-            "vu_n_gpu_layers": "36",
-            "vu_glm_ocr_n_gpu_layers": "17",
             "vu_corner_provider": "gemini",
             "vu_corner_gemini_api_key": "",
             "vu_corner_gemini_base_url": "https://openrouter.ai/api/v1",
@@ -266,8 +264,6 @@ def load_all_settings():
     # Auto-migrate: ensure [Video Understanding] section exists
     vu_defaults = {
         "vu_thinking_budget": "low",
-        "vu_n_gpu_layers": "36",
-        "vu_glm_ocr_n_gpu_layers": "17",
         "vu_corner_provider": "gemini",
         "vu_corner_gemini_api_key": "",
         "vu_corner_gemini_base_url": "https://openrouter.ai/api/v1",
