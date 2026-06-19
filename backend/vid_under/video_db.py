@@ -183,7 +183,7 @@ def _load_onnx():
     from minicpmv_onnx_worker import get_minicpmv_onnx_worker
 
     provider = ONNX_PROVIDER.lower()
-    threads = int(os.environ.get("VIDUNDER_ONNX_THREADS", "4"))
+    threads = int(os.environ.get("VIDUNDER_ONNX_THREADS", "0"))
     timeout = int(os.environ.get("VIDUNDER_ONNX_WORKER_TIMEOUT", "180"))
     worker = get_minicpmv_onnx_worker(EXPORT_DIR, provider=provider, threads=threads, timeout=timeout)
     worker.start()

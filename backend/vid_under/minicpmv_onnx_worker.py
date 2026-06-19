@@ -132,7 +132,7 @@ class MiniCpmvOnnxWorker:
         self,
         export_dir: str | Path,
         provider: str = "cuda",
-        threads: int = 4,
+        threads: int = 0,
         timeout: int = 180,
     ) -> None:
         self.export_dir = str(export_dir)
@@ -243,7 +243,7 @@ _worker: MiniCpmvOnnxWorker | None = None
 def get_minicpmv_onnx_worker(
     export_dir: str | Path,
     provider: str = "cuda",
-    threads: int = 4,
+    threads: int = 0,
     timeout: int = 180,
 ) -> MiniCpmvOnnxWorker:
     global _worker

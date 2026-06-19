@@ -1556,47 +1556,15 @@ def _inject_vidunder_config():
         os.environ.pop("HTTPS_PROXY", None)
 
 
-def _vidunder_build_process_main(progress_q, vid_under_dir: str, video_path: str, srt_path: str, db_name: str):
-    """Run MiniCPM build in a clean child process so CUDA state dies on exit."""
-    import os
-    import sys
-    import traceback
-
-    try:
-        if vid_under_dir not in sys.path:
-            sys.path.insert(0, vid_under_dir)
-
-        os.environ["VIDUNDER_VIDEO_PATH"] = video_path
-        os.environ["VIDUNDER_SRT_PATH"] = srt_path
-        os.environ.setdefault("VIDUNDER_ONNX_THREADS", "0")
-
-        _inject_vidunder_config()
-
-        from video_db import build_database
-
-        def _child_progress(stage, current, total):
-            progress_q.put({
-                "type": "progress",
-                "stage": stage,
-                "current": current,
-                "total": total,
-            })
-
-        build_database(video_path, srt_path, db_name=db_name, progress_cb=_child_progress)
-        progress_q.put({"type": "done"})
-    except BaseException:
-        progress_q.put({"type": "error", "traceback": traceback.format_exc()})
-        raise
-
-
 def _run_vidunder_build_subprocess(video_path: str, srt_path: str, db_name: str, vid_under_dir: str, progress_cb=None):
     """Run vid_under build in a spawn process and relay progress to the caller."""
     import multiprocessing as mp
+    from .vidunder_build_process import vidunder_build_process_main
 
     ctx = mp.get_context("spawn")
     progress_q = ctx.Queue()
     process = ctx.Process(
-        target=_vidunder_build_process_main,
+        target=vidunder_build_process_main,
         args=(progress_q, vid_under_dir, video_path, srt_path, db_name),
     )
     process.start()
