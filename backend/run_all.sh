@@ -18,7 +18,7 @@ mkdir -p ./logs
 export PORT="${PORT:-8080}"
 export ENABLE_MCP="${ENABLE_MCP:-0}"
 export MCP_PORT="${MCP_PORT:-8787}"
-export VIDGO_URL="${VIDGO_URL:-https://vidgo.cemp.top}"
+export VIDGO_URL="${VIDGO_URL:-}"
 
 # 你的项目用的是 vid_go.settings -> 对应的 WSGI 入口如下
 APP_MODULE="vid_go.wsgi:application"
@@ -73,7 +73,9 @@ echo "PID=$PID"
 echo "Local:   http://localhost:${PORT}/"
 hostname -I | xargs -n1 -I{} echo "Network: http://{}:${PORT}/"
 echo "Log:     $(pwd)/$LOG"
-echo "VIDGO_URL=$VIDGO_URL"
+if [[ -n "$VIDGO_URL" ]]; then
+  echo "VIDGO_URL=$VIDGO_URL"
+fi
 
 # 想现场看日志就保留这行；不想阻塞就注释掉
 # tail -n 50 -f "$LOG"
