@@ -9,7 +9,7 @@ services:
       - .env
     ports:
       - "${VIDGO_PORT}:8080"
-      - "${VIDGO_MCP_PORT}:${MCP_PORT}"
+      - "${VIDGO_MCP_PORT}:8787"
     extra_hosts:
       - "host.docker.internal:host-gateway"  # 让容器能通过 host.docker.internal 访问宿主机
     volumes:
