@@ -12,13 +12,6 @@ services:
       - "${VIDGO_MCP_PORT}:${MCP_PORT}"
     extra_hosts:
       - "host.docker.internal:host-gateway"  # 让容器能通过 host.docker.internal 访问宿主机
-    environment:
-      # Most settings are passed through from .env. These map VidGo's
-      # prefixed names to process env names expected by runtimes/libraries.
-      LD_LIBRARY_PATH: ${VIDGO_LD_LIBRARY_PATH}
-      HTTP_PROXY: ${VIDGO_HTTP_PROXY}
-      HTTPS_PROXY: ${VIDGO_HTTPS_PROXY}
-      NO_PROXY: ${VIDGO_NO_PROXY}
     volumes:
       # 数据库文件
       - ./data/videos.db:/app/database/videos.db
