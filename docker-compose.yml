@@ -1,11 +1,10 @@
 services:
   vidgo:
-    image: ${VIDGO_IMAGE}
+    image: jaceju68/vidgo:cuda-latest
     container_name: vidgo-app
     restart: unless-stopped
     runtime: nvidia
     network_mode: bridge
-    user: "${UID}:${GID}"  # 使用宿主机用户运行，避免权限问题
     env_file:
       - .env
     ports:
