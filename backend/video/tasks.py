@@ -1395,6 +1395,14 @@ def _get_default_min_coverage():
     return 0.6
 
 
+def _clamp_int(value, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(max_value, parsed))
+
+
 def _inject_vidunder_config():
     """Read Video Understanding settings from config.ini and patch vid_under config module."""
     settings_file = os.path.join(settings.BASE_DIR, "./config/config.ini")
@@ -1467,6 +1475,18 @@ def _inject_vidunder_config():
         if model:
             vu_config.DEEPSEEK_MODEL = model
 
+    slides_per_chapter = _clamp_int(
+        g(
+            "vu_summary_slides_per_chapter",
+            os.environ.get("VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER", "3"),
+        ),
+        3,
+        1,
+        10,
+    )
+    vu_config.SUMMARY_SLIDES_PER_CHAPTER = slides_per_chapter
+    os.environ["VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER"] = str(slides_per_chapter)
+
     # Knowledge LLM
     kn_provider = g("vu_knowledge_provider", "doubao")
     if kn_provider == "doubao":
@@ -1536,6 +1556,99 @@ def _inject_vidunder_config():
         os.environ.pop("HTTPS_PROXY", None)
 
 
+def _vidunder_build_process_main(progress_q, vid_under_dir: str, video_path: str, srt_path: str, db_name: str):
+    """Run MiniCPM build in a clean child process so CUDA state dies on exit."""
+    import os
+    import sys
+    import traceback
+
+    try:
+        if vid_under_dir not in sys.path:
+            sys.path.insert(0, vid_under_dir)
+
+        os.environ["VIDUNDER_VIDEO_PATH"] = video_path
+        os.environ["VIDUNDER_SRT_PATH"] = srt_path
+        os.environ.setdefault("VIDUNDER_ONNX_THREADS", "0")
+
+        _inject_vidunder_config()
+
+        from video_db import build_database
+
+        def _child_progress(stage, current, total):
+            progress_q.put({
+                "type": "progress",
+                "stage": stage,
+                "current": current,
+                "total": total,
+            })
+
+        build_database(video_path, srt_path, db_name=db_name, progress_cb=_child_progress)
+        progress_q.put({"type": "done"})
+    except BaseException:
+        progress_q.put({"type": "error", "traceback": traceback.format_exc()})
+        raise
+
+
+def _run_vidunder_build_subprocess(video_path: str, srt_path: str, db_name: str, vid_under_dir: str, progress_cb=None):
+    """Run vid_under build in a spawn process and relay progress to the caller."""
+    import multiprocessing as mp
+
+    ctx = mp.get_context("spawn")
+    progress_q = ctx.Queue()
+    process = ctx.Process(
+        target=_vidunder_build_process_main,
+        args=(progress_q, vid_under_dir, video_path, srt_path, db_name),
+    )
+    process.start()
+
+    done = False
+    error_text = None
+    try:
+        while True:
+            try:
+                msg = progress_q.get(timeout=0.5)
+            except Empty:
+                if not process.is_alive():
+                    break
+                continue
+
+            msg_type = msg.get("type")
+            if msg_type == "progress":
+                if progress_cb:
+                    progress_cb(
+                        msg.get("stage", "caption"),
+                        int(msg.get("current", 0)),
+                        int(msg.get("total", 0)),
+                    )
+            elif msg_type == "done":
+                done = True
+                break
+            elif msg_type == "error":
+                error_text = msg.get("traceback") or "unknown build subprocess error"
+                break
+
+        process.join(timeout=10)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=10)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=10)
+    finally:
+        try:
+            progress_q.close()
+            progress_q.join_thread()
+        except Exception:
+            pass
+
+    if error_text:
+        raise RuntimeError(f"VidUnder build subprocess failed:\n{error_text}")
+    if process.exitcode != 0:
+        raise RuntimeError(f"VidUnder build subprocess exited with code {process.exitcode}")
+    if not done:
+        raise RuntimeError("VidUnder build subprocess exited before reporting completion")
+
+
 def generate_summary_for_video(task_id: str) -> None:
     """Run the 3-step vidUnder pipeline: build → extract → summarize."""
     task = summary_task_status[task_id]
@@ -1560,8 +1673,7 @@ def generate_summary_for_video(task_id: str) -> None:
         os.makedirs(result_dir, exist_ok=True)
 
         # Step 1: build
-        _summary_update(task_id, "build", "Running", detail="Starting MiniCPM-V caption...")
-        from video_db import build_database
+        _summary_update(task_id, "build", "Running", detail="Starting MiniCPM-V caption subprocess...")
         import time as _time
         db_name = _time.strftime("%Y%m%d_%H%M%S") + "_" + str(task.get("video_id", 0))
 
@@ -1569,7 +1681,13 @@ def generate_summary_for_video(task_id: str) -> None:
             pct = int(current / total * 100) if total > 0 else 0
             _summary_update(task_id, "build", "Running", progress=pct)
 
-        build_database(video_path, srt_path, db_name=db_name, progress_cb=_build_progress)
+        _run_vidunder_build_subprocess(
+            video_path,
+            srt_path,
+            db_name=db_name,
+            vid_under_dir=vid_under_dir,
+            progress_cb=_build_progress,
+        )
         _summary_update(task_id, "build", "Completed")
 
         # Step 2: extract

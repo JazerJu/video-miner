@@ -11,7 +11,20 @@ from external_api import (
     call_glm_ocr, _pil_to_base64,
 )
 from srt_utils import search_transcript, transcript_for_timerange
-from config import DEEPSEEK_API_KEY, STEP_API_KEY, N_PREDICT, GGUF_PATH, EXPORT_DIR, N_CTX, N_GPU_LAYERS, N_BATCH, KV_CACHE_TYPE, ONNX_PROVIDER, SUMMARY_SLIDES_PER_CHAPTER, SUMMARY_LANG, MEDIA_VIDUNDER
+from config import DEEPSEEK_API_KEY, STEP_API_KEY, N_PREDICT, GGUF_PATH, EXPORT_DIR, N_CTX, N_GPU_LAYERS, N_BATCH, KV_CACHE_TYPE, ONNX_PROVIDER, SUMMARY_LANG, MEDIA_VIDUNDER
+
+
+def _summary_slides_per_chapter() -> int:
+    try:
+        import config as _vu_config
+        value = getattr(_vu_config, "SUMMARY_SLIDES_PER_CHAPTER", 3)
+    except Exception:
+        value = os.environ.get("VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER", "3")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = 3
+    return max(1, min(10, parsed))
 
 
 # ── DeepSeek tool definitions ─────────────────────────────────
@@ -801,7 +814,7 @@ class VideoAgent:
 
             chapter_slides = []
             if slides_data and start_sec < end_sec:
-                max_slides = SUMMARY_SLIDES_PER_CHAPTER
+                max_slides = _summary_slides_per_chapter()
                 candidates = [s for s in slides_data
                               if start_sec <= s.get("time", -1) <= end_sec
                               and s.get("image_path") and Path(s["image_path"]).exists()]
@@ -880,9 +893,10 @@ class VideoAgent:
             start = int(time_match.group(1).split(':')[0]) * 60 + int(time_match.group(1).split(':')[1])
             end = int(time_match.group(2).split(':')[0]) * 60 + int(time_match.group(2).split(':')[1])
             chapter_slides = [s for s in slides if start <= s.get("time", -1) <= end]
-            if len(chapter_slides) > 3:
-                step = len(chapter_slides) // 3
-                chapter_slides = chapter_slides[::step][:3]
+            max_slides = _summary_slides_per_chapter()
+            if len(chapter_slides) > max_slides:
+                step = len(chapter_slides) // max_slides
+                chapter_slides = chapter_slides[::step][:max_slides]
             if not chapter_slides:
                 return header_line
             img_lines = []

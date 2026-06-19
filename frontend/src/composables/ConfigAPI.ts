@@ -247,6 +247,7 @@ export interface ConfigData {
     vu_summary_api_key: string
     vu_summary_base_url: string
     vu_summary_model: string
+    vu_summary_slides_per_chapter: string
     vu_knowledge_provider: string
     vu_knowledge_api_key: string
     vu_knowledge_base_url: string
@@ -389,6 +390,7 @@ export interface FrontendSettings {
   vuSummaryApiKey: string
   vuSummaryBaseUrl: string
   vuSummaryModel: string
+  vuSummarySlidesPerChapter: number
   vuKnowledgeProvider: string
   vuKnowledgeApiKey: string
   vuKnowledgeBaseUrl: string
@@ -656,6 +658,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
       vuSummaryBaseUrl:
         data['Video Understanding']?.vu_summary_base_url || 'https://api.deepseek.com',
       vuSummaryModel: data['Video Understanding']?.vu_summary_model || 'deepseek-chat',
+      vuSummarySlidesPerChapter: Math.min(10, Math.max(1, parseInt(data['Video Understanding']?.vu_summary_slides_per_chapter || '3', 10) || 3)),
       vuKnowledgeProvider: data['Video Understanding']?.vu_knowledge_provider || 'doubao',
       vuKnowledgeApiKey: data['Video Understanding']?.vu_knowledge_api_key || '',
       vuKnowledgeBaseUrl: data['Video Understanding']?.vu_knowledge_base_url || '',
@@ -814,6 +817,7 @@ split_use_proxy: settings.splitUseProxy.toString(),
         vu_summary_api_key: settings.vuSummaryApiKey,
         vu_summary_base_url: settings.vuSummaryBaseUrl,
         vu_summary_model: settings.vuSummaryModel,
+        vu_summary_slides_per_chapter: Math.min(10, Math.max(1, Math.round(settings.vuSummarySlidesPerChapter || 3))).toString(),
         vu_knowledge_provider: settings.vuKnowledgeProvider,
         vu_knowledge_api_key: settings.vuKnowledgeApiKey,
         vu_knowledge_base_url: settings.vuKnowledgeBaseUrl,

@@ -1400,6 +1400,22 @@
                 class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
               />
             </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                {{ t('vuSummarySlidesPerChapter') }}
+              </label>
+              <input
+                v-model.number="settings.vuSummarySlidesPerChapter"
+                type="number"
+                min="1"
+                max="10"
+                step="1"
+                class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+              />
+              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
+                {{ t('vuSummarySlidesPerChapterDesc') }}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -2485,6 +2501,7 @@ const settings = reactive<FrontendSettings>({
   vuSummaryApiKey: '',
   vuSummaryBaseUrl: 'https://api.deepseek.com',
   vuSummaryModel: 'deepseek-chat',
+  vuSummarySlidesPerChapter: 3,
   vuKnowledgeProvider: 'doubao',
   vuKnowledgeApiKey: '',
   vuKnowledgeBaseUrl: '',

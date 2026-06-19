@@ -12,6 +12,7 @@
   VIDUNDER_GLM_OCR_ONNX_PRECISION - GLM-OCR ONNX 精度，默认 q4，可改 fp32/auto
   VIDUNDER_GLM_OCR_ONNX_THREADS - GLM-OCR CPU ONNX 线程数，默认 4
   VIDUNDER_GLM_OCR_WORKER_TIMEOUT - GLM-OCR ONNX worker 单次超时秒数，默认 180
+  VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER - Summary 每章最多插入图片数，默认 3，范围 1-10
   VIDUNDER_HWACCEL        - FFmpeg 抽帧硬解，默认 none，可改 cuda/vaapi
   VIDUNDER_VIDEO_PATH     - 输入视频路径
   VIDUNDER_SRT_PATH       - 输入字幕路径
@@ -91,6 +92,14 @@ def _normalize_onnx_provider(value: str) -> str:
     return provider
 
 
+def _clamped_int(value: str | None, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(value) if value is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(max_value, parsed))
+
+
 ONNX_PROVIDER = os.environ.get(
     "VIDUNDER_MINICPM_ONNX_PROVIDER",
     os.environ.get("VIDUNDER_ONNX_PROVIDER", "cuda"),
@@ -107,5 +116,10 @@ GLM_OCR_WORKER_TIMEOUT = int(os.environ.get("VIDUNDER_GLM_OCR_WORKER_TIMEOUT", "
 N_PREDICT = 512
 VIDEO_PATH = os.environ.get("VIDUNDER_VIDEO_PATH", "")
 SRT_PATH = os.environ.get("VIDUNDER_SRT_PATH", "")
-SUMMARY_SLIDES_PER_CHAPTER = int(os.environ.get("VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER", "3"))
+SUMMARY_SLIDES_PER_CHAPTER = _clamped_int(
+    os.environ.get("VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER"),
+    3,
+    1,
+    10,
+)
 SUMMARY_LANG = os.environ.get("VIDUNDER_SUMMARY_LANG", "中文")

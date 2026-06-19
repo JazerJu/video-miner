@@ -166,6 +166,8 @@ export default {
   vuCornerCoverage: '最小裁切覆盖率',
   vuCornerCoverageDesc: '当角点构成的区域小于整张图的此比例时，不进行裁切（值越小裁切越激进）',
   vuSummaryOrchestration: '摘要编排 (Tool-Calling)',
+  vuSummarySlidesPerChapter: '每章摘要图片数',
+  vuSummarySlidesPerChapterDesc: '生成 summary 时每个章节最多插入的幻灯片/截图数量，范围 1-10',
   vuKnowledgeLLM: '知识补充 LLM',
   vuKnowledgeLLMDesc: '用于章节标题生成和世界知识补充',
   vuPrimaryFallback: '主 Fallback',

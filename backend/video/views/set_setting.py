@@ -162,10 +162,11 @@ def _ensure_ini():
             "vu_corner_openai_model": "",
             "vu_summary_api_key": "",
             "vu_summary_base_url": "https://api.deepseek.com",
-        "vu_summary_model": "deepseek-chat",
-        "vu_corner_use_proxy": "false",
-        "vu_summary_use_proxy": "false",
-        "vu_knowledge_use_proxy": "false",
+            "vu_summary_model": "deepseek-chat",
+            "vu_summary_slides_per_chapter": "3",
+            "vu_corner_use_proxy": "false",
+            "vu_summary_use_proxy": "false",
+            "vu_knowledge_use_proxy": "false",
             "vu_corner_use_proxy": "false",
             "vu_summary_use_proxy": "false",
             "vu_knowledge_use_proxy": "false",
@@ -277,6 +278,7 @@ def load_all_settings():
         "vu_summary_api_key": "",
         "vu_summary_base_url": "https://api.deepseek.com",
         "vu_summary_model": "deepseek-chat",
+        "vu_summary_slides_per_chapter": "3",
         "vu_knowledge_provider": "doubao",
         "vu_knowledge_api_key": "",
         "vu_knowledge_base_url": "",
@@ -317,9 +319,25 @@ def load_all_settings():
     return result
 
 
+def _clamped_int_string(value: Any, default: int, min_value: int, max_value: int) -> str:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return str(max(min_value, min(max_value, parsed)))
+
+
 def save_all_settings(settings_dict: dict[str, Any]):
     """Save all settings to config.ini."""
     cfg = configparser.ConfigParser(interpolation=None)
+    vu_settings = settings_dict.get("Video Understanding")
+    if isinstance(vu_settings, dict):
+        vu_settings["vu_summary_slides_per_chapter"] = _clamped_int_string(
+            vu_settings.get("vu_summary_slides_per_chapter", "3"),
+            3,
+            1,
+            10,
+        )
 
     for section_name, section_data in settings_dict.items():
         if section_name == "DEFAULT":

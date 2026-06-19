@@ -172,6 +172,8 @@ export default {
   vuCornerCoverage: 'Min Crop Coverage',
   vuCornerCoverageDesc: 'If the corner-point area is smaller than this fraction of the full image, skip cropping (lower = more aggressive cropping)',
   vuSummaryOrchestration: 'Summary Orchestration (Tool-Calling)',
+  vuSummarySlidesPerChapter: 'Summary Images per Chapter',
+  vuSummarySlidesPerChapterDesc: 'Maximum slide/screenshot images inserted into each generated summary chapter, from 1 to 10',
   vuKnowledgeLLM: 'Knowledge LLM',
   vuKnowledgeLLMDesc: 'For chapter title generation and world knowledge enrichment',
   vuPrimaryFallback: 'Primary Fallback',
