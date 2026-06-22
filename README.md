@@ -1,107 +1,183 @@
-![Latest stable](https://img.shields.io/github/v/release/JazerJu/video-miner?display_name=tag) [![CI](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JazerJu/video-miner/actions/workflows/ci.yml) [![Codecov](https://codecov.io/gh/JazerJu/video-miner/graph/badge.svg?branch=main)](https://codecov.io/gh/JazerJu/video-miner)
+<p align="center">
+  <img src="docs/images/miner.png" width="100" />
+</p>
 
-# VideoMiner
+<h2 align="center">VideoMiner</h2>
 
-# 核心功能
+<p align="center">
+  A Cloud-Edge Synergy Video-parsing System<br>
+  一个本地-云端协同的视频解析框架
+</p>
 
-**📥1.流媒体视频下载**
-- 支持Bilibili、YouTube、Apple Podcasts等主流平台的音视频下载  
-- 🔗提供外链解析和批量下载功能 
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/JazerJu/video-miner?display_name=tag" />
+  <img src="https://github.com/JazerJu/video-miner/actions/workflows/ci.yml/badge.svg?branch=main" />
+  <img src="https://codecov.io/gh/JazerJu/video-miner/graph/badge.svg?branch=main" />
+</p>
 
-**🎬2.智能字幕系统**
+---
 
-- 🎙️多引擎转录支持：Faster-Whisper本地处理、ElevenLabs、阿里巴巴DashScope、OpenAI Whisper提供的APi服务
-- ✂️ 基于 LLM 的智能分割与断句，字幕阅读更自然流畅
-- ⚡支持批量运行任务，提升效率
-- ✏️高级字幕编辑器，支持实时预览，自定义字幕样式
-    - 🌊 支持音频波形展示&同步
-    - 🌐支持双语字幕/字幕嵌入视频导出
+## Motivation
 
-**📚3.视频管理与组织**
-- 📁分类和合集管理系统 
-- ⚙️批量操作支持（移动、删除、字幕生成、视频合并）
-- 🖼️ 缩略图管理
+Luo Fuli, head of Xiaomi's MiMo LLM team, mentioned in an interview that OpenClaw's audio-video understanding capability is weak, which is why their lab open-sourced the omni-modal model MiMo v2.5.
 
-**👥4.用户认证和权限管理**
-- 👤主用户/普通用户分离
-- 🔐可单独为普通用户设置权限与分类展示。
+<p align="center">
+  <img src="docs/images/luofuli.en.png" width="500" />
+</p>
 
-**▶️5.视频播放体验**
-- ▶️在线播放视频
-- 📺集成字幕显示面板
-- 🎯章节导航和时间轴跳转
-- 🔄双语字幕切换和自动滚动 
+In our daily work:
+- We want to record a screen and have AI summarize what we did.
+- When watching code walkthrough videos — whether traditional web dev or cutting-edge CUDA kernels — we want to generate a summary with the actual code extracted,and ask questions based on the summaries.
 
-# 界面预览
+<p align="center">
+  <img src="docs/images/youtube.en.png" width="500" />
+</p>
 
-> 项目架构为前后端分离的Vue3 + django api
+---
 
+However, relying purely on large LLMs for video understanding has two hard blockers:
 
+1. **Prohibitively expensive.** Even the most cost-effective plans with no weekly limits (e.g., Zhipu AI's legacy tier) can't sustain it.
 
-# 快速开始
-项目提供示例网站，地址为https://example.vidgo.cemp.top ，需要输入用户名&密码。
+<p align="center">
+  <img src="docs/images/z-ai-coding-plan.en.png" width="400" />
+</p>
 
-用户名:**user**,
+2. **Real-time factor < 1.** An LLM takes more than 30 seconds to answer a question about a 30-second video. For 1-2 hour or even 11-hour videos, a pure-LLM approach is simply impractical.
 
-密码:**User123**.
+The second problem is ASR throughput: the popular Faster-Whisper achieves only ~10x RTFx in practice. Tweaking batch size or upgrading from a 4060 Ti to a 5070 Ti makes no difference. But on consumer GPUs, combining KV Cache, Paged Attention, and Flash Attention tuning, this rate can reach **540+ RTFx** — **50× faster** than Faster-Whisper.
 
-示例网站暂不支持基于本地的字幕识别，但支持基于云端的字幕识别，此外可以体验视频观看，字幕编辑等功能。
-部署和使用中的问题可以参考[项目文档](docs/).
+<p align="center">
+  <img src="docs/images/faster-whisper-bench.png" width="500" />
+</p>
 
-# 部署
-项目支持以下两种方式部署：
-1. node + python
-2. Docker部署
+This is exactly the problem VideoMiner solves.
 
-## Node + python部署
+---
+
+## Features
+
+VideoMiner's core idea is **cloud-edge synergy**: the local GPU handles the expensive audio/video decoding (ASR, OCR, VLM), while the cloud LLM only processes lightweight text-level tasks (summarization, translation, sentence splitting). This avoids the high cost and latency of sending raw video to a cloud LLM, while still leveraging its language understanding.
+
+### Ultra-Fast Transcription Engine
+
+- **GLM-ASR Stack**: Built on GLM-ASR-Nano + Qwen3 ForceAligner, with KV Cache, Paged Attention, and Flash Attention tuning. Achieves **540+ RTFx** on consumer GPUs (~50× Faster-Whisper). A 1-hour video takes only ~15-20 seconds for transcription + forced alignment.
+- **Fun-ASR-GGUF**: Quantized Fun-ASR for broad compatibility. Supports hotword guidance and switchable VAD backends (Silero / FireRed).
+- **ElevenLabs Scribe**: Cloud API alternative for environments without a GPU.
+
+### Local Video Understanding
+
+Instead of sending video to a cloud LLM, the entire pipeline runs locally:
+
+1. **Frame Sampling**: Samples key frames based on Thinking Budget (Low / Medium / High)
+2. **OCR Extraction**: GLM-OCR recognizes text in frames
+3. **Corner Detection**: A cloud VLM (Gemini / MiMo-V2.5, etc.) detects slide boundaries; cropped frames are sent back to OCR for improved accuracy on lecture videos
+4. **Semantic Retrieval**: BGE Embedding builds a frame vector index
+5. **Summary Orchestration**: Tool-Calling coordinates the above capabilities to generate a structured summary
+6. **Knowledge Enrichment**: An optional Knowledge LLM adds background context and terminology explanations
+
+### Smart Subtitle System
+
+- **LLM Sentence Splitting**: Word-level ASR timestamps are re-segmented by an LLM for natural readability
+- **Multi-Language Translation**: Independently configurable translation LLM provider, with proxy support, concurrency control, and plain-translation mode
+- **Subtitle Editor**: Waveform visualization, real-time preview, dual-language subtitles, custom styling (font / color / shadow / stroke)
+- **Hardcoded Subtitle Export**: Burn subtitles directly into video files
+
+### Video Management
+
+- Download from Bilibili, YouTube, Apple Podcasts, and more
+- Hierarchical organization with Folders and Tags
+- Batch operations: move, delete, merge, bulk subtitle generation
+- Built-in player: chapter navigation, subtitle panel, dual-language toggle
+
+### MCP Tool Integration
+
+Built-in MCP Server lets AI agents (OpenCode, Pi Agent, Claude Desktop) query the video library, search content, fetch summaries, and manage tags and folders directly.
+
+See [Using Video-Miner MCP in OpenCode](docs/en/api-token/index.md)
+
+---
+
+## Interface Preview
+
+### Media Library
+
+Grid view organized by folders, tags, and collections, with batch operations and search.
+
+<p align="center">
+  <img src="docs/images/preview-library.en.png" width="600" />
+</p>
+
+### Video Player
+
+Integrated subtitle panel, chapter navigation, notes, and mind map.
+
+<p align="center">
+  <img src="docs/images/preview-video-player.en.png" width="600" />
+</p>
+
+### Subtitle Editor
+
+Waveform alignment, real-time preview, and style adjustment.
+
+<p align="center">
+  <img src="docs/images/preview-subtitle-editor.en.png" width="600" />
+</p>
+
+### Settings Panel
+
+8 tabs covering models, transcription engine, subtitle styling, media credentials, video understanding, API tokens, tags, and folder management.
+
+<p align="center">
+  <img src="docs/images/preview-settings.en.png" width="600" />
+</p>
+
+---
+
+## Documentation
+
+See [Documentation](docs/en/index.md)
+
+---
+
+## Docker Deployment
+
+### Prerequisites
+
+- Docker 24+
+- NVIDIA driver + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+- Recommended GPU VRAM ≥ 8GB
+
+### Quick Start
+
+```bash
+git clone https://github.com/JazerJu/video-miner.git
+cd video-miner
+cp .env.example .env
+mkdir -p data/{media,config,models}
+touch data/videos.db
+docker compose up -d
 ```
-git clone https://github.com/your-org/vidgo.git
-cd vidgo
 
-#  修改 .ini 文件
-cp ./backend/config/config.ini.example ./backend/config/config.ini.
+Open `http://localhost:8080` in your browser.
 
-# 安装前端依赖
-cd frontend
-npm install
-npm run start # 可以调整前端运行端口，默认为4173。
-# frontend/.env记录前后端交互时后端api所用端口，默认为8000,若后端因端口冲突，可以修改该文件以匹配后端。
+> Full deployment guide (GPU parameters, port config, data persistence, proxy, MCP service): [Docker Deployment](docs/en/deployment.md).
+>
+> Need to build from source? See [Build from Scratch](docs/en/build-from-scratch.md).
 
-# 另开终端运行后端
-cd ../backend
-conda create -n vidgo-env python=3.10
-conda activate vidgo-env  # 或你自定义的虚拟环境
-pip install -r requirements.txt. # 安装其他依赖
-pip install faster_whisper # 安装faster_whisper
-bash run_all.sh # 运行后端服务
-```
+---
 
+## Roadmap
 
-## Docker快速部署
-```
-sudo docker pull jaceju68/vidgo:latest
+NVIDIA's CUDA ecosystem is indeed easy to use, but consumer GPUs have skyrocketed in price — the 5090 is selling at nearly double MSRP.
+My lab happens to have 8×910B and 8×310B Ascend clusters, so the next step is:
 
-sudo docker run -d --name vidgo \
-  --restart unless-stopped \
-  --gpus '"device=0"' \
-  -e CUDA_VISIBLE_DEVICES=0 \
-  -e WHISPER_DEVICE=cuda \
-  -p 8030:8000 \
-  -v "$(pwd)/data/videos.db:/app/database/videos.db" \
-  -v "$(pwd)/data/media:/app/media" \
-  -v "$(pwd)/data/config:/app/config" \
-  -v "$(pwd)/data/models:/app/models" \
-  jaceju68/vidgo:latest
-```
+- [ ] Optimize the project for Ascend NPU
 
-项目同时支持采用docker-compose.yml部署，默认使用GPU，
+---
 
-[示例文件](https://github.com/JaceJu-frog/vidgo/blob/main/docker-compose.yml)
+## Acknowledgments
 
-
-# 未来规划
-- [ ] 增加模糊搜索，匹配与用户搜索内容相近的项目
-- [ ] 优化字幕编辑页面的"音频展示"，使UI更现代化。
-- [ ] 增加Ai生成视频笔记，视频思维导图，视频章节的功能。
-- [ ] 支持更多的WSR模型，包括剪映提供的高准确度模型。
-- [ ] 支持更多的LLM模型
+1. [Fun-ASR-GGUF](https://github.com/HaujetZhao/Fun-ASR-GGUF) / [Fun-ASR](https://github.com/FunAudioLLM/Fun-ASR) — Fun-ASR model and ONNX + llama.cpp collaboration approach
+2. [GLM-ASR](https://github.com/zai-org/GLM-ASR) / [GLM-OCR](https://github.com/zai-org/GLM-OCR) — GLM-ASR and GLM-OCR models
+3. [MiniCPM-V](https://github.com/OpenBMB/MiniCPM-V) — Best high-FPS local video understanding model
