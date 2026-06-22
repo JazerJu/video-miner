@@ -181,6 +181,14 @@ class CategoryActionView(View):
             # Set category to null for all videos in this category
             Video.objects.filter(category=category).update(category=None)
 
+            # Clear category FK on any collections referencing it
+            from django.db import connection
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE collection SET category_id = NULL WHERE category_id = %s",
+                    [category.id],
+                )
+
             # Delete category
             category.delete()
 
