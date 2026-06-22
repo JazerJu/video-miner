@@ -8,7 +8,7 @@ test_vid/
 bilibili-API-collect/
 __pycache__/ 
 # 不带前导斜杠的目录模式会在任意层级匹配名为 __pycache__ 的目录，整目录及其内容都会被忽略；
-.env
+.env.local
 
 # backend
 backend/__pycache__/
@@ -66,6 +66,7 @@ frontend/src/shims-hls.d.ts
 # Exclude temp/test files
 *.png
 !frontend/src/assets/*.png
+!docs/images/*.png
 *.wav
 *.m4a
 backend/visualize_*.py

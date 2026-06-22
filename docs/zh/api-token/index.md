@@ -1,6 +1,6 @@
 # API 令牌
 
-API 令牌用于 Agent 和 CLI 访问 VidGo API。令牌只在创建后显示一次，之后列表中只显示可识别的令牌条目和创建时间。
+API 令牌用于 Agent 和 CLI 访问 Video-Miner API。令牌只在创建后显示一次，之后列表中只显示可识别的令牌条目和创建时间。
 
 ## 令牌管理
 
@@ -15,26 +15,48 @@ API 令牌用于 Agent 和 CLI 访问 VidGo API。令牌只在创建后显示一
 
 ## API 使用方式
 
-请求 VidGo API 时，在请求头中加入：
+请求 Video-Miner API 时，在请求头中加入：
 
 ```http
 Authorization: Token <token>
 ```
 
+## 在Opencode中使用 Video-Miner MCP
+
+以Linux/Mac系统为例，编辑`~/.config/opencode/opencode.jsonc`：
+
+```
+{
+    "mcp":{
+        (...), # 其他mcp
+        "video-miner": {
+        "type": "remote",
+        "url": "http://127.0.0.1:8787/sse",
+        "headers": {
+            "Authorization": "Bearer <Your token>"
+        },
+        "enabled": true
+        }
+    }
+}
+```
+
 ## Agent 地址与媒体链接
 
-Agent 工具应使用 VidGo Web/API 的可访问地址，例如 `http://localhost:8080`、`http://<server-ip>:8080` 或 HTTPS 反向代理域名。这个地址和 OpenCode MCP 地址不是同一个概念；例如 `http://127.0.0.1:8787/sse` 只表示 MCP transport 入口。
+Agent 工具应使用 Video-Miner Web/API 的可访问地址，例如 `http://localhost:8080`、`http://<server-ip>:8080` 或 HTTPS 反向代理域名。这个地址和 OpenCode MCP 地址不是同一个概念；例如 `http://127.0.0.1:8787/sse` 只表示 MCP transport 入口。
 
-摘要 Markdown 中可能包含 `/media/vidunder/output/.../slide_000.png` 这样的根相对图片链接。默认保持原样；只有需要直接可点击 URL 时，再按用户选择的 VidGo Web/API 地址拼接。使用 SSH tunnel 和 localhost 测试时，需要同时转发 MCP 端口和 VidGo Web/API 端口，例如 `8787` 和 `8080`。
+> 默认的Docker 容器会启动 Video-Miner Web/API(wsgi) 和 MCP(asgi) 两个服务。
 
-## 如何生成令牌
+使用MCP获取视频的摘要时，返回的 Markdown 中可能包含 `![](/media/vidunder/output/.../slide_000.png)` 这样的相对链接,对应的网络Url为`http://<server-ip>:<server-port>/media/vidunder/output/.../slide_000.png`.
+
+## 如何"生成令牌"
 
 1. 点击生成令牌。
 2. 输入当前账户的用户名和密码。
 3. 点击确认。
 4. 立即复制弹窗中的令牌并保存到安全位置。
 
-## 如何吊销令牌
+## 如何"吊销令牌"
 
 1. 在令牌列表中点击吊销。
 2. 重新输入用户名和密码。
@@ -42,6 +64,7 @@ Agent 工具应使用 VidGo Web/API 的可访问地址，例如 `http://localhos
 4. 列表刷新后确认令牌已移除。
 
 > 令牌生成后无法再次查看完整值。如果丢失，请吊销旧令牌并生成新令牌。
+
 
 ---
 

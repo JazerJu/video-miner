@@ -15,6 +15,8 @@ Interface Settings control the frontend display language and the default transla
 2. Choose Chinese or English in Interface Language.
 3. Save settings.
 
+![](../../images/interface-settings.png)
+
 > Interface language syncs with the local language state. Default Translation Language changes the default display language for translated subtitles. It does not retranslate existing subtitles.
 
 ---

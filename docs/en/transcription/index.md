@@ -1,6 +1,6 @@
 # Transcription Engine
 
-Transcription Engine settings choose the backend used to convert audio to text. The current settings panel provides local Fun-ASR-GGUF, local GLM-ASR Stack, and ElevenLabs Speech-to-Text.
+Transcription Engine settings control the backend used to convert audio to text. The current settings panel provides local Fun-ASR-GGUF (broad general use), local GLM-ASR Stack (500+ RTFx, ultra-fast transcription), and ElevenLabs Speech-to-Text (API, expensive, about $0.05/min).
 
 ## Basic settings
 
@@ -8,7 +8,7 @@ Transcription Engine settings choose the backend used to convert audio to text. 
 | --- | --- | --- | --- |
 | Transcription Engine | Select | Fun-ASR-Nano (ONNX + GGUF, Local GPU Acceleration) | Options are Fun-ASR-Nano, GLM-ASR Stack, and ElevenLabs Speech-to-Text. |
 | Hotword List | Textarea | Empty | One hotword per line. Lines starting with `#` are comments. |
-| VAD Backend | Select | Silero VAD | Options are Silero VAD and FireRed VAD. |
+| VAD Backend | Select | Silero VAD | Options are Silero VAD or FireRed VAD. |
 
 ## Engine details
 
@@ -26,13 +26,15 @@ CapsWriter
 iPhone
 ```
 
+> Credits: The engine integration and hotword transcription in this project refer to work from the Fun-ASR team and HaujetZhao's Fun-ASR-GGUF.
+> https://github.com/FunAudioLLM/Fun-ASR
+> https://github.com/HaujetZhao/Fun-ASR-GGUF
+
 ## How to choose an engine
 
-1. Choose a local engine first for private audio.
-2. Choose ElevenLabs for cloud transcription and enter an API key.
+1. Prefer a local engine, Fun-ASR or GLM-ASR, for audio processing.
+2. Choose ElevenLabs only when you strongly need a cloud service, then enter an API key.
 3. If voice activity detection is not accurate enough, switch between Silero VAD and FireRed VAD.
-
-> The current settings panel shows only these three transcription engines. Older references to Faster-Whisper, DashScope, or OpenAI are not current panel options.
 
 ---
 

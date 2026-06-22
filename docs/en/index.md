@@ -1,8 +1,13 @@
-# VideoMiner Settings Documentation
+# VideoMiner Documentation
 
-This page lists the settings available in the VideoMiner settings panel. The guide is split by section so administrators can find configuration details quickly, and the structure works with GitHub Pages.
+## Deployment
 
-## Sections
+| Document | Contents |
+| --- | --- |
+| [Docker Deployment](deployment.md) | Deploy with the pre-built image: docker-compose, port config, data persistence, GPU parameters, and proxy settings. |
+| [Build from Scratch](build-from-scratch.md) | Multi-stage build instructions, custom mirrors, local docker-compose build, and image size optimization. |
+
+## Settings Sections
 
 | Section | Contents |
 | --- | --- |
@@ -16,5 +21,3 @@ This page lists the settings available in the VideoMiner settings panel. The gui
 | [Tags Management](tags/) | Tag creation, colors, editing, deletion, and batch deletion. |
 
 > Values such as API keys, SESSDATA, cookies.txt, and tokens should be treated as passwords.
-
-[Back to main landing page](../) | [Next: Model Settings](model/)

@@ -1,6 +1,6 @@
 # API Token Management
 
-API tokens allow agents and CLI clients to access the VidGo API. A token is shown only once after creation. After that, the list shows active token entries and creation times.
+API tokens allow agents and CLI clients to access the Video-Miner API. A token is shown only once after creation. After that, the list shows identifiable token entries and creation times.
 
 ## Token management
 
@@ -15,26 +15,48 @@ API tokens allow agents and CLI clients to access the VidGo API. A token is show
 
 ## API usage
 
-Add this request header when calling the VidGo API:
+Add this request header when calling the Video-Miner API:
 
 ```http
 Authorization: Token <token>
 ```
 
+## Using Video-Miner in OpenCode MCP
+
+On Linux or Mac, edit `~/.config/opencode/opencode.jsonc`:
+
+```jsonc
+{
+  "mcp": {
+    // other MCP servers
+    "video-miner": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8787/sse",
+      "headers": {
+        "Authorization": "Bearer <Your token>"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
 ## Agent endpoint and media links
 
-Agent tools should use a VidGo web/API base URL such as `http://localhost:8080`, `http://<server-ip>:8080`, or your HTTPS reverse-proxy domain. This base URL is separate from an OpenCode MCP URL such as `http://127.0.0.1:8787/sse`, which only points to the MCP transport.
+Agent tools should use an accessible Video-Miner Web/API address such as `http://localhost:8080`, `http://<server-ip>:8080`, or an HTTPS reverse-proxy domain. This address is separate from the OpenCode MCP address. For example, `http://127.0.0.1:8787/sse` only points to the MCP transport entry.
 
-Summary markdown may contain root-relative image links such as `/media/vidunder/output/.../slide_000.png`. Keep those links unchanged unless you want direct clickable URLs. When needed, prepend the VidGo web/API base URL chosen by the user. For SSH tunnel testing with localhost addresses, forward both the MCP port and the VidGo web/API port, for example `8787` and `8080`.
+> The default Docker container starts both the Video-Miner Web/API service (WSGI) and the MCP service (ASGI).
 
-## How to generate a token
+When you get a video summary through MCP, the returned Markdown may contain relative links such as `![](/media/vidunder/output/.../slide_000.png)`. The matching web URL is `http://<server-ip>:<server-port>/media/vidunder/output/.../slide_000.png`.
+
+## How to "Generate Token"
 
 1. Click Generate Token.
 2. Enter the current account username and password.
 3. Click Confirm.
 4. Copy the token immediately and store it safely.
 
-## How to revoke a token
+## How to "Revoke Token"
 
 1. Click Revoke in the token list.
 2. Re-enter username and password.

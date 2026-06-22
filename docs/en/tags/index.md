@@ -27,17 +27,17 @@ Tags Management lets you create, edit, and delete video tags. A tag has a name a
 
 ## How to edit a tag
 
-1. Click Edit in the tag list.
+1. Click Edit in the "Tag List".
 2. Change the name or color.
 3. Click Save.
 
 ## How to delete tags
 
-1. To delete one tag, click Delete on that row.
-2. To delete multiple tags, select them and click Batch Delete.
+1. To delete one tag, click "Delete" on the right side of that tag.
+2. To delete multiple tags, select them and click batch "Delete".
 3. Confirm the action in the confirmation dialog.
 
-> The current settings panel does not show a merge tags control. The backend API has merge support, but this page documents only visible settings panel actions.
+> The current settings panel does not have a "Merge Tags" control. The backend API already supports merging, and the control will be added in a future update.
 
 ---
 

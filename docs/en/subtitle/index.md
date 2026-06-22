@@ -38,7 +38,7 @@ Subtitle Settings let you edit display styles separately for original subtitles 
 1. Select Original Subtitle.
 2. Adjust font and display settings.
 3. Switch to Translated Subtitle.
-4. Adjust translated subtitle style and save.
+4. Adjust translated subtitle style and save. After a refresh, the player applies the latest subtitle styles.
 
 > Original and translated subtitles keep separate style sets. Switching the subtitle type changes the target being edited and does not overwrite the other style set.
 

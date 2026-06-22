@@ -8,10 +8,10 @@ Video Understanding settings manage local models, clip analysis parameters, exte
 | --- | --- | --- | --- |
 | Use proxy for downloads | Switch | Off | Downloads local models through the proxy configured in Media Credentials. |
 | Download From | Select | HuggingFace | Each model can use HuggingFace (`hf`) or ModelScope (`modelscope`). |
-| MiniCPM-V 4.5 | Model item | Not downloaded | Vision encoder + LLM decoder, about 6.88GB. |
+| MiniCPM-V 4.5 | Model item | Not downloaded | SigLip encoder + 3D-resampler + LLM decoder, about 6.88GB. |
 | GLM-OCR | Model item | Not downloaded | OCR engine, about 1.40GB. |
-| BGE Embedding (ONNX) | Model item | Not downloaded | Text embedding model for ONNX runtime without torch, about 95MB. |
-| FUN-ASR Nano | Model item | Not downloaded | Fun-ASR speech recognition with ONNX + GGUF, about 988MB. |
+| BGE Embedding (ONNX) | Model item | Not downloaded | Text embedding model, ONNX runtime, about 95MB. |
+| FUN-ASR Nano | Model item | Not downloaded | Fun-ASR speech recognition, ONNX + GGUF, about 988MB. |
 | GLM-ASR Stack | Model item | Not downloaded | GLM-ASR Nano + Qwen3 ForceAligner, about 6.37GB. |
 | Download button | Button | Download | Shows Download, Re-download, Retry, or Downloading based on model status. |
 
@@ -21,18 +21,24 @@ Video Understanding settings manage local models, clip analysis parameters, exte
 | --- | --- | --- | --- |
 | Thinking Budget | Select | Low (7 frames) | Controls frames sampled per video clip. Options are Low (7 frames), Medium (14 frames), and High (21 frames). |
 
+> Because local small language models can hallucinate, long videos already have fairly strong summary quality with Low sampling. For short videos, you can increase the sampled frame rate to get more information, but it does not greatly reduce hallucination.
+
 ## External Vision Corner Detection
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | Corner Detection Provider | Select | OpenRouter (Gemini as default) | Options are OpenRouter, Gemini Official, MiMo, and OpenAI Compatible. |
 | Use Proxy | Switch | Off | Sends corner detection requests through the proxy. |
-| Min Crop Coverage | Slider | 0.6 | Range is 0.3 to 1.0, step 0.05. Lower values crop more aggressively. |
+| Min Crop Coverage<sup>1</sup> | Slider | 0.6 | Range is 0.3 to 1.0, step 0.05. Lower values crop more aggressively. |
 | API Key | Password input | Empty | Key for the selected corner detection provider. |
 | Base URL | Text input | Provider specific | Endpoint for the selected corner detection provider. |
 | Model | Text input | Provider specific | Model name for the selected corner detection provider. |
 
+> <sup>1</sup>: Min Crop Coverage means that if the rectangle formed by the visual corners returned by the external model is smaller than the original image's minimum crop coverage, that image is not cropped.
+
 ## Corner detection provider defaults
+
+> Corner detection identifies slide or presentation boundaries in video frames (e.g., lectures, keynotes), automatically cropping the relevant region to improve downstream OCR and frame analysis accuracy.
 
 | Provider | Default Base URL | Default Model |
 | --- | --- | --- |
@@ -43,6 +49,8 @@ Video Understanding settings manage local models, clip analysis parameters, exte
 
 ## Summary Orchestration
 
+> Summary orchestration is the core scheduler for video summarization. It uses Tool-Calling to coordinate local VLM (frame understanding), OCR (text extraction), and Embedding (semantic retrieval) tools, aggregating per-clip results into a structured video summary.
+
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | Provider | Select | DeepSeek | Options are DeepSeek and OpenAI Compatible. |
@@ -52,6 +60,8 @@ Video Understanding settings manage local models, clip analysis parameters, exte
 | Model | Text input | `deepseek-chat` | Model used for summary orchestration. |
 
 ## Knowledge LLM
+
+> The Knowledge LLM enriches the generated summary with background context, terminology explanations, and related information not directly mentioned in the video, making the final output more complete and easier to understand.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -67,8 +77,6 @@ Video Understanding settings manage local models, clip analysis parameters, exte
 2. Choose a download source for each model.
 3. Click Download.
 4. Wait for the progress bar to finish.
-
-> The current settings panel does not include GPU Layers number inputs. If older deployment notes mention GPU layer counts, follow the current settings panel for this version.
 
 ---
 
