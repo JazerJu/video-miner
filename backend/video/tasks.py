@@ -1675,7 +1675,11 @@ def generate_summary_for_video(task_id: str) -> None:
                 pct = 75
             _summary_update(task_id, "extract", "Running", progress=pct)
 
-        cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress)
+        try:
+            cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress)
+        finally:
+            from external_api import shutdown_glm_ocr_workers
+            shutdown_glm_ocr_workers(stop_decoder=False)
         _summary_update(task_id, "extract", "Completed")
 
         # Step 3: summarize
@@ -1708,17 +1712,6 @@ def generate_summary_for_video(task_id: str) -> None:
         result_path = os.path.join(result_dir, f"{db_name}_summary.md")
         with open(result_path, "w", encoding="utf-8") as f:
             f.write(summary)
-
-        import shutil
-        src_slides = os.path.join(extract_output, "slides")
-        dst_slides = os.path.join(result_dir, f"{db_name}_slides")
-        if os.path.isdir(src_slides):
-            os.makedirs(dst_slides, exist_ok=True)
-            for f in os.listdir(src_slides):
-                src = os.path.join(src_slides, f)
-                dst = os.path.join(dst_slides, f)
-                if not os.path.exists(dst):
-                    shutil.copy2(src, dst)
 
         task["result_path"] = result_path
         _summary_update(task_id, "summarize", "Completed")
