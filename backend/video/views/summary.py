@@ -290,12 +290,12 @@ def _normalize_summary_slide_links(content: str, db_name: str, summary_dir: str 
     per_video_prefix = f"/media/vidunder/output/{db_name}_slides/"
     extract_prefix = f"/media/vidunder/output/{db_name}_extract/slides/"
     shared_prefix = "/media/vidunder/output/slides/"
-    if sibling_prefix:
+    if os.path.isdir(extract_dir):
+        slide_prefix = extract_prefix
+    elif sibling_prefix:
         slide_prefix = sibling_prefix
     elif os.path.isdir(per_video_dir):
         slide_prefix = per_video_prefix
-    elif os.path.isdir(extract_dir):
-        slide_prefix = extract_prefix
     else:
         slide_prefix = shared_prefix
 
