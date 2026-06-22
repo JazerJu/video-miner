@@ -1,6 +1,6 @@
 services:
   vidgo:
-    image: jaceju68/vidgo:cuda-latest
+    image: jaceju68/video-miner:cuda-latest
     container_name: vidgo-app
     restart: unless-stopped
     runtime: nvidia
@@ -11,13 +11,13 @@ services:
       - "${VIDGO_PORT}:8080"
       - "${VIDGO_MCP_PORT}:8787"
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # 让容器能通过 host.docker.internal 访问宿主机
+      - "host.docker.internal:host-gateway"  # Make it able for container to access host by "host.docker.internal" 
     volumes:
-      # 数据库文件
+      # Database files
       - ./data/videos.db:/app/database/videos.db
-      # 媒体文件目录
+      # Media file folder
       - ./data/media:/app/media
-      # 用户配置目录
+      # User config folder
       - ./data/config:/app/config
-      # 模型根目录：承载 VidUnder、FunASR、GLM-ASR 等模型
+      # Model root folder：For VidUnder、FunASR、GLM-ASR and More
       - ./data/models:/app/models
