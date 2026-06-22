@@ -21,6 +21,7 @@ import {
   Captions,
   Mic,
   Tag,
+  Folder,
   KeyRound,
   Sun,
   Moon,
@@ -50,6 +51,7 @@ const settingsTabs = [
   { id: 'subtitle', label: t('subtitleSettings'), icon: Captions },
   { id: 'transcription', label: t('transcriptionSettings'), icon: Mic },
   { id: 'tags', label: t('tagManagement'), icon: Tag },
+  { id: 'folders', label: t('folders'), icon: Folder },
   { id: 'media', label: t('mediaCredentials'), icon: KeyRound },
   { id: 'apiToken', label: t('apiTokenManagement'), icon: ShieldCheck },
 ]

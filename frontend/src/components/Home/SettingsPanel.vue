@@ -1484,6 +1484,135 @@
         </div>
       </div>
 
+      <!-- Folders Management -->
+      <div v-if="activeTab === 'folders'" class="space-y-6 max-w-3xl">
+        <!-- Create New Folder -->
+        <div class="bg-slate-50 rounded-lg p-4 border border-slate-200 dark:bg-gray-800/50 dark:border-white/10">
+          <h4 class="text-sm font-medium text-slate-600 mb-3 dark:text-gray-300">{{ t('newFolder') }}</h4>
+          <div class="flex items-center space-x-3">
+            <input
+              v-model="newFolderName"
+              type="text"
+              class="flex-1 p-2 bg-white border border-slate-300 rounded-md text-slate-900 placeholder-slate-400 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100 dark:placeholder-gray-500"
+              :placeholder="t('enterCategoryName')"
+              @keyup.enter="createFolder"
+            />
+            <button
+              @click="createFolder"
+              :disabled="!newFolderName.trim() || creatingFolder"
+              class="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ creatingFolder ? t('creating') : t('create') }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Folders List -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-medium text-slate-600 dark:text-gray-300">{{ t('categories') }} ({{ folders.length }})</h4>
+          </div>
+
+          <div v-if="loadingFolders" class="flex items-center justify-center py-8">
+            <div
+              class="inline-block w-6 h-6 border-2 border-teal-400 border-t-transparent rounded-full animate-spin"
+            ></div>
+            <span class="ml-2 text-slate-500 dark:text-gray-400">{{ t('loading') }}</span>
+          </div>
+
+          <div v-else-if="folders.length === 0" class="text-center py-8 text-slate-500 dark:text-gray-400">
+            {{ t('noFolders') }}
+          </div>
+
+          <div v-else class="space-y-2 max-h-96 overflow-y-auto">
+            <div
+              v-for="folder in folders"
+              :key="folder.id"
+              class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200 hover:border-teal-400/40 transition-colors dark:bg-gray-800/50 dark:border-white/10"
+            >
+              <div class="flex items-center space-x-3 min-w-0">
+                <Folder :size="16" class="text-teal-600 dark:text-teal-300 flex-shrink-0" />
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-slate-700 truncate dark:text-gray-200">
+                    {{ folder.name }}
+                  </div>
+                  <div class="text-xs text-slate-500 dark:text-gray-400">#{{ folder.id }}</div>
+                </div>
+              </div>
+              <div class="flex items-center space-x-2">
+                <!-- Edit Mode -->
+                <template v-if="editingFolderId === folder.id">
+                  <input
+                    v-model="editingFolderName"
+                    type="text"
+                    class="w-36 p-1 text-sm bg-white border border-slate-300 rounded text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+                    @keyup.enter="saveFolderEdit(folder)"
+                  />
+                  <button
+                    @click="saveFolderEdit(folder)"
+                    class="p-1 text-teal-600 hover:text-teal-500 dark:text-teal-300 dark:hover:text-teal-200"
+                    :title="t('confirm')"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M5 13l4 4L19 7"
+                      ></path>
+                    </svg>
+                  </button>
+                  <button
+                    @click="cancelFolderEdit"
+                    class="p-1 text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    :title="t('cancel')"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M6 18L18 6M6 6l12 12"
+                      ></path>
+                    </svg>
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    @click="startFolderEdit(folder)"
+                    class="p-1 text-slate-500 hover:text-teal-600 dark:text-gray-400 dark:hover:text-teal-300"
+                    :title="t('edit')"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                      ></path>
+                    </svg>
+                  </button>
+                  <button
+                    @click="deleteFolder(folder)"
+                    class="p-1 text-slate-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-500"
+                    :title="t('delete')"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      ></path>
+                    </svg>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Tags Management -->
       <div v-if="activeTab === 'tags'" class="space-y-6 max-w-3xl">
         <!-- Create New Tag -->
@@ -1779,6 +1908,8 @@ import {
 } from '@/composables/ConfigAPI'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/composables/useNotification'
+import { getCSRFToken } from '@/composables/GetCSRFToken'
+import { Folder } from 'lucide-vue-next'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
 import {
   loadTags,
@@ -2211,6 +2342,7 @@ const currentTabLabel = computed(() => {
     subtitle: t('subtitleSettings'),
     transcription: t('transcriptionSettings'),
     media: t('mediaCredentials'),
+    folders: t('folders'),
     tags: t('tagManagement'),
   }
   return map[props.activeTab] || props.activeTab
@@ -2930,6 +3062,132 @@ const loadSettings = async () => {
   }
 }
 
+// Folders management
+interface Category {
+  id: number
+  name: string
+}
+
+const folders = ref<Category[]>([])
+const loadingFolders = ref(false)
+const creatingFolder = ref(false)
+const newFolderName = ref('')
+const editingFolderId = ref<number | null>(null)
+const editingFolderName = ref('')
+
+const parseCategoryResponse = async (response: Response) => {
+  const result = await response.json()
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || result.message || t('operationFailed'))
+  }
+  return result
+}
+
+const loadFolders = async () => {
+  try {
+    loadingFolders.value = true
+    const response = await fetch(`${BACKEND}/api/category/query/0`, { credentials: 'include' })
+    const data = await parseCategoryResponse(response)
+    folders.value = data.categories || []
+  } catch (error: any) {
+    console.error('Failed to load folders:', error)
+    ElMessage.error(error.message || t('loadFailed'))
+  } finally {
+    loadingFolders.value = false
+  }
+}
+
+const createFolder = async () => {
+  const name = newFolderName.value.trim()
+  if (!name) {
+    ElMessage.warning(t('folderEmpty'))
+    return
+  }
+  try {
+    creatingFolder.value = true
+    const csrfToken = await getCSRFToken()
+    const response = await fetch(`${BACKEND}/api/category/add/0`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      credentials: 'include',
+      body: JSON.stringify({ categoryName: name }),
+    })
+    await parseCategoryResponse(response)
+    ElMessage.success(t('folderCreatedSuccess'))
+    newFolderName.value = ''
+    await loadFolders()
+    emit('categories-updated')
+  } catch (error: any) {
+    ElMessage.error(error.message || t('operationFailed'))
+  } finally {
+    creatingFolder.value = false
+  }
+}
+
+const startFolderEdit = (folder: Category) => {
+  editingFolderId.value = folder.id
+  editingFolderName.value = folder.name
+}
+
+const cancelFolderEdit = () => {
+  editingFolderId.value = null
+  editingFolderName.value = ''
+}
+
+const saveFolderEdit = async (folder: Category) => {
+  const name = editingFolderName.value.trim()
+  if (!name) {
+    ElMessage.warning(t('folderEmpty'))
+    return
+  }
+  if (name === folder.name) {
+    cancelFolderEdit()
+    return
+  }
+  try {
+    const csrfToken = await getCSRFToken()
+    const response = await fetch(`${BACKEND}/api/category/rename/0`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      credentials: 'include',
+      body: JSON.stringify({ oldName: folder.name, newName: name }),
+    })
+    await parseCategoryResponse(response)
+    ElMessage.success(t('renameSuccess'))
+    cancelFolderEdit()
+    await loadFolders()
+    emit('categories-updated')
+  } catch (error: any) {
+    ElMessage.error(error.message || t('renameFailed'))
+  }
+}
+
+const deleteFolder = async (folder: Category) => {
+  try {
+    await ElMessageBox.confirm(t('deleteWarning', { name: folder.name }), t('confirmDeleteTitle'), {
+      confirmButtonText: t('confirm'),
+      cancelButtonText: t('cancel'),
+      type: 'warning',
+    })
+    const csrfToken = await getCSRFToken()
+    const response = await fetch(`${BACKEND}/api/category/delete/0`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      credentials: 'include',
+      body: JSON.stringify({ categoryName: folder.name }),
+    })
+    await parseCategoryResponse(response)
+    ElMessage.success(t('deleteSuccess'))
+    await loadFolders()
+    emit('categories-updated')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('Failed to delete folder:', error)
+      ElMessage.error(error.message || t('deleteFailed'))
+    }
+  }
+}
+
 // Tags management
 const tags = ref<Tag[]>([])
 const loadingTags = ref(false)
@@ -3201,6 +3459,7 @@ const copyToClipboard = async (text: string) => {
 
 onMounted(() => {
   loadSettings()
+  loadFolders()
   loadTagsList()
   loadYtDlpStatus()
   loadCookiesStatus()
