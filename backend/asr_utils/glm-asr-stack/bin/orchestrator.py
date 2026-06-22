@@ -523,8 +523,8 @@ def split_sentences(text: str) -> list[str]:
 
 def norm_terms(text: str) -> list[str]:
     terms = []
-    for token in re.findall(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?", text.lower()):
-        token = re.sub(r"[^a-z0-9]", "", token)
+    for match in re.finditer(r"[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?|[\u4e00-\u9fff]", text.lower()):
+        token = re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", match.group())
         if token:
             terms.append(token)
     return terms
