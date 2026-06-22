@@ -98,6 +98,17 @@ See [Using Video-Miner MCP in OpenCode](docs/en/api-token/index.md)
 
 ---
 
+## Summary Examples
+
+The following examples demonstrate VideoMiner's structured summaries for CUDA course lectures.
+
+| Lecture | YouTube | English Summary |
+|---------|---------|-----------------|
+| **Lecture 5: Performance Considerations** | [▶ Watch](https://www.youtube.com/watch?v=x5trGVMKTdY) | [📄 View Summary](https://github.com/JazerJu/video-parsing/blob/main/summary_export_examples/lecture5-720p-en_summary.md) |
+| **Lecture 8: 2D Convolution CUDA Implementation** | [▶ Watch](https://www.youtube.com/watch?v=mVGY1i8iYxs) | [📄 View Summary](https://github.com/JazerJu/video-parsing/blob/main/summary_export_examples/lecture-08-convolution_summary.md) |
+
+---
+
 ## Interface Preview
 
 ### Media Library
