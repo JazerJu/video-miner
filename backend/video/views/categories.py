@@ -182,12 +182,16 @@ class CategoryActionView(View):
             Video.objects.filter(category=category).update(category=None)
 
             # Clear category FK on any collections referencing it
+            # (collection table has no Django model, may not exist in fresh DBs)
             from django.db import connection
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "UPDATE collection SET category_id = NULL WHERE category_id = %s",
-                    [category.id],
-                )
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE collection SET category_id = NULL WHERE category_id = %s",
+                        [category.id],
+                    )
+            except Exception:
+                pass
 
             # Delete category
             category.delete()
