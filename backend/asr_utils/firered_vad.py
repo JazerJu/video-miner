@@ -48,7 +48,10 @@ class FireRedVAD:
         self.speech_pad_samples = sampling_rate * speech_pad_ms // 1000
 
         self._buffer = np.array([], dtype=np.float32)
-        self._sample_offset = 0  # total samples processed so far
+        # Absolute sample index of self._buffer[0]. This must advance by the
+        # number of samples removed from the rolling buffer, not by the number
+        # of model output frames. Otherwise long streams drift.
+        self._sample_offset = 0
 
         # speech boundary tracking
         self._in_speech = False
@@ -104,9 +107,9 @@ class FireRedVAD:
             )
             probs = probs.ravel()  # [num_frames]
 
-            for prob in probs:
-                sample_pos = self._sample_offset
-                self._sample_offset += frame_shift
+            buffer_start_sample = self._sample_offset
+            for frame_idx, prob in enumerate(probs):
+                sample_pos = buffer_start_sample + frame_idx * frame_shift
 
                 if self._in_speech:
                     if prob < self.threshold:
@@ -133,6 +136,7 @@ class FireRedVAD:
                         result["start"] = self._speech_start
 
             processed = min(end - overlap, end)
+            self._sample_offset += processed
             self._buffer = self._buffer[processed:] if processed < len(self._buffer) else np.array([], dtype=np.float32)
 
         return result

@@ -1,6 +1,9 @@
 import yt_dlp
 import os
+import logging
 from typing import Dict, Optional, Any, Callable
+
+logger = logging.getLogger(__name__)
 
 
 class YouTubeDownloader:
@@ -22,6 +25,31 @@ class YouTubeDownloader:
         )
         if os.path.exists(_cookies_path):
             self.base_ydl_opts["cookiefile"] = _cookies_path
+
+    @staticmethod
+    def _format_counts(info_dict: Dict[str, Any]) -> tuple[int, int, int]:
+        formats = info_dict.get("formats") or []
+        video_count = sum(
+            1
+            for fmt in formats
+            if fmt.get("url") and fmt.get("vcodec") not in (None, "none")
+        )
+        audio_count = sum(
+            1
+            for fmt in formats
+            if fmt.get("url") and fmt.get("acodec") not in (None, "none")
+        )
+        return len(formats), video_count, audio_count
+
+    def _get_video_info_attempts(self, ydl_opts: Dict[str, Any]):
+        yield "default", ydl_opts
+        if "cookiefile" in ydl_opts:
+            fallback = ydl_opts.copy()
+            fallback.pop("cookiefile", None)
+            fallback["extractor_args"] = {
+                "youtube": {"player_client": ["default", "android", "ios"]}
+            }
+            yield "no-cookie-mobile-client", fallback
 
     def get_video_info(self, url: str) -> Optional[Dict[str, Any]]:
         """
@@ -48,16 +76,43 @@ class YouTubeDownloader:
         if proxy:
             ydl_opts["proxy"] = proxy
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(url, download=False)
+        last_info = None
+        last_error = None
+        for attempt_name, attempt_opts in self._get_video_info_attempts(ydl_opts):
+            with yt_dlp.YoutubeDL(attempt_opts) as ydl:
+                try:
+                    info_dict = ydl.extract_info(url, download=False)
+                except Exception as e:
+                    last_error = e
+                    logger.warning(
+                        "YouTube info extraction attempt %s failed: %s",
+                        attempt_name,
+                        e,
+                    )
+                    continue
 
                 if info_dict is None:
-                    print("Failed to extract video information")
-                    return None
+                    logger.warning(
+                        "YouTube info extraction attempt %s returned no info",
+                        attempt_name,
+                    )
+                    continue
+
+                total, video_count, audio_count = self._format_counts(info_dict)
+                logger.info(
+                    "YouTube info extraction attempt %s returned formats=%d video=%d audio=%d cookies=%s",
+                    attempt_name,
+                    total,
+                    video_count,
+                    audio_count,
+                    bool(attempt_opts.get("cookiefile")),
+                )
+                last_info = info_dict
+                if not video_count or not audio_count:
+                    continue
 
                 # Extract key information
-                video_info = {
+                return {
                     "title": info_dict.get("title", ""),
                     "duration": info_dict.get("duration", 0),
                     "uploader": info_dict.get("uploader", ""),
@@ -71,11 +126,19 @@ class YouTubeDownloader:
                     "ext": info_dict.get("ext", "mp4"),
                 }
 
-                return video_info
-
-        except Exception as e:
-            print(f"Error extracting video info: {e}")
-            return None
+        if last_info is not None:
+            total, video_count, audio_count = self._format_counts(last_info)
+            logger.warning(
+                "YouTube info extraction found no usable media formats: formats=%d video=%d audio=%d",
+                total,
+                video_count,
+                audio_count,
+            )
+        elif last_error is not None:
+            logger.warning("YouTube info extraction failed: %s", last_error)
+        else:
+            logger.warning("YouTube info extraction failed")
+        return None
 
     def download_video(
         self,

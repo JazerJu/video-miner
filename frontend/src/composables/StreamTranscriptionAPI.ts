@@ -1,7 +1,7 @@
 const BACKEND = ''
 
 export interface ResolvedStream {
-  platform: 'youtube' | 'bilibili'
+  platform: 'youtube' | 'youtube_live' | 'bilibili' | 'bilibili_live'
   title: string
   duration: number
   thumbnail: string
@@ -67,6 +67,8 @@ export async function startTranscription(
   sourceLang = 'en',
   targetLang = '',
   originalUrl = '',
+  expectedDuration = 0,
+  audioFormatId = '',
 ): Promise<string> {
   const body: Record<string, unknown> = {
     audio_url: audioUrl,
@@ -74,6 +76,8 @@ export async function startTranscription(
     requires_relay: requiresRelay,
     source_lang: sourceLang,
     original_url: originalUrl,
+    expected_duration: expectedDuration,
+    audio_format_id: audioFormatId,
   }
   if (targetLang) body.target_lang = targetLang
   const resp = await fetch(`${BACKEND}/api/stream_transcription/start`, {

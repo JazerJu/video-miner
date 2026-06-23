@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 import uuid
@@ -16,7 +17,6 @@ from utils.stream_downloader.bili_download import (
     extract_av_bv_p,
     get_video_info,
     get_video_url,
-    parse_video_url,
 )
 from utils.stream_downloader.youtube_download import YouTubeDownloader
 from video.proxy import get_effective_proxy
@@ -29,6 +29,7 @@ from video.stream_transcriber import (
 from video.views.set_setting import load_all_settings
 
 DEFAULT_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+logger = logging.getLogger(__name__)
 
 
 def _parse_json_body(request):
@@ -40,6 +41,13 @@ def _parse_json_body(request):
 
 def _is_enabled(value):
     return str(value).strip().lower() == "true"
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _get_download_proxy():
@@ -275,6 +283,22 @@ def _select_bilibili_dash_items(playurl_json):
     return video_item, audio_item
 
 
+def _bilibili_dash_url(item):
+    if not item:
+        return ""
+    url = item.get("baseUrl") or item.get("base_url")
+    if url:
+        return url
+    backups = item.get("backupUrl") or item.get("backup_url") or []
+    return next((backup for backup in backups if backup), "")
+
+
+def _bilibili_dash_counts(playurl_json):
+    data = playurl_json.get("data") or {}
+    dash = data.get("dash") or {}
+    return len(dash.get("video") or []), len(dash.get("audio") or [])
+
+
 def _resolve_youtube(url):
     downloader = YouTubeDownloader()
     info = downloader.get_video_info(url)
@@ -283,7 +307,30 @@ def _resolve_youtube(url):
     video_format = _select_youtube_video_format(info.get("formats", []))
     audio_format = _select_youtube_audio_format(info.get("formats", []))
     if not video_format or not audio_format:
-        raise ValueError("Unable to find suitable YouTube video/audio streams")
+        formats = info.get("formats", [])
+        video_count = sum(
+            1
+            for fmt in formats
+            if fmt.get("url") and fmt.get("vcodec") not in (None, "none")
+        )
+        audio_count = sum(
+            1
+            for fmt in formats
+            if fmt.get("url") and fmt.get("acodec") not in (None, "none")
+        )
+        raise ValueError(
+            "Unable to find suitable YouTube video/audio streams "
+            f"(formats={len(formats)}, video={video_count}, audio={audio_count})"
+        )
+    logger.info(
+        "Resolved YouTube stream title=%r duration=%s video=%s height=%s audio=%s lang=%s",
+        info.get("title", ""),
+        info.get("duration") or 0,
+        video_format.get("format_id"),
+        video_format.get("height"),
+        audio_format.get("format_id"),
+        audio_format.get("language", ""),
+    )
     return {
         "success": True,
         "platform": "youtube",
@@ -330,12 +377,31 @@ def _resolve_bilibili(url):
         if not cid:
             raise ValueError("Unable to resolve Bilibili cid")
         playurl_json = get_video_url(info["bvid"], cid, sessdata)
-        urls = parse_video_url(playurl_json)
     video_item, audio_item = _select_bilibili_dash_items(playurl_json)
-    video_url = urls.get("vidBaseUrl") or urls.get("vidBackUrl")
-    audio_url = urls.get("audBaseUrl") or urls.get("audBackUrl")
+    video_url = _bilibili_dash_url(video_item)
+    audio_url = _bilibili_dash_url(audio_item)
+    video_count, audio_count = _bilibili_dash_counts(playurl_json)
+    logger.info(
+        "Resolved Bilibili playurl bvid=%s cid=%s code=%s message=%r dash_video=%d dash_audio=%d selected_video=%s height=%s selected_audio=%s video_url=%s audio_url=%s",
+        info.get("bvid") or bvid,
+        cid,
+        playurl_json.get("code"),
+        playurl_json.get("message"),
+        video_count,
+        audio_count,
+        (video_item or {}).get("id"),
+        (video_item or {}).get("height"),
+        (audio_item or {}).get("id"),
+        bool(video_url),
+        bool(audio_url),
+    )
     if not video_url or not audio_url:
-        raise ValueError("Unable to resolve Bilibili dash streams")
+        raise ValueError(
+            "Unable to resolve Bilibili dash streams "
+            f"(code={playurl_json.get('code')}, message={playurl_json.get('message')!r}, "
+            f"dash_video={video_count}, dash_audio={audio_count}, "
+            f"selected_video={(video_item or {}).get('id')}, selected_audio={(audio_item or {}).get('id')})"
+        )
     headers = _bilibili_headers(referer="https://www.bilibili.com")
     return {
         "success": True,
@@ -502,6 +568,7 @@ class ResolveView(View):
                 result = _resolve_bilibili(url)
             return JsonResponse(result)
         except Exception as exc:
+            logger.warning("Failed to resolve stream url=%s platform=%s: %s", url, platform, exc)
             return JsonResponse({"success": False, "error": str(exc)}, status=502)
 
 
@@ -651,10 +718,14 @@ class StartView(View):
         source_lang = str(data.get("source_lang") or "en").strip().lower()
         target_lang = str(data.get("target_lang") or "").strip().lower()
         original_url = str(data.get("original_url") or "").strip()
+        expected_duration = _safe_float(data.get("expected_duration"), 0.0)
+        audio_format_id = str(data.get("audio_format_id") or "").strip()
         task_id = str(uuid.uuid4())
         start_transcription(task_id, audio_url, proxy_url, audio_headers,
                             source_lang=source_lang, target_lang=target_lang,
-                            original_url=original_url)
+                            original_url=original_url,
+                            expected_duration=expected_duration,
+                            audio_format_id=audio_format_id)
         return JsonResponse({"success": True, "task_id": task_id})
 
 

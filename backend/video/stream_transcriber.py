@@ -1,11 +1,14 @@
 import json
 import os
 import queue
+import re
+import glob
 import subprocess
 import tempfile
 import threading
 import time
 import uuid
+import wave
 import logging
 from dataclasses import dataclass
 from typing import Callable
@@ -39,19 +42,54 @@ def _get_translate_client():
 
     cfg = _translate_settings_cache
     default_cfg = cfg.get("DEFAULT", {})
-    provider = default_cfg.get("translate_selected_model_provider", "deepseek")
-    api_key = default_cfg.get(f"translate_{provider}_api_key", "")
-    base_url = default_cfg.get(f"translate_{provider}_base_url", "")
-    model = default_cfg.get(f"translate_{provider}_model", "")
+    provider = (
+        default_cfg.get("translate_selected_model_provider")
+        or default_cfg.get("selected_model_provider")
+        or "deepseek"
+    )
+    api_key = (
+        default_cfg.get(f"translate_{provider}_api_key", "").strip()
+        or default_cfg.get(f"{provider}_api_key", "").strip()
+    )
+    base_url = (
+        default_cfg.get(f"translate_{provider}_base_url", "").strip()
+        or default_cfg.get(f"{provider}_base_url", "").strip()
+    )
+    model = (
+        default_cfg.get(f"translate_{provider}_model", "").strip()
+        or default_cfg.get(f"{provider}_model", "").strip()
+    )
     use_proxy = default_cfg.get("translate_use_proxy", "false").lower() == "true"
-    proxy_url = default_cfg.get("proxy_url", "")
+    proxy_url = (
+        default_cfg.get("proxy_url", "")
+        or cfg.get("Media Credentials", {}).get("proxy_url", "")
+    )
 
-    if not api_key or not base_url or not model:
+    from utils.llm_client import PROVIDER_DEFAULTS
+    defaults = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["local"])
+    if not base_url:
+        base_url = defaults["url"]
+    if not model:
+        model = defaults["default_model"]
+
+    if not api_key and provider not in {"local", "ollama", "lmstudio"}:
+        logger.warning(
+            "Realtime translation disabled: API key missing for provider=%s",
+            provider,
+        )
+        return None, None
+    if not base_url or not model:
+        logger.warning(
+            "Realtime translation disabled: incomplete provider config provider=%s base_url=%s model=%s",
+            provider,
+            bool(base_url),
+            bool(model),
+        )
         return None, None
 
     from utils.llm_client import ClientPool
     client = ClientPool.get_client(
-        provider="local",
+        provider=provider if provider in PROVIDER_DEFAULTS else "local",
         api_key=api_key,
         base_url=base_url,
         use_proxy=use_proxy,
@@ -68,14 +106,24 @@ def translate_segment(text: str, source_lang: str = "en", target_lang: str = "zh
     if not text or not text.strip():
         return None
 
-    lang_names = {"en": "English", "zh": "简体中文", "jp": "日本語"}
-    src = lang_names.get(source_lang, source_lang)
-    tgt = lang_names.get(target_lang, target_lang)
+    source_lang = _normalize_lang_code(source_lang) or "auto"
+    target_lang = _normalize_lang_code(target_lang)
+    if not target_lang or source_lang == target_lang:
+        return None
 
-    prompt = (
-        f"Translate the following {src} text to {tgt}. "
-        f"Output ONLY the translation, nothing else.\n\n{text}"
-    )
+    lang_names = {"en": "English", "zh": "Simplified Chinese", "jp": "Japanese"}
+    tgt = lang_names.get(target_lang, target_lang)
+    if source_lang == "auto":
+        prompt = (
+            f"Translate the following text to {tgt}. "
+            f"Output ONLY the translation, nothing else.\n\n{text}"
+        )
+    else:
+        src = lang_names.get(source_lang, source_lang)
+        prompt = (
+            f"Translate the following {src} text to {tgt}. "
+            f"Output ONLY the translation, nothing else.\n\n{text}"
+        )
 
     try:
         client, model = _get_translate_client()
@@ -94,6 +142,46 @@ def translate_segment(text: str, source_lang: str = "en", target_lang: str = "zh
         return None
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_lang_code(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {"", "auto", "unknown", "und"}:
+        return "auto" if normalized == "auto" else ""
+    if normalized in {"zh", "zh-cn", "zh_hans", "cmn", "chi", "zho", "cn"}:
+        return "zh"
+    if normalized in {"en", "eng"}:
+        return "en"
+    if normalized in {"ja", "jp", "jpn"}:
+        return "jp"
+    return normalized
+
+
+def _url_summary(url: str) -> str:
+    if not url:
+        return "empty"
+    if os.path.exists(url):
+        try:
+            return f"file:{url} size={os.path.getsize(url)}"
+        except OSError:
+            return f"file:{url}"
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path[:80]}"
+    return url[:120]
+
+
+def _fmt_seconds(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    return f"{value:.1f}s"
+
+
 PCM_CHUNK_BYTES = 1024
 SAMPLE_RATE = 16000
 MAX_SEGMENT_SECONDS = 15.0
@@ -101,10 +189,22 @@ MAX_SEGMENT_SAMPLES = int(SAMPLE_RATE * MAX_SEGMENT_SECONDS)
 OVERLAP_SECONDS = 0.5
 OVERLAP_SAMPLES = int(SAMPLE_RATE * OVERLAP_SECONDS)
 MIN_VAD_CHUNK_BYTES = PCM_CHUNK_BYTES
+MIN_SEGMENT_SECONDS = _env_float("VIDGO_STREAM_ASR_MIN_SEGMENT_SECONDS", 0.7)
+MIN_SEGMENT_SAMPLES = int(SAMPLE_RATE * MIN_SEGMENT_SECONDS)
+MIN_SEGMENT_RMS = _env_float("VIDGO_STREAM_ASR_MIN_RMS", 80.0)
 VAD_MIN_SILENCE_MS = 300
 DEFAULT_BROWSER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 LIVE_ASR_BATCH_SIZE = 32
 LIVE_ASR_BATCH_WAIT_SEC = 0.08
+ASR_HALLUCINATION_MARKERS = (
+    "please provide the speech",
+    "provide the speech you would like me to transcribe",
+    "i am unable to transcribe speech",
+    "unable to transcribe speech into written format",
+    "of course, i can help with that",
+    "certainly! please provide",
+    "sure, i can help with that",
+)
 
 _transcription_tasks = {}
 _transcription_status = {}
@@ -114,7 +214,7 @@ _transcription_lock = threading.RLock()
 
 @dataclass
 class LiveASRItem:
-    bin_path: str
+    audio_path: str
     start_sample: int
     end_sample: int
     cancel_event: threading.Event
@@ -172,7 +272,7 @@ class LiveASRBatcher:
             return
 
         try:
-            texts = asr_engine_daemon.transcribe([item.bin_path for item in live_items])
+            texts = asr_engine_daemon.transcribe([item.audio_path for item in live_items])
         except Exception as exc:
             for item in live_items:
                 item.on_result(item, "", exc)
@@ -184,6 +284,34 @@ class LiveASRBatcher:
 
 
 live_asr_batcher = LiveASRBatcher()
+
+
+def _is_bad_asr_text(text: str) -> bool:
+    normalized = " ".join(text.lower().split())
+    if any(marker in normalized for marker in ASR_HALLUCINATION_MARKERS):
+        return True
+
+    compact = re.sub(r"[\s，。,.!?！？、；;：:]+", "", text)
+    if len(compact) < 80:
+        return False
+    max_unit = min(18, len(compact) // 4)
+    for unit_len in range(4, max_unit + 1):
+        for offset in range(unit_len):
+            pos = offset
+            while pos + unit_len * 5 <= len(compact):
+                unit = compact[pos:pos + unit_len]
+                repeats = 1
+                next_pos = pos + unit_len
+                while (
+                    next_pos + unit_len <= len(compact)
+                    and compact[next_pos:next_pos + unit_len] == unit
+                ):
+                    repeats += 1
+                    next_pos += unit_len
+                if repeats >= 5 and repeats * unit_len >= min(60, len(compact) * 0.5):
+                    return True
+                pos = max(next_pos, pos + unit_len)
+    return False
 
 
 def _should_use_browser_user_agent(target_url: str, current_user_agent: str = "") -> bool:
@@ -336,7 +464,10 @@ class StreamTranscriber:
         on_done,
         on_error,
         temp_audio_file=None,
+        expected_duration=None,
+        task_id="",
     ):
+        self.task_id = task_id or "-"
         self.audio_url = audio_url
         self.proxy_url = proxy_url
         self.headers = headers or {}
@@ -346,6 +477,7 @@ class StreamTranscriber:
         self.on_error = on_error
         self.cancel_event = threading.Event()
         self._temp_audio_file = temp_audio_file
+        self._expected_duration = expected_duration if expected_duration and expected_duration > 0 else None
         self._ffmpeg_proc = None
         self._sample_index = 0
         self._speech_chunks = []
@@ -358,6 +490,14 @@ class StreamTranscriber:
         self._pending_asr = 0
         self._pending_asr_cond = threading.Condition()
         self._asr_error = None
+        self._submitted_segments = 0
+        self._emitted_segments = 0
+        self._skipped_short_segments = 0
+        self._skipped_low_rms_segments = 0
+        self._empty_asr_results = 0
+        self._filtered_asr_results = 0
+        self._last_read_log_sample = 0
+        self._ffmpeg_stderr_tail = ""
 
     def cancel(self) -> None:
         self.cancel_event.set()
@@ -378,13 +518,25 @@ class StreamTranscriber:
                 self.on_progress(100.0)
                 self.on_done()
         except Exception as exc:
+            logger.warning("[stream-asr:%s] failed: %s", self.task_id, exc)
             self.on_error(str(exc))
         finally:
+            self._log_summary("finished")
             self._cleanup()
 
     def _run_pipeline(self) -> None:
         vad = self._create_vad_iterator()
         self._total_audio_seconds = self._probe_duration_seconds()
+        logger.info(
+            "[stream-asr:%s] start input=%s expected=%s probed=%s temp_audio=%s proxy=%s headers=%s",
+            self.task_id,
+            _url_summary(self.audio_url),
+            _fmt_seconds(self._expected_duration),
+            _fmt_seconds(self._total_audio_seconds),
+            bool(self._temp_audio_file),
+            bool(self.proxy_url),
+            sorted(self.headers.keys()),
+        )
         self.on_progress(0.0)
         cmd = ["ffmpeg"]
         cmd += _build_http_input_args(self.audio_url, self.headers)
@@ -422,17 +574,20 @@ class StreamTranscriber:
             self._pcm_byte_buffer.clear()
         self._flush_pending_segment()
         if self._ffmpeg_proc.poll() is None:
-            self._ffmpeg_proc.wait(timeout=5)
+            try:
+                self._ffmpeg_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError("ffmpeg did not exit after stdout closed") from exc
+        self._capture_ffmpeg_stderr_tail()
+        self._log_summary("ffmpeg-eof")
         if not self.cancel_event.is_set() and self._ffmpeg_proc.returncode not in (
             0,
             None,
         ):
-            stderr = b""
-            if self._ffmpeg_proc.stderr is not None:
-                stderr = self._ffmpeg_proc.stderr.read()
             raise RuntimeError(
-                f"ffmpeg exited with code {self._ffmpeg_proc.returncode}: {stderr.decode('utf-8', errors='ignore').strip()}"
+                f"ffmpeg exited with code {self._ffmpeg_proc.returncode}: {self._ffmpeg_stderr_tail.strip()}"
             )
+        self._raise_if_audio_ended_early()
 
     def _process_chunk(self, vad, chunk_bytes: bytes) -> None:
         pcm_int16 = np.frombuffer(chunk_bytes, dtype=np.int16)
@@ -524,14 +679,49 @@ class StreamTranscriber:
             or end_sample <= start_sample
         ):
             return
-        pcm_float = pcm_int16.astype(np.float32) / 32768.0
-        bin_path = os.path.join(self._tmp_dir, f"{uuid.uuid4().hex}.bin")
-        pcm_float.tofile(bin_path)
+        duration_sec = pcm_int16.size / SAMPLE_RATE
+        samples = pcm_int16.astype(np.float32)
+        rms = float(np.sqrt(np.mean(samples * samples)))
+        if pcm_int16.size < MIN_SEGMENT_SAMPLES:
+            self._skipped_short_segments += 1
+            logger.info(
+                "[stream-asr:%s] skip short segment start=%.3fs end=%.3fs duration=%.3fs rms=%.1f",
+                self.task_id,
+                start_sample / SAMPLE_RATE,
+                end_sample / SAMPLE_RATE,
+                duration_sec,
+                rms,
+            )
+            return
+        if rms < MIN_SEGMENT_RMS:
+            self._skipped_low_rms_segments += 1
+            logger.info(
+                "[stream-asr:%s] skip low-rms segment start=%.3fs end=%.3fs duration=%.3fs rms=%.1f",
+                self.task_id,
+                start_sample / SAMPLE_RATE,
+                end_sample / SAMPLE_RATE,
+                duration_sec,
+                rms,
+            )
+            return
+        audio_path = os.path.join(self._tmp_dir, f"{uuid.uuid4().hex}.wav")
+        self._write_wav_segment(audio_path, pcm_int16)
+        self._submitted_segments += 1
+        logger.info(
+            "[stream-asr:%s] submit segment #%d start=%.3fs end=%.3fs duration=%.3fs rms=%.1f path=%s",
+            self.task_id,
+            self._submitted_segments,
+            start_sample / SAMPLE_RATE,
+            end_sample / SAMPLE_RATE,
+            duration_sec,
+            rms,
+            os.path.basename(audio_path),
+        )
         with self._pending_asr_cond:
             self._pending_asr += 1
         live_asr_batcher.submit(
             LiveASRItem(
-                bin_path=bin_path,
+                audio_path=audio_path,
                 start_sample=start_sample,
                 end_sample=end_sample,
                 cancel_event=self.cancel_event,
@@ -539,15 +729,47 @@ class StreamTranscriber:
             )
         )
 
+    def _write_wav_segment(self, path: str, pcm_int16: np.ndarray) -> None:
+        pcm = np.asarray(pcm_int16, dtype=np.int16)
+        with wave.open(path, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(SAMPLE_RATE)
+            wav_file.writeframes(pcm.tobytes())
+
     def _on_asr_result(self, item: LiveASRItem, text: str, error: Exception | None) -> None:
         try:
             if error is not None:
+                logger.warning(
+                    "[stream-asr:%s] asr error for start=%.3fs end=%.3fs: %s",
+                    self.task_id,
+                    item.start_sample / SAMPLE_RATE,
+                    item.end_sample / SAMPLE_RATE,
+                    error,
+                )
                 self._asr_error = error
                 return
             if self.cancel_event.is_set():
                 return
             text = text.strip() if text else ""
             if not text:
+                self._empty_asr_results += 1
+                logger.info(
+                    "[stream-asr:%s] drop empty ASR result start=%.3fs end=%.3fs",
+                    self.task_id,
+                    item.start_sample / SAMPLE_RATE,
+                    item.end_sample / SAMPLE_RATE,
+                )
+                return
+            if _is_bad_asr_text(text):
+                self._filtered_asr_results += 1
+                logger.warning(
+                    "[stream-asr:%s] drop hallucinated ASR result start=%.3fs end=%.3fs text=%r",
+                    self.task_id,
+                    item.start_sample / SAMPLE_RATE,
+                    item.end_sample / SAMPLE_RATE,
+                    text[:160],
+                )
                 return
             segment = {
                 "index": self._segment_index,
@@ -556,10 +778,19 @@ class StreamTranscriber:
                 "end": round(item.end_sample / SAMPLE_RATE, 3),
             }
             self._segment_index += 1
+            self._emitted_segments += 1
+            logger.info(
+                "[stream-asr:%s] emit segment #%d start=%.3fs end=%.3fs chars=%d",
+                self.task_id,
+                self._emitted_segments,
+                item.start_sample / SAMPLE_RATE,
+                item.end_sample / SAMPLE_RATE,
+                len(text),
+            )
             self.on_segment(segment)
         finally:
             try:
-                os.remove(item.bin_path)
+                os.remove(item.audio_path)
             except FileNotFoundError:
                 pass
             with self._pending_asr_cond:
@@ -572,10 +803,79 @@ class StreamTranscriber:
                 self._pending_asr_cond.wait(timeout=0.5)
 
     def _report_progress(self, processed_samples: int) -> None:
-        if not self._total_audio_seconds or self._total_audio_seconds <= 0:
+        duration = self._expected_duration or self._total_audio_seconds
+        if not duration or duration <= 0:
             return
         processed_seconds = processed_samples / SAMPLE_RATE
-        self.on_progress(processed_seconds / self._total_audio_seconds * 100.0)
+        if processed_samples - self._last_read_log_sample >= SAMPLE_RATE * 60:
+            self._last_read_log_sample = processed_samples
+            logger.info(
+                "[stream-asr:%s] read progress %.1fs/%s submitted=%d emitted=%d skipped_short=%d skipped_low_rms=%d",
+                self.task_id,
+                processed_seconds,
+                _fmt_seconds(duration),
+                self._submitted_segments,
+                self._emitted_segments,
+                self._skipped_short_segments,
+                self._skipped_low_rms_segments,
+            )
+        self.on_progress(min(99.0, processed_seconds / duration * 100.0))
+
+    def _raise_if_audio_ended_early(self) -> None:
+        if not self._expected_duration or self._expected_duration <= 0:
+            return
+        processed_seconds = self._sample_index / SAMPLE_RATE
+        missing_seconds = self._expected_duration - processed_seconds
+        if missing_seconds <= 30:
+            return
+        if processed_seconds >= self._expected_duration * 0.85:
+            return
+        logger.warning(
+            "[stream-asr:%s] early EOF detected read=%s expected=%s probed=%s stderr_tail=%r",
+            self.task_id,
+            _fmt_seconds(processed_seconds),
+            _fmt_seconds(self._expected_duration),
+            _fmt_seconds(self._total_audio_seconds),
+            self._ffmpeg_stderr_tail[-1000:],
+        )
+        raise RuntimeError(
+            "Audio stream ended early: "
+            f"read {processed_seconds:.1f}s of expected {self._expected_duration:.1f}s. "
+            "Please resolve the stream again or use the normal download/subtitle generation path."
+        )
+
+    def _capture_ffmpeg_stderr_tail(self) -> None:
+        proc = self._ffmpeg_proc
+        if proc is None or proc.stderr is None:
+            return
+        try:
+            stderr = proc.stderr.read()
+        except Exception:
+            return
+        if not stderr:
+            return
+        text = stderr.decode("utf-8", errors="ignore")
+        self._ffmpeg_stderr_tail = text[-2000:]
+
+    def _log_summary(self, phase: str) -> None:
+        logger.info(
+            "[stream-asr:%s] %s read=%s expected=%s probed=%s returncode=%s submitted=%d emitted=%d "
+            "skipped_short=%d skipped_low_rms=%d empty_asr=%d filtered_asr=%d pending=%d stderr_tail=%r",
+            self.task_id,
+            phase,
+            _fmt_seconds(self._sample_index / SAMPLE_RATE),
+            _fmt_seconds(self._expected_duration),
+            _fmt_seconds(self._total_audio_seconds),
+            self._ffmpeg_proc.returncode if self._ffmpeg_proc is not None else None,
+            self._submitted_segments,
+            self._emitted_segments,
+            self._skipped_short_segments,
+            self._skipped_low_rms_segments,
+            self._empty_asr_results,
+            self._filtered_asr_results,
+            self._pending_asr,
+            self._ffmpeg_stderr_tail[-1000:],
+        )
 
     def _probe_duration_seconds(self) -> float | None:
         cmd = [
@@ -602,33 +902,43 @@ class StreamTranscriber:
             return None
 
     def _create_vad_iterator(self):
-        backend = self._get_vad_backend()
+        backend = self._get_vad_backend().strip().lower()
+        if backend in {"", "auto"}:
+            backend = "silero_onnx"
+        if backend in {"silero", "silero_onnx"}:
+            try:
+                return self._create_silero_onnx_vad()
+            except Exception as exc:
+                logger.warning(
+                    "[stream-asr:%s] Silero ONNX VAD failed; falling back to FireRed ONNX VAD: %s",
+                    self.task_id,
+                    exc,
+                )
+                return self._create_firered_vad()
         if backend == "firered":
             return self._create_firered_vad()
-        return self._create_silero_vad()
+        logger.warning(
+            "[stream-asr:%s] unknown VAD backend %r; falling back to FireRed ONNX VAD",
+            self.task_id,
+            backend,
+        )
+        return self._create_firered_vad()
 
     def _get_vad_backend(self) -> str:
         try:
             from .views.set_setting import load_all_settings
             s = load_all_settings()
-            return s.get("Transcription Engine", {}).get("vad_backend", "silero")
+            return s.get("Transcription Engine", {}).get("vad_backend", "silero_onnx")
         except Exception:
-            return "silero"
+            return "silero_onnx"
 
-    def _create_silero_vad(self):
-        import sys
-        silero_src = os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__), "..", "third_party", "silero-vad", "src"
-            )
+    def _create_silero_onnx_vad(self):
+        from asr_utils.silero_vad_onnx import (
+            SileroOnnxVAD,
+            default_silero_onnx_path,
         )
-        if silero_src not in sys.path:
-            sys.path.insert(0, silero_src)
-        from silero_vad import VADIterator, load_silero_vad
-
-        model = load_silero_vad(onnx=True)
-        return VADIterator(
-            model,
+        return SileroOnnxVAD(
+            default_silero_onnx_path(),
             threshold=0.5,
             sampling_rate=SAMPLE_RATE,
             min_silence_duration_ms=VAD_MIN_SILENCE_MS,
@@ -679,42 +989,167 @@ class StreamTranscriber:
                 pass
 
 
-def _prefetch_youtube_audio(audio_url: str, original_url: str, proxy_url: str | None, task_id: str) -> str | None:
+def _probe_file_duration_seconds(path: str) -> float | None:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            return None
+        payload = json.loads(result.stdout or "{}")
+        duration = payload.get("format", {}).get("duration")
+        return float(duration) if duration is not None else None
+    except Exception:
+        return None
+
+
+def _downloaded_youtube_path(ydl, info: dict, tmp_base: str) -> str | None:
+    for item in info.get("requested_downloads") or []:
+        filepath = item.get("filepath")
+        if filepath and os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            return filepath
+    try:
+        filepath = ydl.prepare_filename(info)
+        if filepath and os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+            return filepath
+    except Exception:
+        pass
+    candidates = [
+        path
+        for path in glob.glob(tmp_base + ".*")
+        if os.path.exists(path) and os.path.getsize(path) > 0
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: (os.path.getmtime(path), os.path.getsize(path)))
+
+
+def _prefetch_youtube_audio(
+    audio_url: str,
+    original_url: str,
+    proxy_url: str | None,
+    task_id: str,
+    audio_format_id: str = "",
+    expected_duration: float | None = None,
+) -> str | None:
     """Download YouTube audio to temp file so ffmpeg reads locally, not via Django relay."""
     target_url = original_url or audio_url
     if 'youtube.com' not in target_url and 'youtu.be' not in target_url:
         return None
     try:
         import yt_dlp, uuid
-        tmp_path = os.path.join(tempfile.gettempdir(), f"vidgo_yt_{uuid.uuid4().hex}.m4a")
+        tmp_base = os.path.join(tempfile.gettempdir(), f"vidgo_yt_{uuid.uuid4().hex}")
         ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': tmp_path,
+            'format': audio_format_id or 'bestaudio/best',
+            'outtmpl': tmp_base + '.%(ext)s',
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
         }
         if proxy_url:
             ydl_opts['proxy'] = proxy_url
+        logger.info(
+            "[stream-asr:%s] youtube prefetch start target=%s format=%s expected=%s proxy=%s",
+            task_id,
+            _url_summary(target_url),
+            audio_format_id or "bestaudio/best",
+            _fmt_seconds(expected_duration),
+            bool(proxy_url),
+        )
         with _transcription_lock:
             _transcription_status[task_id]["status"] = "Downloading"
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([target_url])
-        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
-            return tmp_path
+            info = ydl.extract_info(target_url, download=True)
+            downloaded_path = _downloaded_youtube_path(ydl, info or {}, tmp_base)
+        if downloaded_path:
+            duration = _probe_file_duration_seconds(downloaded_path)
+            try:
+                size = os.path.getsize(downloaded_path)
+            except OSError:
+                size = -1
+            logger.info(
+                "[stream-asr:%s] youtube prefetch done path=%s size=%d duration=%s expected=%s ext=%s format_id=%s",
+                task_id,
+                downloaded_path,
+                size,
+                _fmt_seconds(duration),
+                _fmt_seconds(expected_duration),
+                (info or {}).get("ext"),
+                (info or {}).get("format_id"),
+            )
+            if (
+                expected_duration
+                and duration
+                and expected_duration > 0
+                and expected_duration - duration > 30
+                and duration < expected_duration * 0.85
+            ):
+                logger.warning(
+                    "yt-dlp audio prefetch ended early: path=%s duration=%.1fs expected=%.1fs",
+                    downloaded_path,
+                    duration,
+                    expected_duration,
+                )
+                try:
+                    os.remove(downloaded_path)
+                except OSError:
+                    pass
+                return None
+            return downloaded_path
+        logger.warning(
+            "[stream-asr:%s] youtube prefetch completed but downloaded file was not found target=%s tmp_base=%s",
+            task_id,
+            _url_summary(target_url),
+            tmp_base,
+        )
     except Exception as e:
-        print(f"[prefetch] yt-dlp failed: {e}, falling back to direct ffmpeg")
+        logger.warning("[stream-asr:%s] youtube prefetch failed: %s; falling back to direct ffmpeg", task_id, e)
     return None
 
 
 def start_transcription(task_id, audio_url, proxy_url, headers,
-                        source_lang="en", target_lang="", original_url=""):
+                        source_lang="en", target_lang="", original_url="",
+                        expected_duration=0.0, audio_format_id=""):
     with _transcription_lock:
         _transcription_status[task_id] = _new_status(task_id, audio_url)
         _transcription_events[task_id] = queue.Queue()
 
-    local_audio = _prefetch_youtube_audio(audio_url, original_url, proxy_url, task_id)
+    expected_duration = expected_duration if expected_duration and expected_duration > 0 else None
+    logger.info(
+        "[stream-asr:%s] start_transcription audio=%s original=%s expected=%s audio_format_id=%s source_lang=%s target_lang=%s headers=%s proxy=%s",
+        task_id,
+        _url_summary(audio_url),
+        _url_summary(original_url),
+        _fmt_seconds(expected_duration),
+        audio_format_id or "",
+        source_lang,
+        target_lang,
+        sorted((headers or {}).keys()),
+        bool(proxy_url),
+    )
+    local_audio = _prefetch_youtube_audio(
+        audio_url,
+        original_url,
+        proxy_url,
+        task_id,
+        audio_format_id=audio_format_id,
+        expected_duration=expected_duration,
+    )
 
+    source_lang = _normalize_lang_code(source_lang) or "auto"
+    target_lang = _normalize_lang_code(target_lang)
     do_translate = bool(target_lang) and target_lang != source_lang
 
     def on_segment(segment):
@@ -742,6 +1177,8 @@ def start_transcription(task_id, audio_url, proxy_url, headers,
         on_done=on_done,
         on_error=on_error,
         temp_audio_file=local_audio,
+        expected_duration=expected_duration,
+        task_id=task_id,
     )
     thread = threading.Thread(
         target=transcriber.run, daemon=True, name=f"stream-transcriber-{task_id}"

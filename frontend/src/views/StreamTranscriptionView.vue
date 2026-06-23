@@ -44,6 +44,7 @@ const currentPlaybackTime = ref(0)
 const autoFollowActiveSegment = ref(true)
 const pausedActiveSegmentIndex = ref<number | null>(null)
 const showResumeFollowButton = ref(false)
+const sourceLang = ref('auto')
 const targetLang = ref('zh')
 
 loadSettings().then((s) => {
@@ -55,6 +56,27 @@ let isProgrammaticScroll = false
 let programmaticScrollTimer: ReturnType<typeof setTimeout> | null = null
 
 const hasResolvedStream = computed(() => !!resolvedStream.value)
+
+function normalizeStreamLanguage(language?: string): string {
+  const normalized = String(language || '').toLowerCase()
+  if (['zh', 'zh-cn', 'cmn', 'chi', 'zho', 'cn'].some((code) => normalized.includes(code))) {
+    return 'zh'
+  }
+  if (['en', 'eng'].some((code) => normalized.includes(code))) {
+    return 'en'
+  }
+  if (['ja', 'jp', 'jpn'].some((code) => normalized.includes(code))) {
+    return 'jp'
+  }
+  return 'auto'
+}
+
+function inferSourceLanguage(stream: ResolvedStream): string {
+  const audioLanguage = normalizeStreamLanguage(stream.audio.language)
+  if (audioLanguage !== 'auto') return audioLanguage
+  if (stream.platform === 'bilibili' || stream.platform === 'bilibili_live') return 'zh'
+  return 'auto'
+}
 
 const videoSrc = computed(() => {
   if (!resolvedStream.value) return ''
@@ -439,7 +461,9 @@ async function handleResolve() {
   resetTranscriptionState()
 
   try {
-    resolvedStream.value = await resolveStream(targetUrl)
+    const stream = await resolveStream(targetUrl)
+    resolvedStream.value = stream
+    sourceLang.value = inferSourceLanguage(stream)
     showSourceDialog.value = false
   } catch (error) {
     console.error('Failed to resolve stream:', error)
@@ -464,9 +488,11 @@ async function handleStartTranscription() {
       resolvedStream.value.audio.url,
       resolvedStream.value.audio.headers,
       resolvedStream.value.audio.requires_relay,
-      'en',
+      sourceLang.value,
       targetLang.value,
       streamUrl.value,
+      resolvedStream.value.duration,
+      resolvedStream.value.audio.format_id,
     )
     taskId.value = nextTaskId
     attachTranscriptionStream(nextTaskId)
@@ -774,12 +800,23 @@ onBeforeUnmount(async () => {
             />
           </div>
 
-          <div class="flex items-center gap-3">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-sm text-slate-400">Source</span>
+            <select
+              v-model="sourceLang"
+              class="appearance-none rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/35"
+            >
+              <option value="auto">Auto</option>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+              <option value="jp">日本語</option>
+            </select>
             <span class="text-sm text-slate-400">{{ t('vuRealtimeTranslation') }}</span>
             <select
               v-model="targetLang"
               class="appearance-none rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/35"
             >
+              <option value="">Off</option>
               <option value="zh">→ 中文</option>
               <option value="en">→ English</option>
               <option value="jp">→ 日本語</option>

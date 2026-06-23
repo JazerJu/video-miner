@@ -111,6 +111,7 @@ use_gpu = false
 elevenlabs_api_key = 
 elevenlabs_model = scribe_v1
 include_punctuation = false
+vad_backend = silero_onnx
 alibaba_api_key = 
 alibaba_model = paraformer-realtime-v2
 ; FunASR-GGUF local engine: set primary_engine = funasr_gguf to enable.

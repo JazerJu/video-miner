@@ -146,7 +146,7 @@ def _ensure_ini():
             "elevenlabs_api_key": "",
             "elevenlabs_model": "scribe_v1",
             "include_punctuation": "true",
-            "vad_backend": "silero",
+            "vad_backend": "silero_onnx",
         }
         cfg["Video Understanding"] = {
             "vu_thinking_budget": "low",
@@ -301,7 +301,7 @@ def load_all_settings():
     if cfg.has_section("Transcription Engine") and not cfg.has_option(
         "Transcription Engine", "vad_backend"
     ):
-        cfg.set("Transcription Engine", "vad_backend", "silero")
+        cfg.set("Transcription Engine", "vad_backend", "silero_onnx")
         modified = True
 
     # Save config if sections were added
