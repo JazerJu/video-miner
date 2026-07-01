@@ -112,7 +112,7 @@ async function onSubmit() {
 
   try {
     const csrfToken = await getCSRFToken()
-    const response = await fetch(`${BACKEND}/api/videos/${props.target.id}/update_thumbnail`, {
+    const response = await fetch(`${BACKEND}/api/videos/${props.target.id}/update_thumbnail/`, {
       method: 'POST',
       body: formData,
       headers: {

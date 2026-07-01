@@ -143,9 +143,15 @@ class TagBatchDeleteView(View):
                     {"success": False, "error": "未提供标签ID"}, status=400
                 )
 
-            deleted_count = Tag.objects.filter(id__in=tag_ids).delete()[0]
+            tags = Tag.objects.filter(id__in=tag_ids)
+            deleted_count = tags.count()
+            tags.delete()
             return JsonResponse(
-                {"success": True, "message": f"已删除 {deleted_count} 个标签"}
+                {
+                    "success": True,
+                    "deleted_count": deleted_count,
+                    "message": f"已删除 {deleted_count} 个标签",
+                }
             )
         except json.JSONDecodeError:
             return JsonResponse(

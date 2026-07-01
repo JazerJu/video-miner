@@ -81,7 +81,9 @@ def get_user_combined_hidden_categories(request):
 import hashlib
 import os
 import json
-import urllib
+import urllib.parse
+import urllib.request
+import uuid
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.utils.decorators import method_decorator
@@ -1067,6 +1069,9 @@ class VideoActionView(View):
                 except Exception as e:
                     return JsonResponse({"success": False, "error": str(e)}, status=500)
 
+            elif action == "update_thumbnail":
+                return self.handle_update_thumbnail(request, video)
+
             else:
                 return JsonResponse(
                     {"success": False, "error": f"Unknown action: {action}"}, status=400
@@ -1078,6 +1083,114 @@ class VideoActionView(View):
             )
         except Exception as e:
             return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+    def handle_update_thumbnail(self, request, video):
+        """Update a video's thumbnail from an uploaded image file or image URL."""
+        try:
+            thumbnail_file = request.FILES.get("thumbnail_file")
+            thumbnail_url = (request.POST.get("thumbnail_url") or "").strip()
+
+            if not thumbnail_file and not thumbnail_url:
+                return JsonResponse(
+                    {
+                        "success": False,
+                        "error": "No thumbnail_file or thumbnail_url provided",
+                    },
+                    status=400,
+                )
+
+            thumbnail_dir = os.path.join(settings.MEDIA_ROOT, "thumbnail")
+            os.makedirs(thumbnail_dir, exist_ok=True)
+
+            if thumbnail_file:
+                filename = self._save_uploaded_thumbnail(thumbnail_file, thumbnail_dir)
+            else:
+                filename = self._download_thumbnail_from_url(thumbnail_url, thumbnail_dir)
+
+            old_thumbnail = video.thumbnail_url
+            video.thumbnail_url = filename
+            video.save(update_fields=["thumbnail_url"])
+
+            if old_thumbnail and old_thumbnail != filename:
+                self._delete_local_thumbnail(old_thumbnail)
+
+            return JsonResponse(
+                {
+                    "success": True,
+                    "thumbnail_url": filename,
+                    "thumbnailUrl": filename,
+                    "media_url": f"/media/thumbnail/{filename}",
+                }
+            )
+        except ValueError as e:
+            return JsonResponse({"success": False, "error": str(e)}, status=400)
+        except Exception as e:
+            return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+    def _save_uploaded_thumbnail(self, thumbnail_file, thumbnail_dir):
+        content_type = getattr(thumbnail_file, "content_type", "") or ""
+        if not content_type.startswith("image/"):
+            raise ValueError("Thumbnail file must be an image")
+
+        max_size = 10 * 1024 * 1024
+        if getattr(thumbnail_file, "size", 0) > max_size:
+            raise ValueError("Thumbnail file cannot exceed 10MB")
+
+        ext = os.path.splitext(thumbnail_file.name)[1].lower()
+        if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            ext = {
+                "image/jpeg": ".jpg",
+                "image/png": ".png",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+            }.get(content_type, ".jpg")
+
+        filename = f"{uuid.uuid4().hex}{ext}"
+        file_path = os.path.join(thumbnail_dir, filename)
+        with open(file_path, "wb+") as destination:
+            for chunk in thumbnail_file.chunks():
+                destination.write(chunk)
+        return filename
+
+    def _download_thumbnail_from_url(self, thumbnail_url, thumbnail_dir):
+        parsed = urllib.parse.urlparse(thumbnail_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Invalid thumbnail URL")
+
+        request = urllib.request.Request(
+            thumbnail_url,
+            headers={"User-Agent": "VidGo/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            content_type = response.headers.get("Content-Type", "").split(";")[0].strip()
+            if not content_type.startswith("image/"):
+                raise ValueError("Thumbnail URL must point to an image")
+
+            data = response.read(10 * 1024 * 1024 + 1)
+            if len(data) > 10 * 1024 * 1024:
+                raise ValueError("Thumbnail image cannot exceed 10MB")
+
+        ext = os.path.splitext(parsed.path)[1].lower()
+        if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            ext = {
+                "image/jpeg": ".jpg",
+                "image/png": ".png",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+            }.get(content_type, ".jpg")
+
+        filename = f"{uuid.uuid4().hex}{ext}"
+        file_path = os.path.join(thumbnail_dir, filename)
+        with open(file_path, "wb") as destination:
+            destination.write(data)
+        return filename
+
+    def _delete_local_thumbnail(self, filename):
+        if "://" in filename or "/" in filename or "\\" in filename:
+            return
+        thumbnail_path = os.path.join(settings.MEDIA_ROOT, "thumbnail", filename)
+        if os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
 
     def handle_upload(self, request):
         """处理视频文件上传"""

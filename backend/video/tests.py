@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
@@ -431,6 +432,37 @@ class VideoActionTests(JSONRequestMixin, TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["success"], False)
 
+    def test_update_thumbnail_uploads_file_and_replaces_old_thumbnail(self):
+        with tempfile.TemporaryDirectory() as tmp, self.settings(MEDIA_ROOT=tmp):
+            thumbnail_dir = Path(tmp) / "thumbnail"
+            thumbnail_dir.mkdir()
+            old_thumbnail = thumbnail_dir / "old.jpg"
+            old_thumbnail.write_bytes(b"old")
+            video = self.create_video(
+                name="Thumbnail Video",
+                url="thumb.mp4",
+                thumbnail_url="old.jpg",
+            )
+            image = SimpleUploadedFile(
+                "new.jpg",
+                b"new image bytes",
+                content_type="image/jpeg",
+            )
+
+            response = self.client.post(
+                f"/api/videos/{video.id}/update_thumbnail/",
+                data={"thumbnail_file": image},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["success"], True)
+            self.assertTrue(body["thumbnail_url"].endswith(".jpg"))
+            self.assertFalse(old_thumbnail.exists())
+            self.assertTrue((thumbnail_dir / body["thumbnail_url"]).exists())
+            video.refresh_from_db()
+            self.assertEqual(video.thumbnail_url, body["thumbnail_url"])
+
 
 class BatchActionTests(JSONRequestMixin, TestCase):
     @patch("video.views.videos.delete_all_related_files")
@@ -627,7 +659,9 @@ class TagTests(JSONRequestMixin, TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["success"], True)
+        body = response.json()
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["deleted_count"], 2)
         self.assertEqual(Tag.objects.count(), 0)
 
     def test_batch_delete_tags_requires_ids(self):

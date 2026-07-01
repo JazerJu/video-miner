@@ -240,6 +240,18 @@ urlpatterns = [
         name="video_props",
     ),
     path(
+        "api/videos/<int:video_id>/update_thumbnail/",
+        VideoActionView.as_view(),
+        {"action": "update_thumbnail"},
+        name="video_update_thumbnail_slash",
+    ),
+    path(
+        "api/videos/<int:video_id>/update_thumbnail",
+        VideoActionView.as_view(),
+        {"action": "update_thumbnail"},
+        name="video_update_thumbnail",
+    ),
+    path(
         "api/videos/<int:video_id>/<str:action>",
         VideoActionView.as_view(),
         name="video_action",
