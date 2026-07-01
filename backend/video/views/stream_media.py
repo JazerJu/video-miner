@@ -23,6 +23,49 @@ def sanitize_filename(title: str) -> str:
     special_chars = r"[ |?？*:\"<>/\\&%#@!()+^~,\';.]"
     return re.sub(special_chars, "-", title)
 
+
+def _coerce_positive_int(value, default=None):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+def _resolve_bilibili_pages(bvid, cids, pages):
+    """
+    Resolve selected Bilibili part page numbers.
+
+    The download request may contain only a selected subset of cids. File names
+    must keep Bilibili's original page number, not the selected-task index.
+    """
+    resolved = []
+    if isinstance(pages, list):
+        resolved = [_coerce_positive_int(page) for page in pages]
+    else:
+        resolved = []
+
+    if len(resolved) >= len(cids) and all(page is not None for page in resolved[: len(cids)]):
+        return resolved[: len(cids)]
+
+    cid_to_page = {}
+    try:
+        _, video_data = bili_download.get_cid(bvid=bvid)
+        cid_to_page = {
+            str(item.get("cid")): _coerce_positive_int(item.get("page"), index)
+            for index, item in enumerate(video_data, start=1)
+            if item.get("cid") is not None
+        }
+    except Exception as exc:
+        print(f"Failed to resolve Bilibili pages for {bvid}: {exc}")
+
+    final_pages = []
+    for index, cid in enumerate(cids, start=1):
+        page = resolved[index - 1] if index - 1 < len(resolved) else None
+        final_pages.append(page or cid_to_page.get(str(cid)) or index)
+    return final_pages
+
+
 def _new_download_status():
     """
     创建新下载任务的初始状态结构
@@ -200,11 +243,12 @@ class DownloadActionView(View):
             cids = payload.get('cids',"1111")
             parts = payload.get('parts')
             durations = payload.get('durations', [])  # 前端传递的duration列表
+            pages = payload.get('pages', [])  # B站原始分P页码，不等于本次下载任务下标
             filename = payload.get('filename')
             if not bvid:
                 return HttpResponseBadRequest('Missing "bvid"')
             # 调用B站 api下载视频
-            return self.enqueue_download_task(request,bvid,cids,parts,durations,filename)
+            return self.enqueue_download_task(request,bvid,cids,parts,durations,filename,pages)
         elif "youtube" in url:
             video_id = payload.get('bvid')  # YouTube video ID stored in bvid field
             filename = payload.get('filename')
@@ -221,7 +265,7 @@ class DownloadActionView(View):
             return self.enqueue_podcast_download_task(request, url, episode_id, filename)
         else:
             return JsonResponse({'error': 'Unsupported URL platform'}, status=400)
-    def enqueue_download_task(self, request,bvid, cids: list,parts,durations,filename):
+    def enqueue_download_task(self, request,bvid, cids: list,parts,durations,filename,pages=None):
         # B站下载任务创建，项目中第一个流媒体实现，函数名enqueue_download_task,没有bili.
         # sessdata不在这里传入，默认已经最新。
         # sessdata=config.sessdata
@@ -231,9 +275,12 @@ class DownloadActionView(View):
         # 3. 新建 task_id，并在全局状态 dict 里初始化
         task_id = int(time.time() * 1000)
         task_infos = []
+        resolved_pages = _resolve_bilibili_pages(bvid, cids, pages or [])
         for idx,cid in enumerate(cids,start=1):
             task_id_per_cid=str(task_id)+str(idx)
-            title=f"{filename}-p{idx}-{parts[idx-1]}"
+            page = resolved_pages[idx-1] if idx-1 < len(resolved_pages) else idx
+            part = parts[idx-1] if isinstance(parts, list) and idx-1 < len(parts) else str(cid)
+            title=f"{filename}-p{page}-{part}"
 
             # 获取当前分P的duration（优先使用前端传递的，如果没有则为None由后端获取）
             duration = durations[idx-1] if idx-1 < len(durations) else None
@@ -244,16 +291,17 @@ class DownloadActionView(View):
                     "title":title,
                     "url":  url,
                     "cid": cid,
+                    "page": page,
                     "duration": duration,  # 存储duration到任务状态
                     **_new_download_status(),
                 }
-            print(f"Task {idx}: cid={cid}, duration={duration}s")
+            print(f"Task {idx}: page={page}, cid={cid}, duration={duration}s")
 
             # 4. 推送到后台队列
             download_queue.put(task_id_per_cid)
             task_infos.append({
                 "task_id": task_id_per_cid,
-                "page": idx,
+                "page": page,
                 "cid": cid,
                 "title": title,
                 "duration": duration,

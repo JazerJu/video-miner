@@ -137,12 +137,16 @@ async function confirmDownload() {
       : selectedParts.value.map((idx) => requestVideo.value!.video_data[idx].cid)
   const parts =
     selectedParts.value.length === 0
-      ? allCids.value
+      ? requestVideo.value!.video_data.map((item) => item.part)
       : selectedParts.value.map((idx) => requestVideo.value!.video_data[idx].part)
   const durations =
     selectedParts.value.length === 0
       ? requestVideo.value!.video_data.map((item) => item.duration)
       : selectedParts.value.map((idx) => requestVideo.value!.video_data[idx].duration)
+  const pages =
+    selectedParts.value.length === 0
+      ? requestVideo.value!.video_data.map((item) => item.page)
+      : selectedParts.value.map((idx) => requestVideo.value!.video_data[idx].page)
   const filename = requestVideo.value.title
   // 调用后端 ↓↓↓
   try {
@@ -160,6 +164,7 @@ async function confirmDownload() {
         cids: cids,
         parts: parts,
         durations: durations,
+        pages: pages,
         filename: filename,
       }),
     })

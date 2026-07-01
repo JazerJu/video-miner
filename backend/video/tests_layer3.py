@@ -554,6 +554,73 @@ class StreamMediaLayer3Tests(JSONRequestMixin, TestCase):
         self.assertEqual(stream_views.download_status[task_id]["stage_weights"]["video"], 1.0)
         mock_put.assert_called_once_with(task_id)
 
+    @patch("video.views.stream_media.download_queue.put")
+    @patch("video.views.stream_media.time.time", return_value=123.456)
+    def test_stream_download_add_bilibili_uses_source_page_numbers(self, mock_time, mock_put):
+        response = self.post_json(
+            "/api/stream_media/download/add",
+            {
+                "url": "https://www.bilibili.com/video/BV123",
+                "bvid": "BV123",
+                "filename": "Bili Clip",
+                "cids": ["cid3", "cid7"],
+                "parts": ["Third Part", "Seventh Part"],
+                "durations": [30, 70],
+                "pages": [3, 7],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            [task["title"] for task in body["tasks"]],
+            ["Bili Clip-p3-Third Part", "Bili Clip-p7-Seventh Part"],
+        )
+        self.assertEqual([task["page"] for task in body["tasks"]], [3, 7])
+        task_ids = body["task_ids"]
+        self.assertEqual(stream_views.download_status[task_ids[0]]["page"], 3)
+        self.assertEqual(stream_views.download_status[task_ids[1]]["page"], 7)
+        self.assertEqual(mock_put.call_count, 2)
+
+    @patch("video.views.stream_media.bili_download.get_cid")
+    @patch("video.views.stream_media.download_queue.put")
+    @patch("video.views.stream_media.time.time", return_value=123.456)
+    def test_stream_download_add_bilibili_resolves_pages_from_cids_when_missing(
+        self,
+        mock_time,
+        mock_put,
+        mock_get_cid,
+    ):
+        mock_get_cid.return_value = (
+            ["cid1", "cid2", "cid3", "cid4"],
+            [
+                {"cid": "cid1", "page": 1},
+                {"cid": "cid2", "page": 2},
+                {"cid": "cid3", "page": 3},
+                {"cid": "cid4", "page": 4},
+            ],
+        )
+
+        response = self.post_json(
+            "/api/stream_media/download/add",
+            {
+                "url": "https://www.bilibili.com/video/BV123",
+                "bvid": "BV123",
+                "filename": "Bili Clip",
+                "cids": ["cid2", "cid4"],
+                "parts": ["Second Part", "Fourth Part"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(
+            [task["title"] for task in body["tasks"]],
+            ["Bili Clip-p2-Second Part", "Bili Clip-p4-Fourth Part"],
+        )
+        self.assertEqual([task["page"] for task in body["tasks"]], [2, 4])
+        mock_get_cid.assert_called_once_with(bvid="BV123")
+
     def test_stream_download_add_bilibili_requires_bvid(self):
         response = self.post_json(
             "/api/stream_media/download/add",
