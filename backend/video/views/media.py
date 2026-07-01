@@ -88,6 +88,8 @@ class MediaActionView(View):
             return self.serve_stream_video(request, filename)
         elif self.type == 'vidunder':
             return self.serve_vidunder(request, filename)
+        elif self.type == 'mcp_context':
+            return self.serve_mcp_context(request, filename)
         
         return HttpResponseNotAllowed(['GET'])
     # Memory-efficient chunked streaming for large video files
@@ -411,5 +413,15 @@ class MediaActionView(View):
     def serve_vidunder(self, request, filename):
         file_path = os.path.join(settings.MEDIA_ROOT, "vidunder", filename)
         if not os.path.exists(file_path):
+            raise Http404("File not found")
+        return serve(request, os.path.basename(file_path), document_root=os.path.dirname(file_path))
+
+    def serve_mcp_context(self, request, filename):
+        """Serve persisted MCP media-context assets from MEDIA_ROOT/mcp_context."""
+        base = os.path.realpath(os.path.join(settings.MEDIA_ROOT, "mcp_context"))
+        file_path = os.path.realpath(os.path.join(base, filename))
+        if not (file_path == base or file_path.startswith(base + os.sep)):
+            return HttpResponseNotFound("File not found")
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
             raise Http404("File not found")
         return serve(request, os.path.basename(file_path), document_root=os.path.dirname(file_path))

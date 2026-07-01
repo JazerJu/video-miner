@@ -1,5 +1,8 @@
 # pyright: reportAttributeAccessIssue=false, reportImplicitRelativeImport=false, reportUninitializedInstanceVariable=false
 import json
+import os
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
@@ -15,6 +18,13 @@ class MCPToolTestMixin:
 
     def create_video(self, name="MCP Test Video", url="mcp-test.mp4", **kwargs):
         return Video.objects.create(name=name, url=url, **kwargs)
+
+
+class _CompletedProcess:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 class MCPTagToolTests(MCPToolTestMixin, TestCase):
@@ -216,6 +226,86 @@ class MCPCategoryToolTests(MCPToolTestMixin, TestCase):
         self.assertIsNone(body["category"])
         video.refresh_from_db()
         self.assertIsNone(video.category)
+
+
+class MCPMediaContextToolTests(MCPToolTestMixin, TestCase):
+    def test_read_media_file_can_inline_small_media(self):
+        with tempfile.TemporaryDirectory() as tmp, self.settings(MEDIA_ROOT=tmp):
+            saved_video = Path(tmp) / "saved_video"
+            saved_video.mkdir()
+            (saved_video / "small.mp4").write_bytes(b"tiny-video")
+            video = self.create_video(name="Small Media", url="small.mp4")
+
+            body = self.load_mcp_json(
+                mcp_tools.read_media_file,
+                video_id=video.id,
+                include_base64=True,
+                max_bytes=100,
+            )
+
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["video"]["id"], video.id)
+        self.assertEqual(body["media"]["relative_path"], os.path.join("saved_video", "small.mp4"))
+        self.assertTrue(body["data_url"].startswith("data:video/mp4;base64,"))
+        self.assertTrue(body["base64_included"])
+
+    @patch("video.mcp_server.subprocess.run")
+    def test_create_video_context_persists_manifest_and_frames(self, mock_run):
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[0] == "ffprobe":
+                return _CompletedProcess(
+                    stdout=json.dumps(
+                        {
+                            "streams": [
+                                {
+                                    "index": 0,
+                                    "codec_type": "video",
+                                    "codec_name": "h264",
+                                    "width": 1280,
+                                    "height": 720,
+                                    "r_frame_rate": "30/1",
+                                }
+                            ],
+                            "format": {"duration": "10.0", "size": "10"},
+                        }
+                    )
+                )
+            if cmd[0] == "ffmpeg":
+                Path(cmd[-1]).write_bytes(b"\xff\xd8\xff\xd9")
+                return _CompletedProcess()
+            return _CompletedProcess(returncode=1, stderr="unexpected command")
+
+        mock_run.side_effect = fake_run
+
+        with tempfile.TemporaryDirectory() as tmp, self.settings(MEDIA_ROOT=tmp):
+            saved_video = Path(tmp) / "saved_video"
+            saved_video.mkdir()
+            (saved_video / "movie.mp4").write_bytes(b"video")
+            video = self.create_video(name="Context Media", url="movie.mp4")
+
+            created = self.load_mcp_json(
+                mcp_tools.create_video_context,
+                video_id=video.id,
+                times=[0, 4.5],
+                width=480,
+                include_base64=True,
+            )
+
+            fetched = self.load_mcp_json(
+                mcp_tools.get_video_context,
+                created["context_id"],
+                include_base64=True,
+            )
+
+        self.assertEqual(created["success"], True)
+        self.assertEqual(created["video"]["id"], video.id)
+        self.assertEqual(created["spec"]["times"], [0.0, 4.5])
+        self.assertEqual(len(created["frames"]), 2)
+        self.assertTrue(created["frames"][0]["relative_path"].startswith("mcp_context/"))
+        self.assertTrue(created["frames"][0]["data_url"].startswith("data:image/jpeg;base64,"))
+        self.assertEqual(fetched["success"], True)
+        self.assertEqual(fetched["context_id"], created["context_id"])
+        self.assertEqual(len(fetched["frames"]), 2)
 
 
 class MCPAPIProxyToolTests(MCPToolTestMixin, TestCase):

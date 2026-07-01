@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+import base64
+import hashlib
+import mimetypes
+import subprocess
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.db.models import Count
 from django.utils import timezone
@@ -17,6 +23,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.server import TransportSecuritySettings
 
 from video.models import Category, Tag, Video
+from video.services.audio_processing import get_media_path_info
 from video.tag_colors import get_random_tag_color
 from video.views.videos import VideoSearchView
 
@@ -443,6 +450,367 @@ def _resolve_target_videos(
     return videos, None
 
 
+def _mcp_context_root() -> Path:
+    return Path(settings.MEDIA_ROOT) / "mcp_context"
+
+
+def _media_url_for_relative_path(relative_path: str) -> str:
+    return f"/media/{relative_path.replace(os.sep, '/')}"
+
+
+def _video_media_path(video: Video) -> tuple[Path | None, dict[str, Any] | None]:
+    if not video.url:
+        return None, {"success": False, "error": "video has no media filename"}
+
+    directory_name, _ = get_media_path_info(video.url)
+    file_path = Path(settings.MEDIA_ROOT) / directory_name / video.url
+    if not file_path.exists():
+        return None, {
+            "success": False,
+            "error": "media file not found",
+            "path": str(file_path),
+        }
+    if not file_path.is_file():
+        return None, {
+            "success": False,
+            "error": "media path is not a file",
+            "path": str(file_path),
+        }
+    return file_path, None
+
+
+def _probe_media_sync(file_path: Path) -> dict[str, Any]:
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration,size:stream=index,codec_type,codec_name,width,height,r_frame_rate,duration",
+        "-of",
+        "json",
+        str(file_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        return {
+            "success": False,
+            "error": result.stderr.strip() or "ffprobe failed",
+        }
+    try:
+        data = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return {"success": False, "error": f"ffprobe returned invalid JSON: {exc}"}
+    data["success"] = True
+    return data
+
+
+def _probe_duration(probe: dict[str, Any], fallback: float | None = None) -> float:
+    try:
+        return float((probe.get("format") or {}).get("duration") or fallback or 0.0)
+    except (TypeError, ValueError):
+        return float(fallback or 0.0)
+
+
+def _normalize_frame_times(
+    duration: float,
+    times: list[float] | None,
+    fps: float | None,
+    start: float | None,
+    end: float | None,
+    max_frames: int,
+) -> list[float]:
+    max_frames = max(1, min(int(max_frames), 300))
+    start_s = max(0.0, float(start or 0.0))
+    end_s = float(end) if end is not None else duration
+    if duration > 0:
+        end_s = min(end_s, max(0.0, duration - 0.001))
+    end_s = max(start_s, end_s)
+
+    if times:
+        normalized = []
+        for item in times:
+            try:
+                value = float(item)
+            except (TypeError, ValueError):
+                continue
+            if duration > 0:
+                value = min(max(value, 0.0), max(0.0, duration - 0.001))
+            else:
+                value = max(value, 0.0)
+            normalized.append(round(value, 3))
+        return list(dict.fromkeys(normalized))[:max_frames]
+
+    if fps is not None and float(fps) > 0:
+        safe_fps = min(float(fps), 10.0)
+        step = 1.0 / safe_fps
+        values = []
+        current = start_s
+        while current <= end_s + 1e-6 and len(values) < max_frames:
+            values.append(round(current, 3))
+            current += step
+        return values or [round(start_s, 3)]
+
+    if duration <= 0:
+        return [0.0]
+
+    default_times = [
+        0.0,
+        duration * 0.2,
+        duration * 0.4,
+        duration * 0.6,
+        duration * 0.8,
+        max(0.0, duration - 0.25),
+    ]
+    return [round(min(max(item, 0.0), duration - 0.001), 3) for item in default_times][
+        :max_frames
+    ]
+
+
+def _context_id_for(video: Video, file_path: Path, spec: dict[str, Any]) -> str:
+    stat = file_path.stat()
+    payload = {
+        "video_id": video.id,
+        "url": video.url,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "spec": spec,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return f"vidctx_{video.id}_{digest[:16]}"
+
+
+def _file_data_url(file_path: Path) -> str:
+    mime = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    data = base64.b64encode(file_path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{data}"
+
+
+def _context_manifest_path(context_id: str) -> Path:
+    return _mcp_context_root() / context_id / "manifest.json"
+
+
+def _load_context_manifest_sync(context_id: str) -> dict[str, Any]:
+    if not context_id or "/" in context_id or "\\" in context_id:
+        return {"success": False, "error": "invalid context_id"}
+    manifest_path = _context_manifest_path(context_id)
+    if not manifest_path.exists():
+        return {"success": False, "error": "context not found"}
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {"success": False, "error": f"context manifest is invalid: {exc}"}
+
+
+def _manifest_with_optional_frame_data(
+    manifest: dict[str, Any],
+    include_base64: bool,
+    frame_limit: int,
+) -> dict[str, Any]:
+    result = json.loads(json.dumps(manifest, ensure_ascii=False))
+    result["success"] = True
+    if not include_base64:
+        return result
+
+    frame_limit = max(1, min(int(frame_limit), 300))
+    root = Path(settings.MEDIA_ROOT)
+    for frame in result.get("frames", [])[:frame_limit]:
+        relative_path = frame.get("relative_path")
+        if not relative_path:
+            continue
+        frame_path = root / relative_path
+        if frame_path.exists() and frame_path.is_file():
+            frame["data_url"] = _file_data_url(frame_path)
+    return result
+
+
+def _create_video_context_sync(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    times: list[float] | None = None,
+    fps: float | None = None,
+    start: float | None = 0.0,
+    end: float | None = None,
+    max_frames: int = 12,
+    width: int = 960,
+    include_base64: bool = False,
+    force: bool = False,
+) -> str:
+    resolved = _resolve_video_sync(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+
+    video = _find_video(video_id=resolved["video"]["id"])
+    if video is None:
+        return _json({"success": False, "error": "video not found"})
+    file_path, error = _video_media_path(video)
+    if error:
+        return _json(error)
+    assert file_path is not None
+
+    probe = _probe_media_sync(file_path)
+    if not probe.get("success"):
+        return _json(probe)
+    duration = _probe_duration(probe, video.video_length_seconds)
+    frame_times = _normalize_frame_times(duration, times, fps, start, end, max_frames)
+    width = max(160, min(int(width), 1920))
+    spec = {
+        "times": frame_times,
+        "fps": fps,
+        "start": start,
+        "end": end,
+        "max_frames": max_frames,
+        "width": width,
+    }
+    context_id = _context_id_for(video, file_path, spec)
+    context_dir = _mcp_context_root() / context_id
+    frames_dir = context_dir / "frames"
+    manifest_path = context_dir / "manifest.json"
+
+    if manifest_path.exists() and not force:
+        manifest = _load_context_manifest_sync(context_id)
+        return _json(
+            _manifest_with_optional_frame_data(
+                manifest,
+                include_base64=include_base64,
+                frame_limit=max_frames,
+            )
+        )
+
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    frames = []
+    for index, time_s in enumerate(frame_times):
+        frame_name = f"frame_{index:04d}_{int(round(time_s * 1000)):08d}ms.jpg"
+        frame_path = frames_dir / frame_name
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-y",
+            "-ss",
+            f"{time_s:.3f}",
+            "-i",
+            str(file_path),
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={width}:-1",
+            "-q:v",
+            "3",
+            str(frame_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0 or not frame_path.exists():
+            return _json(
+                {
+                    "success": False,
+                    "error": result.stderr.strip() or "ffmpeg frame extraction failed",
+                    "time": time_s,
+                }
+            )
+        relative_path = str(frame_path.relative_to(settings.MEDIA_ROOT))
+        frame_payload = {
+            "index": index,
+            "time": time_s,
+            "relative_path": relative_path,
+            "media_url": _media_url_for_relative_path(relative_path),
+        }
+        frames.append(frame_payload)
+
+    source_relative = str(file_path.relative_to(settings.MEDIA_ROOT))
+    manifest = {
+        "success": True,
+        "context_id": context_id,
+        "created_at": timezone.now().isoformat(),
+        "video": _video_payload(video, include_filename=True),
+        "source": {
+            "relative_path": source_relative,
+            "media_url": _media_url_for_relative_path(source_relative),
+            "size": file_path.stat().st_size,
+            "mtime": file_path.stat().st_mtime,
+        },
+        "probe": {k: v for k, v in probe.items() if k != "success"},
+        "spec": spec,
+        "frames": frames,
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    return _json(
+        _manifest_with_optional_frame_data(
+            manifest,
+            include_base64=include_base64,
+            frame_limit=max_frames,
+        )
+    )
+
+
+def _get_video_context_sync(
+    context_id: str,
+    include_base64: bool = False,
+    frame_limit: int = 30,
+) -> str:
+    manifest = _load_context_manifest_sync(context_id)
+    if not manifest.get("success", True):
+        return _json(manifest)
+    return _json(
+        _manifest_with_optional_frame_data(
+            manifest,
+            include_base64=include_base64,
+            frame_limit=frame_limit,
+        )
+    )
+
+
+def _read_media_file_sync(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    include_base64: bool = False,
+    max_bytes: int = 750_000,
+) -> str:
+    resolved = _resolve_video_sync(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    video = _find_video(video_id=resolved["video"]["id"])
+    if video is None:
+        return _json({"success": False, "error": "video not found"})
+    file_path, error = _video_media_path(video)
+    if error:
+        return _json(error)
+    assert file_path is not None
+
+    relative_path = str(file_path.relative_to(settings.MEDIA_ROOT))
+    mime = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    payload = {
+        "success": True,
+        "video": _video_payload(video, include_filename=True),
+        "media": {
+            "relative_path": relative_path,
+            "media_url": _media_url_for_relative_path(relative_path),
+            "mime_type": mime,
+            "size": file_path.stat().st_size,
+            "mtime": file_path.stat().st_mtime,
+        },
+        "base64_included": False,
+    }
+    if include_base64:
+        max_bytes = max(1, min(int(max_bytes), 10_000_000))
+        if file_path.stat().st_size > max_bytes:
+            payload["success"] = False
+            payload["error"] = (
+                "media file exceeds max_bytes; use create_video_context for videos "
+                "or raise max_bytes intentionally"
+            )
+            payload["max_bytes"] = max_bytes
+            return _json(payload)
+        payload["data_url"] = _file_data_url(file_path)
+        payload["base64_included"] = True
+    return _json(payload)
+
+
 mcp = FastMCP(
     "VidGo",
     instructions=(
@@ -450,7 +818,8 @@ mcp = FastMCP(
         "long-running summary tasks, poll progress by task_id, fetch summaries, "
         "ask questions about completed video-understanding databases, generate "
         "subtitles, download source videos, organize videos with tags/categories, "
-        "and inspect model readiness."
+        "inspect model readiness, and persist media contexts/frame packs for "
+        "MCP clients that cannot read video files directly."
     ),
     streamable_http_path="/mcp",
     sse_path="/sse",
@@ -583,6 +952,109 @@ def _get_video_info_sync(
     title: str | None = None,
 ) -> str:
     return _json(_resolve_video_sync(video_id, filename, title))
+
+
+@mcp.tool()
+async def read_media_file(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    include_base64: bool = False,
+    max_bytes: int = 750_000,
+) -> str:
+    """Read a VidGo media file reference and optionally return a data URL.
+
+    This is the MCP-side equivalent of a lightweight ReadMediaFile. It is safe
+    by default: large media bytes are not inlined unless include_base64 is true
+    and the file is below max_bytes. For videos, prefer create_video_context so
+    the server persists a reusable frame pack instead of returning huge base64.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        include_base64: Include a base64 data URL when the file is small enough.
+        max_bytes: Maximum bytes allowed for inline base64.
+    """
+    return await _run_sync(
+        _read_media_file_sync,
+        video_id,
+        filename,
+        title,
+        include_base64,
+        max_bytes,
+    )
+
+
+@mcp.tool()
+async def create_video_context(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    times: list[float] | None = None,
+    fps: float | None = None,
+    start: float | None = 0.0,
+    end: float | None = None,
+    max_frames: int = 12,
+    width: int = 960,
+    include_base64: bool = False,
+    force: bool = False,
+) -> str:
+    """Persist a reusable video-understanding context with screenshots.
+
+    The tool resolves a VidGo video, probes it, extracts selected screenshots
+    into MEDIA_ROOT/mcp_context/<context_id>/frames/, writes a manifest, and
+    returns the stable context_id. Later MCP clients can call get_video_context
+    with that id even if the original agent session is gone.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        times: Specific timestamps in seconds. If provided, fps is ignored.
+        fps: Sampling FPS for a frame pack. Clamped to 10fps.
+        start: Start time for fps sampling.
+        end: End time for fps sampling.
+        max_frames: Maximum screenshots to persist. Clamped to 300.
+        width: Screenshot width in pixels. Clamped to 160-1920.
+        include_base64: Include frame data URLs in this response.
+        force: Regenerate frames even when the same context exists.
+    """
+    return await _run_sync(
+        _create_video_context_sync,
+        video_id,
+        filename,
+        title,
+        times,
+        fps,
+        start,
+        end,
+        max_frames,
+        width,
+        include_base64,
+        force,
+    )
+
+
+@mcp.tool()
+async def get_video_context(
+    context_id: str,
+    include_base64: bool = False,
+    frame_limit: int = 30,
+) -> str:
+    """Return a previously persisted video context by context_id.
+
+    Args:
+        context_id: Context id returned by create_video_context.
+        include_base64: Include base64 data URLs for persisted screenshots.
+        frame_limit: Maximum frames to inline when include_base64 is true.
+    """
+    return await _run_sync(
+        _get_video_context_sync,
+        context_id,
+        include_base64,
+        frame_limit,
+    )
 
 
 @mcp.tool()
