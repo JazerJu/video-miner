@@ -151,12 +151,55 @@ def cmd_external(question: str):
     print(f"\n{'='*60}\n{answer}\n{'='*60}")
 
 
+def _log_rss(tag: str):
+    """Print current/peak RSS. Extract holds the whole video's frames, so the
+    memory profile per phase is worth having in the logs."""
+    import os, resource
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    try:
+        with open("/proc/self/statm") as f:
+            cur = int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1048576
+    except OSError:
+        cur = -1.0
+    print(f"  [mem] {tag}: RSS={cur:.0f}MB peak={peak:.0f}MB")
+
+
+def _decode_clip_frames(container, stream, time_base, clip_idx, clip_secs,
+                        frames_per_clip, perspective=False):
+    """Decode `frames_per_clip` evenly spaced frames from one clip.
+
+    Shared by Phase 1 and the terminal pass so both see byte-identical frames:
+    the terminal pass re-decodes on demand instead of keeping every clip's
+    frames in memory (965 clips x 7 frames x 1080p = ~40GB).
+    """
+    import numpy as np
+
+    start_sec = clip_idx * clip_secs
+    end_sec = start_sec + clip_secs
+    target_ts = np.linspace(start_sec + 0.3, end_sec - 0.3, frames_per_clip)
+    container.seek(int(start_sec / time_base), stream=stream)
+    frames, fi = [], 0
+    for frame in container.decode(stream):
+        pts = float(frame.pts * time_base) if frame.pts is not None else 0
+        if pts > end_sec + 1:
+            break
+        while fi < frames_per_clip and pts >= target_ts[fi]:
+            frames.append(frame.to_image().convert("RGB"))
+            fi += 1
+        if fi >= frames_per_clip:
+            break
+
+    if frames and perspective:
+        from perspective import auto_correct
+        frames = [auto_correct(f) for f in frames]
+    return frames
+
+
 def cmd_extract(video_path: str, srt_path: str | None = None,
                 clip_secs: int = 10, frames_per_clip: int = 7,
                 output_dir: str | None = None, perspective: bool = False,
                 progress_cb=None):
     import time, av
-    import numpy as np
     from video_structure import classify_scene, VideoStructure, SlideEntry, CodeSnapshot
     from layout_detector import detect_layout, crop_content, detect_ui_strips, get_vision_bbox, LayoutResult
     from content_extractor import (
@@ -201,38 +244,16 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
     terminal_clips = {}
     clip_captions = {}
     clip_mid_frames = {}
-    clip_all_frames = {}
     clip_layouts = {}
     cached_vision_bbox = None
 
     for clip_idx in range(n_clips):
         start_sec = clip_idx * clip_secs
-        end_sec = start_sec + clip_secs
 
-        target_ts = np.linspace(start_sec + 0.3, end_sec - 0.3, frames_per_clip)
-        c.seek(int(start_sec / time_base), stream=stream)
-        frames, fi = [], 0
-        for frame in c.decode(stream):
-            pts = float(frame.pts * time_base) if frame.pts is not None else 0
-            if pts > end_sec + 1:
-                break
-            while fi < frames_per_clip and pts >= target_ts[fi]:
-                img = frame.to_image().convert("RGB")
-                frames.append(img)
-                fi += 1
-            if fi >= frames_per_clip:
-                break
-
+        frames = _decode_clip_frames(c, stream, time_base, clip_idx, clip_secs,
+                                     frames_per_clip, perspective)
         if not frames:
             continue
-
-        if perspective and len(frames) >= 1:
-            from perspective import auto_correct
-            corrected = []
-            for f in frames:
-                result = auto_correct(f)
-                corrected.append(result)
-            frames = corrected
 
         if len(frames) >= 3:
             layout = detect_layout(frames)
@@ -264,8 +285,9 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
 
         clip_layouts[clip_idx] = layout
         clip_mid_frames[clip_idx] = content_frames[len(content_frames) // 2]
-        clip_all_frames[clip_idx] = content_frames
-        del frames  # raw frames discarded; content_frames kept for terminal/code stitching
+        # Only the mid frame is kept. Terminal stitching re-decodes its clips in
+        # step 8; keeping all frames here cost ~40GB on a 2h40m video.
+        del frames, content_frames
 
         if clip_idx % 50 == 0:
             m, s = divmod(int(start_sec), 60)
@@ -276,6 +298,7 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
 
     c.close()
     print(f"  Phase 1 done: {len(clip_mid_frames)} clips")
+    _log_rss("phase1 done")
 
     # Phase 2: Batch OCR (sequential)
     from external_api import call_glm_ocr
@@ -364,39 +387,49 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
                     break
     print(f"  unique code snapshots: {len(code_snapshots)}")
 
-    # 8. Terminal outputs — 复用 Phase 1 全帧：去重→拼接→长图分块OCR
+    # 8. Terminal outputs — 按需重解码全帧：去重→拼接→长图分块OCR
     print("\n提取终端输出...")
     terminal_outputs = []
-    from frame_stitcher import deduplicate_frames, stitch_scrolling_frames
-    from external_api import ocr_long_image
-    for clip_idx in sorted(terminal_clips.keys()):
-        clip_frames = clip_all_frames.get(clip_idx, [])
-        if not clip_frames:
-            continue
+    if terminal_clips:
+        from frame_stitcher import deduplicate_frames, stitch_scrolling_frames
+        from external_api import ocr_long_image
+        tc = av.open(video_path)
+        tstream = tc.streams.video[0]
+        ttime_base = float(tstream.time_base)
         try:
-            deduped = deduplicate_frames(clip_frames)
-            stitched = stitch_scrolling_frames(deduped)
-            text = ocr_long_image(stitched)
-        except Exception:
-            text = call_glm_ocr(clip_frames[len(clip_frames) // 2], "Text Recognition:", max_tokens=1024)
-        if text and len(text) > 20:
-            t = clip_idx * clip_secs
-            m, s = divmod(int(t), 60)
-            entry = {
-                "time": t,
-                "time_str": f"{m:02d}:{s:02d}",
-                "text": text,
-            }
-            for e in transcript:
-                if e["start"] <= t <= e["end"]:
-                    entry["transcript"] = e["text"]
-                    break
-            terminal_outputs.append(entry)
-    # Free non-terminal frame data
-    for idx in list(clip_all_frames):
-        if idx not in terminal_clips and idx not in code_clips:
-            del clip_all_frames[idx]
+            for clip_idx in sorted(terminal_clips.keys()):
+                raw = _decode_clip_frames(tc, tstream, ttime_base, clip_idx, clip_secs,
+                                          frames_per_clip, perspective)
+                if not raw:
+                    print(f"  [warn] clip {clip_idx} 重解码无帧，跳过")
+                    continue
+                layout = clip_layouts.get(clip_idx)
+                clip_frames = [crop_content(f, layout) for f in raw] if layout else raw
+                del raw
+                try:
+                    deduped = deduplicate_frames(clip_frames)
+                    stitched = stitch_scrolling_frames(deduped)
+                    text = ocr_long_image(stitched)
+                except Exception:
+                    text = call_glm_ocr(clip_frames[len(clip_frames) // 2], "Text Recognition:", max_tokens=1024)
+                del clip_frames
+                if text and len(text) > 20:
+                    t = clip_idx * clip_secs
+                    m, s = divmod(int(t), 60)
+                    entry = {
+                        "time": t,
+                        "time_str": f"{m:02d}:{s:02d}",
+                        "text": text,
+                    }
+                    for e in transcript:
+                        if e["start"] <= t <= e["end"]:
+                            entry["transcript"] = e["text"]
+                            break
+                    terminal_outputs.append(entry)
+        finally:
+            tc.close()
     print(f"  terminal outputs: {len(terminal_outputs)}")
+    _log_rss("extract done")
 
     # 9. Build structured output
     vs = VideoStructure(

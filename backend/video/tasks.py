@@ -1678,8 +1678,20 @@ def generate_summary_for_video(task_id: str) -> None:
         try:
             cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress)
         finally:
+            # Drop the ggml decoder too: summarize loads its own models on top,
+            # and holding both is what pushed this over the OOM line.
             from external_api import shutdown_glm_ocr_workers
-            shutdown_glm_ocr_workers(stop_decoder=False)
+            shutdown_glm_ocr_workers(stop_decoder=True)
+            import gc
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            from main import _log_rss
+            _log_rss("decoder released")
         _summary_update(task_id, "extract", "Completed")
 
         # Step 3: summarize
