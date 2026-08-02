@@ -110,6 +110,11 @@ def get_audio_file_for_transcription(video_id: int) -> tuple[str, bool]:
     if is_audio_file(video.url):
         if os.path.exists(file_path):
             return file_path, False
+        # Fallback: some audio files were saved into saved_video/ by mistake
+        # (legacy uploads before handle_upload routed by file type)
+        fallback = os.path.join(settings.MEDIA_ROOT, 'saved_video', video.url)
+        if os.path.exists(fallback):
+            return fallback, False
         raise FileNotFoundError(file_path)
     base = os.path.splitext(video.url)[0]
     for ext in ['.mp3', '.wav', '.m4a', '.aac']:

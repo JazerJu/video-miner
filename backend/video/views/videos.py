@@ -17,6 +17,7 @@ from django.urls import reverse
 from .base import JsonView
 from django.views import View
 from ..models import Video, Category, VideoAttachment
+from ..services.audio_processing import get_media_path_info
 from ..utils import calc_diff_time
 from django.contrib.auth import get_user_model
 from functools import wraps
@@ -1218,7 +1219,8 @@ class VideoActionView(View):
 
             # 构建文件名和路径
             filename = f"{md5_value}{file_ext}"
-            save_dir = os.path.join(settings.MEDIA_ROOT, "saved_video")
+            dir_name, _ = get_media_path_info(filename)
+            save_dir = os.path.join(settings.MEDIA_ROOT, dir_name)
             os.makedirs(save_dir, exist_ok=True)
             file_path = os.path.join(save_dir, filename)
 
