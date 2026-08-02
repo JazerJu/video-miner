@@ -130,3 +130,17 @@ docker/Docker容器构建.md
 !/data/config/
 /data/config/*
 !/data/config/config.ini.example
+
+# Reproduction workspaces and scratch (local only, large)
+miaowu/
+video-reproduce-*/
+transformer-encoder.py
+
+# Agent skills and configs (tracked separately or kept local)
+.agents/skills/huashu-design/
+.agents/skills/hyperframes/
+.pi/
+docs/superpowers/
+
+# Test artifacts
+backend/.coverage
