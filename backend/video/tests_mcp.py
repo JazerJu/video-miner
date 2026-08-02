@@ -1,4 +1,5 @@
 # pyright: reportAttributeAccessIssue=false, reportImplicitRelativeImport=false, reportUninitializedInstanceVariable=false
+import base64
 import json
 import os
 import tempfile
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.test import TestCase
+from PIL import Image
 
 from video import mcp_server as mcp_tools
 from video.models import Category, Tag, Video
@@ -306,6 +308,135 @@ class MCPMediaContextToolTests(MCPToolTestMixin, TestCase):
         self.assertEqual(fetched["success"], True)
         self.assertEqual(fetched["context_id"], created["context_id"])
         self.assertEqual(len(fetched["frames"]), 2)
+
+
+class MCPVideoBuildHelperToolTests(MCPToolTestMixin, TestCase):
+    def write_context(self, root: str, context_id: str, color: tuple[int, int, int]):
+        frames_dir = Path(root) / "mcp_context" / context_id / "frames"
+        frames_dir.mkdir(parents=True)
+        frame_path = frames_dir / "frame_0000.jpg"
+        Image.new("RGB", (16, 16), color).save(frame_path)
+        relative_path = os.path.join("mcp_context", context_id, "frames", "frame_0000.jpg")
+        manifest = {
+            "success": True,
+            "context_id": context_id,
+            "source": {"relative_path": os.path.join("saved_video", f"{context_id}.mp4")},
+            "frames": [
+                {
+                    "index": 0,
+                    "time": 0.0,
+                    "relative_path": relative_path,
+                    "media_url": f"/media/{relative_path}",
+                }
+            ],
+        }
+        (Path(root) / "mcp_context" / context_id / "manifest.json").write_text(
+            json.dumps(manifest),
+            encoding="utf-8",
+        )
+        return manifest
+
+    def test_case_asset_experience_and_run_are_persisted(self):
+        data = base64.b64encode(b"asset-bytes").decode("ascii")
+        with tempfile.TemporaryDirectory() as tmp, self.settings(MEDIA_ROOT=tmp):
+            created = self.load_mcp_json(
+                mcp_tools.create_video_build_case,
+                "case_one",
+                title="Case One",
+                tags=["chart", "reproduce"],
+            )
+            asset = self.load_mcp_json(
+                mcp_tools.add_case_asset,
+                "case_one",
+                "image",
+                caption="reference crop",
+                usage="comparison",
+                data_url=f"data:image/png;base64,{data}",
+                filename="crop.png",
+            )
+            exp = self.load_mcp_json(
+                mcp_tools.add_case_experience,
+                "case_one",
+                "Line chart lesson",
+                "Use centerline extraction for chart series.",
+                tags=["chart"],
+            )
+            run = self.load_mcp_json(
+                mcp_tools.register_case_run,
+                "case_one",
+                "run_001",
+                render_manifest={"fps": 60, "width": 1280},
+                status="reviewed",
+            )
+            fetched = self.load_mcp_json(mcp_tools.get_video_build_case, "case_one", query="centerline")
+
+        self.assertEqual(created["success"], True)
+        self.assertTrue(created["created"])
+        self.assertEqual(asset["asset"]["caption"], "reference crop")
+        self.assertTrue(asset["asset"]["relative_path"].startswith("video_build_cases/"))
+        self.assertEqual(exp["experience"]["tags"], ["chart"])
+        self.assertEqual(run["run"]["render_manifest"]["fps"], 60)
+        self.assertEqual(fetched["success"], True)
+        self.assertEqual(len(fetched["assets"]), 1)
+        self.assertEqual(len(fetched["experience_matches"]), 1)
+
+    def test_compare_video_contexts_persists_deterministic_evaluation(self):
+        with tempfile.TemporaryDirectory() as tmp, self.settings(MEDIA_ROOT=tmp):
+            self.write_context(tmp, "ref_ctx", (0, 0, 0))
+            self.write_context(tmp, "out_ctx", (20, 0, 0))
+            self.load_mcp_json(mcp_tools.create_video_build_case, "compare_case")
+
+            body = self.load_mcp_json(
+                mcp_tools.compare_video_contexts,
+                "ref_ctx",
+                "out_ctx",
+                case_id="compare_case",
+                run_id="run_001",
+                crop={"x": 0, "y": 0, "width": 16, "height": 16},
+                frame_limit=1,
+            )
+            case = self.load_mcp_json(mcp_tools.get_video_build_case, "compare_case")
+
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["aggregate"]["valid_pairs"], 1)
+        self.assertGreater(body["aggregate"]["mean_mae"], 0)
+        self.assertIn("diff_media_url", body["frames"][0])
+        self.assertEqual(case["evaluations"][0]["evaluation_id"], body["evaluation_id"])
+
+    @patch("video.mcp_server._run_glm_ocr_on_image", return_value="Recognized text")
+    def test_ocr_video_context_uses_glm_ocr_adapter(self, mock_ocr):
+        with tempfile.TemporaryDirectory() as tmp, self.settings(MEDIA_ROOT=tmp):
+            self.write_context(tmp, "ocr_ctx", (255, 255, 255))
+            self.load_mcp_json(mcp_tools.create_video_build_case, "ocr_case")
+
+            body = self.load_mcp_json(
+                mcp_tools.ocr_video_context,
+                "ocr_ctx",
+                case_id="ocr_case",
+                run_id="run_ocr",
+                frame_limit=1,
+            )
+
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["results"][0]["text"], "Recognized text")
+        mock_ocr.assert_called_once()
+
+    @patch("video.mcp_server._run_minicpm_review_on_frames", return_value="The chart line is visible.")
+    def test_vlm_review_video_context_uses_minicpm_adapter(self, mock_review):
+        with tempfile.TemporaryDirectory() as tmp, self.settings(MEDIA_ROOT=tmp):
+            self.write_context(tmp, "vlm_ctx", (255, 0, 0))
+
+            body = self.load_mcp_json(
+                mcp_tools.vlm_review_video_context,
+                "vlm_ctx",
+                "Describe the frame.",
+                frame_limit=1,
+            )
+
+        self.assertEqual(body["success"], True)
+        self.assertEqual(body["conclusion"], "PASS")
+        self.assertIn("chart line", body["answer"])
+        mock_review.assert_called_once()
 
 
 class MCPAPIProxyToolTests(MCPToolTestMixin, TestCase):
