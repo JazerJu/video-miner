@@ -29,6 +29,7 @@
               :blobUrls="blobUrls"
               :videoId="videoData.id"
               @time-update="handleTimeUpdate"
+              @ready="handlePlayerReady"
               class="absolute inset-0 w-full h-full"
             />
           </div>
@@ -181,6 +182,19 @@ const videoId = ref(-1)
 // 字幕样式现在通过 useSubtitleStyle 从首页设置中加载
 
 const currentTime = ref(0)
+
+// 从观看页切过来时 URL 带 ?t=秒数：字幕列表和波形先定位到这个时刻，播放器就绪后再 seek 过去
+const timeFromRoute = Number(route.query.t)
+let pendingSeekTime: number | null =
+  Number.isFinite(timeFromRoute) && timeFromRoute > 0 ? timeFromRoute : null
+if (pendingSeekTime !== null) currentTime.value = pendingSeekTime
+
+function handlePlayerReady() {
+  if (pendingSeekTime === null) return
+  playerRef.value?.seek(pendingSeekTime)
+  pendingSeekTime = null
+}
+
 function handleSeekFromSubs(t: number) {
   // 点击对应位置的字幕,视频自动跳转到对应时间.
   currentTime.value = t

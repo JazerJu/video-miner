@@ -98,13 +98,10 @@ const toggleView = () => {
     return
   }
 
-  if (isInEditor.value) {
-    // 从编辑器切换到观看视频
-    router.push(`/watch/${props.filename}`)
-  } else {
-    // 从观看视频切换到编辑器
-    router.push(`/editor/${props.filename}`)
-  }
+  // 编辑器和观看页互相切换时带上当前播放时间，目标页打开后跳到同一时刻
+  const path = isInEditor.value ? `/watch/${props.filename}` : `/editor/${props.filename}`
+  const t = props.currentTime
+  router.push(t > 0 ? { path, query: { t: t.toFixed(2) } } : path)
 }
 
 // Check user status on mount

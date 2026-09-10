@@ -367,6 +367,8 @@ function handleTimeFragment() {
 
       // Set current time and seek to the position
       currentTime.value = jumpToSeconds
+      // 播放器如果晚于这里才就绪，handlePlayerReady 会按这个时间 seek，不会被上次观看进度覆盖
+      pendingResumeTime.value = jumpToSeconds
 
       // Use setTimeout to ensure the video player is ready
       setTimeout(() => {
@@ -392,6 +394,8 @@ function handleQueryTimeParameter() {
 
       // Set current time and seek to the position
       currentTime.value = jumpToSeconds
+      // 播放器如果晚于这里才就绪，handlePlayerReady 会按这个时间 seek，不会被上次观看进度覆盖
+      pendingResumeTime.value = jumpToSeconds
 
       // Use setTimeout to ensure the video player is ready
       setTimeout(() => {
