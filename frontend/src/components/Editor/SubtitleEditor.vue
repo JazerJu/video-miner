@@ -1006,6 +1006,8 @@ function setActiveSubtitle(index: number) {
   const subtitle1 = rawSubtitle.value[index]
   // const subtitle2 = foreignSubtitle.value[index] // Removed unused variable
   if (!subtitle1) return // guard for out-of-range clicks
+  // 正在编辑这条字幕时，点输入框是为了改字，不能把视频拉回这条字幕的开头
+  if (editSubtitleIndex.value === index) return
 
   // seek the player to that subtitle’s start time
   emit('seek-time', subtitle1.start)
