@@ -179,11 +179,37 @@ const emit = defineEmits<{
       <!-- Brand Header -->
       <div class="px-4 pt-5 pb-4 border-b border-slate-200/80 dark:border-white/10">
         <div class="flex items-center gap-2">
-          <img
+          <svg
             class="h-10 w-10 shrink-0 p-0.5 border border-slate-200/80 dark:border-white/30 hover:border-teal-400/70 dark:hover:border-white/50 rounded-xl transition-all shadow-sm"
-            src="@/assets/miner.png"
-            alt="VideoMiner"
-          />
+            viewBox="106 -166 630 630"
+            role="img"
+            aria-label="VideoMiner"
+          >
+            <rect
+              x="106" y="-166" width="630" height="630" rx="131"
+              class="fill-[#16202F] dark:fill-[#27A094] transition-colors"
+            />
+            <g
+              class="fill-[#27A094] stroke-[#16202F] dark:fill-[#10202C] dark:stroke-[#27A094] transition-colors"
+              stroke-width="11" stroke-linejoin="round" stroke-linecap="round"
+            >
+              <path d="M 205.8,233.1 C 183.4,232.5 171.3,226.9 160.2,218.4 C 149.2,209.9 144.2,201.1 139.6,182.2 C 135.1,163.4 131.7,124.4 132.9,105.0 C 134.1,85.6 141.5,71.2 146.8,65.9 C 152.0,60.5 156.5,56.9 164.1,72.8 C 171.8,88.6 173.9,148.9 192.8,160.9 C 211.6,172.9 257.0,143.0 277.0,144.9 C 297.0,146.8 306.9,163.1 312.9,172.2 C 318.9,181.4 316.0,191.5 312.9,199.8 C 309.8,208.0 312.1,216.3 294.2,221.9 C 276.4,227.4 228.1,233.7 205.8,233.1 Z" />
+              <path d="M 621.5,204.1 C 599.2,206.4 562.3,199.6 546.5,194.4 C 530.7,189.1 530.9,181.2 526.9,172.5 C 522.9,163.8 517.5,153.9 522.4,142.0 C 527.3,130.1 535.4,108.0 556.2,100.9 C 577.1,93.7 633.9,112.8 647.6,99.0 C 661.4,85.2 637.9,33.6 638.9,18.2 C 639.9,2.9 644.5,0.3 653.8,6.9 C 663.0,13.5 685.4,37.4 694.6,57.8 C 703.8,78.1 711.3,108.5 708.9,129.0 C 706.4,149.5 694.6,168.4 680.0,180.9 C 665.4,193.4 643.8,201.9 621.5,204.1 Z" />
+              <path d="M 253,272 L 244,222 L 239,133 L 219,126 L 213,93 L 246,86
+                         C 251,42 268,15 298,10
+                         L 532,10 C 562,15 580,42 585,84
+                         L 618,90 L 612,124 L 591,131 L 588,222 Z" />
+              <path d="M 254,206 C 300,224 348,233 392,236
+                      L 405,266 L 406,290 L 411,266 L 419,234
+                      C 472,231 530,214 580,190
+                      C 586,216 587,240 584,262
+                      C 440,302 336,300 250,266 C 249,244 251,224 254,206 Z" />
+            </g>
+            <path d="M 324,126 C 324,110 351,100 400,98
+             C 452,96 496,109 496,128
+             C 496,156 466,187 420,201
+             C 374,187 324,154 324,126 Z" class="fill-[#16202F] dark:fill-[#27A094] transition-colors" />
+          </svg>
           <div class="flex flex-col min-w-0">
             <span class="text-base font-semibold text-slate-950 dark:text-white truncate">{{
               t('brand')
