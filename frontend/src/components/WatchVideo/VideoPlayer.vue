@@ -1337,6 +1337,7 @@ onMounted(async () => {
 
   await checkFiles()
   playerReady.value = true
+  setupControlBarKeepAlive()
 })
 
 // Watch for showChapterMarkers prop changes
@@ -2326,6 +2327,32 @@ function createLoopCountControl() {
   return LoopCountControl
 }
 
+// 暂停时控制栏也会在鼠标静止后隐藏（见 <style> 里的 vjs-paused 规则）。
+// 但指针停在控制栏上、或者菜单/下拉开着时不该消失，这两种情况持续上报活动把它留住。
+let controlBarKeepAliveCleanup: (() => void) | undefined
+
+const setupControlBarKeepAlive = () => {
+  const root = player?.el() as HTMLElement | undefined
+  const bar = root?.querySelector('.vjs-control-bar') as HTMLElement | null
+  if (!root || !bar) return
+  let pointerInBar = false
+  const onEnter = () => { pointerInBar = true }
+  const onLeave = () => { pointerInBar = false }
+  bar.addEventListener('mouseenter', onEnter)
+  bar.addEventListener('mouseleave', onLeave)
+  const timer = setInterval(() => {
+    const menuOpen = !!root.querySelector('.vjs-menu.vjs-lock-showing')
+    const dropdownOpen = Array.from(root.querySelectorAll<HTMLElement>('.speed-dropdown'))
+      .some((el) => el.style.display === 'block')
+    if (pointerInBar || menuOpen || dropdownOpen) player?.reportUserActivity({ type: 'mousemove' })
+  }, 400)
+  controlBarKeepAliveCleanup = () => {
+    clearInterval(timer)
+    bar.removeEventListener('mouseenter', onEnter)
+    bar.removeEventListener('mouseleave', onLeave)
+  }
+}
+
 onBeforeUnmount(() => {
   // Clean up hotkeys
   if (hotkeyCleanup) {
@@ -2337,6 +2364,7 @@ onBeforeUnmount(() => {
   destroyHlsInstance()
   subtitleBlockObserver?.disconnect()
   playerSizeObserver?.disconnect()
+  controlBarKeepAliveCleanup?.()
   // Clean up player
   player?.dispose()
 })
@@ -2678,5 +2706,17 @@ onBeforeUnmount(() => {
   white-space: pre-line;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+}
+
+/* 暂停时也在鼠标静止后隐藏控制栏。主题只给 .vjs-playing 写了隐藏规则（vjs-luxmty.css 第 685 行），
+   而 video.js 的空闲判定本身不区分播放和暂停，所以这里补一条同样的规则。 */
+:deep(.video-js.vjs-has-started.vjs-user-inactive.vjs-paused .vjs-control-bar) {
+  visibility: visible;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(0, 4em);
+  transition:
+    all cubic-bezier(0.45, 0.44, 0.67, 0.66),
+    ease-in-out 0.5s;
 }
 </style>
