@@ -90,14 +90,15 @@ const isCurrentVideo = (video: SimilarVideoResponse): boolean => {
   return false
 }
 
+// 自动连播的下一个视频。合集列表按 id 从小到大排列，而且不含当前视频（后端 SimilarVideosView 把它排除了），
+// 以前按当前视频在列表里的位置找下一个，永远找不到；现在取列表里第一个 id 比当前大的，就是列表里排在它后面的那个
 const getNextVideo = (): SimilarVideoResponse | null => {
-  const currentIndex = similarVideos.value.findIndex(
-    (v) => v.id === props.currentVideoId
-  )
-  if (currentIndex === -1 || currentIndex === similarVideos.value.length - 1) {
-    return null
-  }
-  return similarVideos.value[currentIndex + 1]
+  const list = similarVideos.value
+  const currentId = props.currentVideoId ?? -1
+  if (currentId <= 0) return null
+  const currentIndex = list.findIndex((v) => v.id === currentId)
+  if (currentIndex !== -1) return list[currentIndex + 1] ?? null
+  return list.find((v) => v.id > currentId) ?? null
 }
 
 defineExpose({

@@ -1172,6 +1172,9 @@ onMounted(async () => {
   // 控制栏第一次播放时才显示出来，全屏切换时位置也会变
   player.on(['play', 'playing', 'fullscreenchange', 'playerresize'], () => requestAnimationFrame(measureControlBarClearance))
   player.on('loadstart', refreshSubtitleTracks)
+  // 循环按钮恢复成「自动连播」时通知页面；如果是自动连播跳过来的，新视频能播了就接着播
+  syncAutoplaySetting()
+  continueAutoplayWhenReady()
 
   if (props.sourceType === 'hls') {
     loadHlsSource(props.src)
@@ -1257,16 +1260,6 @@ onMounted(async () => {
     if (typeof t === 'number') {
       emit('time-update', t)
       updateCurrentChapter(t)
-    }
-  })
-
-  player.on('ended', () => {
-    console.log('[VideoPlayer] Video ended, checking autoplay settings')
-    if (isAutoPlayEnabled.value) {
-      console.log('[VideoPlayer] Autoplay enabled, requesting next video')
-      emit('autoplay-next')
-    } else {
-      console.log('[VideoPlayer] Autoplay disabled, staying on current video')
     }
   })
 
@@ -1406,6 +1399,7 @@ watch(
       const sources = getVideoSources(src)
       player?.src(sources)
     }
+    continueAutoplayWhenReady()
     await checkFiles()
   },
 )
@@ -2188,81 +2182,180 @@ function createVideoSpeedControl() {
   return VideoSpeedControl
 }
 
+// ── 循环按钮：不循环 → 1 → 2 → 3 → 5 次 → 无限循环 → 自动连播 → 不循环 ──
+// 自动连播：播完后请页面跳到合集里的下一个视频，新视频加载好就接着播。
+// 只有页面接了 autoplay-next 事件才有这一档：观看页有合集列表，字幕编辑页没有。
+type LoopMode = number | 'infinite' | 'autoplay'
+const parentListeners = (getCurrentInstance()?.vnode.props ?? {}) as Record<string, unknown>
+const canAutoplayNext = 'onAutoplayNext' in parentListeners || 'onAutoplay-next' in parentListeners
+const LOOP_MODES: LoopMode[] = canAutoplayNext ? [0, 1, 2, 3, 5, 'infinite', 'autoplay'] : [0, 1, 2, 3, 5, 'infinite']
+// 无限循环、自动连播记在当前标签页里，播放器重新挂载后保持；循环次数是一次性的，不记
+const LOOP_MODE_STORAGE_KEY = 'vidgo_loop_mode'
+const AUTOPLAY_PENDING_STORAGE_KEY = 'vidgo_autoplay_pending'
+// 发出「下一个」后这么久没有换到新视频（合集已经播完），就不再接着播
+const AUTOPLAY_PENDING_TTL_MS = 8000
+
+function restoreLoopMode(): LoopMode {
+  try {
+    const saved = sessionStorage.getItem(LOOP_MODE_STORAGE_KEY)
+    if (saved === 'infinite' || (saved === 'autoplay' && canAutoplayNext)) return saved
+  } catch {
+    // 浏览器禁用存储时用默认值
+  }
+  return 0
+}
+
+const loopMode = ref<LoopMode>(restoreLoopMode())
+
+function loopModeLabel(mode: LoopMode) {
+  if (mode === 'infinite') return t('loopInfinite')
+  if (mode === 'autoplay') return t('loopAutoplay')
+  return mode === 0 ? t('loopNone') : t('loopCount', { n: mode })
+}
+
+function syncAutoplaySetting() {
+  const enabled = loopMode.value === 'autoplay'
+  if (isAutoPlayEnabled.value === enabled) return
+  isAutoPlayEnabled.value = enabled
+  emit('autoplay-settings-changed', enabled)
+}
+
+function setLoopMode(mode: LoopMode) {
+  loopMode.value = mode
+  try {
+    if (mode === 'infinite' || mode === 'autoplay') sessionStorage.setItem(LOOP_MODE_STORAGE_KEY, mode)
+    else sessionStorage.removeItem(LOOP_MODE_STORAGE_KEY)
+  } catch {
+    // 存不了就只在内存里生效
+  }
+  syncAutoplaySetting()
+}
+
+let autoplayPendingAt = 0
+let autoplayPendingTimer: ReturnType<typeof setTimeout> | undefined
+
+function markAutoplayPending() {
+  autoplayPendingAt = Date.now()
+  try {
+    // 页面跳转时播放器可能被重新挂载，标记也写进 sessionStorage
+    sessionStorage.setItem(AUTOPLAY_PENDING_STORAGE_KEY, String(autoplayPendingAt))
+  } catch {
+    // 只用内存里的标记
+  }
+  clearTimeout(autoplayPendingTimer)
+  autoplayPendingTimer = setTimeout(takeAutoplayPending, AUTOPLAY_PENDING_TTL_MS)
+}
+
+function takeAutoplayPending(): boolean {
+  let markedAt = autoplayPendingAt
+  autoplayPendingAt = 0
+  try {
+    markedAt = Math.max(markedAt, Number(sessionStorage.getItem(AUTOPLAY_PENDING_STORAGE_KEY)) || 0)
+    sessionStorage.removeItem(AUTOPLAY_PENDING_STORAGE_KEY)
+  } catch {
+    // 只看内存里的标记
+  }
+  return markedAt > 0 && Date.now() - markedAt < AUTOPLAY_PENDING_TTL_MS
+}
+
+// 自动连播跳到新视频后，等它能播了就接着播
+function continueAutoplayWhenReady() {
+  if (!player || !takeAutoplayPending()) return
+  clearTimeout(autoplayPendingTimer)
+  player.one('canplay', () => {
+    void player?.play()
+  })
+}
+
 // Custom Loop Count Control Component
 function createLoopCountControl() {
   const vjsComponent = videojs.getComponent('Component')
+  const REPEAT_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"> <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/> <path d="M3 3v5h5"/> <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/> <path d="M16 21v-5h5"/> </svg>`
+  const AUTOPLAY_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/><path d="m16 12 5 3-5 3v-6Z"/></svg>`
 
   class LoopCountControl extends vjsComponent {
-    loopCount: number
+    stopWatchingMode: (() => void) | null = null
 
     constructor(player: any, options: any) {
       super(player, options)
       this.addClass('vjs-loop-count-control')
       this.addClass('vjs-control')
       this.addClass('vjs-button')
-      this.loopCount = 0 // 0 means play once and stop
 
-      // Add click handler to cycle through common values
-      this.on('click', this.cycleLoopCount.bind(this))
-
-      // Listen for ended event to handle loop
+      this.on('click', this.cycleLoopMode.bind(this))
       this.player().on('ended', this.handleEnded.bind(this))
-
-      // Initial display update
-      this.ready(() => {
-        this.updateDisplay()
-      })
-    }
-
-    cycleLoopCount() {
-      // Cycle through: 0 -> 1 -> 2 -> 3 -> 5 -> 0
-      const values = [0, 1, 2, 3, 5]
-      const currentIndex = values.indexOf(this.loopCount)
-      const nextIndex = (currentIndex + 1) % values.length
-      this.loopCount = values[nextIndex]
-
+      // 状态在组件的 loopMode 里，按钮只负责显示和切换
+      // 切界面语言后 title 也要跟着变，所以把 locale 一起监听上
+      this.stopWatchingMode = watch([loopMode, locale], () => this.updateDisplay())
+      // 元素在 super() 里已经建好，直接按当前模式显示（从标签页恢复成无限循环、自动连播时也要立刻显示出来）
       this.updateDisplay()
     }
 
+    cycleLoopMode() {
+      const current = loopMode.value
+      let index = LOOP_MODES.indexOf(current)
+      if (index === -1 && typeof current === 'number') {
+        // 循环次数用掉一部分后（比如 5 变成 4），从下一个更大的档位继续
+        index = LOOP_MODES.findIndex((mode) => typeof mode !== 'number' || mode > current) - 1
+      }
+      const next = LOOP_MODES[(index + 1) % LOOP_MODES.length]
+      setLoopMode(next)
+      showHotkeyHint(loopModeLabel(next))
+    }
+
     handleEnded() {
-      if (this.loopCount > 0) {
-        const player = this.player()
-        if (player) {
-          // Loop the video by seeking to the beginning
-          player.currentTime(0)
-          // Add a small delay before playing to ensure the seek completes
-          // This is especially important for audio files (m4a, mp3, etc.)
-          setTimeout(() => {
-            player.play()
-          }, 50)
-          // Decrement loop count
-          this.loopCount--
-          this.updateDisplay()
-          console.log(`[LoopCount] Loop remaining: ${this.loopCount}`)
-        }
-      } else {
-        // Stop after playing once
-        if (isAutoPlayEnabled.value) {
-          isAutoPlayEnabled.value = false
-          emit('autoplay-settings-changed', false)
-        }
+      const mode = loopMode.value
+      if (mode === 'autoplay') {
+        markAutoplayPending()
+        emit('autoplay-next')
+        return
+      }
+      if (mode === 0) return
+      const player = this.player()
+      // 从头再播；稍等 seek 完成再 play，音频文件（m4a、mp3 等）尤其需要
+      player.currentTime(0)
+      setTimeout(() => {
+        player.play()
+      }, 50)
+      if (typeof mode === 'number') {
+        setLoopMode(mode - 1)
+        console.log(`[LoopCount] Loop remaining: ${mode - 1}`)
       }
     }
 
     updateDisplay() {
-      const iconEl = this.el().querySelector('.loop-icon') as HTMLElement
-      const countEl = this.el().querySelector('.loop-count-text') as HTMLElement
+      const mode = loopMode.value
+      const el = this.el() as HTMLElement
+      const iconEl = el.querySelector('.loop-icon') as HTMLElement | null
+      const countEl = el.querySelector('.loop-count-text') as HTMLElement | null
 
-      if (this.loopCount === 0) {
-        if (iconEl) iconEl.style.color = 'rgba(255, 255, 255, 0.4)'
-        if (countEl) countEl.style.display = 'none'
-      } else {
-        if (iconEl) iconEl.style.color = 'rgba(255, 255, 255, 1)'
-        if (countEl) {
-          countEl.style.display = 'block'
-          countEl.textContent = String(this.loopCount)
+      if (iconEl) {
+        iconEl.style.color = mode === 0 ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 1)'
+        const icon = mode === 'autoplay' ? 'autoplay' : 'repeat'
+        if (iconEl.dataset.icon !== icon) {
+          iconEl.innerHTML = icon === 'autoplay' ? AUTOPLAY_ICON : REPEAT_ICON
+          iconEl.dataset.icon = icon
         }
       }
+      if (countEl) {
+        const text = mode === 'infinite' ? '∞' : typeof mode === 'number' && mode > 0 ? String(mode) : ''
+        countEl.textContent = text
+        countEl.style.display = text ? 'block' : 'none'
+        countEl.style.fontSize = mode === 'infinite' ? '13px' : '10px'
+        // ∞ 的字形重心偏下，正中摆看着像压在图标下半部，往上提一点
+        countEl.style.transform = mode === 'infinite' ? 'translateY(-2px)' : ''
+      }
+      el.title =
+        mode === 'autoplay'
+          ? t('loopAutoplayTitle')
+          : t('loopSwitchTitle', { mode: loopModeLabel(mode) })
+      el.setAttribute('aria-label', loopModeLabel(mode))
+    }
+
+    dispose() {
+      this.stopWatchingMode?.()
+      this.stopWatchingMode = null
+      super.dispose()
     }
 
     createEl() {
@@ -2280,7 +2373,7 @@ function createLoopCountControl() {
           padding: 6px;
           margin: 0 2px;
         `,
-        title: '循环次数',
+        title: t('loopSwitchTitle', { mode: t('loopNone') }),
       })
 
       const iconEl = videojs.dom.createEl('span', {
@@ -2292,15 +2385,9 @@ function createLoopCountControl() {
           color: rgba(255, 255, 255, 0.4);
           transition: color 0.2s ease;
         `,
-      })
-      iconEl.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-          <path d="M3 3v5h5"/>
-          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-          <path d="M16 21v-5h5"/>
-        </svg>
-      `
+      }) as HTMLElement
+      iconEl.innerHTML = REPEAT_ICON
+      iconEl.dataset.icon = 'repeat'
       el.appendChild(iconEl)
 
       const countEl = videojs.dom.createEl('span', {
@@ -2364,6 +2451,7 @@ onBeforeUnmount(() => {
   destroyHlsInstance()
   subtitleBlockObserver?.disconnect()
   playerSizeObserver?.disconnect()
+  clearTimeout(autoplayPendingTimer)
   controlBarKeepAliveCleanup?.()
   // Clean up player
   player?.dispose()
