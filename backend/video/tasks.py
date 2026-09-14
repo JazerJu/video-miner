@@ -1,4 +1,9 @@
 import os, time, configparser
+import json
+import shutil
+import subprocess
+import sys
+from django.utils import timezone
 from queue import Queue, Empty
 from collections import defaultdict
 from django.db import transaction
@@ -595,6 +600,150 @@ def generate_subtitles_for_video(video_id: int) -> None:
 """
 
 
+
+# ===== 硬字幕提取 =====
+# 从画面里 OCR 烧录字幕。字幕区域由用户手动框选，所以不做候选带扫描和黑边检测。
+hardsub_task_status = defaultdict(
+    lambda: {
+        "filename": "",
+        "video_id": 0,
+        "region": None,
+        "stages": {"extract": "Queued", "deslide": "Queued"},
+        "stage_progress": {"extract": 0, "deslide": 0},
+        "stage_detail": {"extract": "", "deslide": ""},
+        "stage_weights": {"extract": 0.9, "deslide": 0.1},
+        "total_progress": 0,
+        "segments": 0,
+        "error": "",
+    }
+)
+
+# GLM-OCR 的 ONNX 视觉塔加 llama.cpp decoder 一起占 6-8 GB，多个提取任务不能并发。
+# 注意：这把锁只让硬字幕任务之间串行，转录和摘要不走这把锁，跨任务抢卡依然可能发生。
+hardsub_gpu_lock = threading.Lock()
+
+
+def _hardsub_update(video_id, stage, status, progress=None, detail=None):
+    task = hardsub_task_status.get(video_id)
+    if task is None or stage not in task["stages"]:
+        return
+    task["stages"][stage] = status
+    if detail is not None:
+        task["stage_detail"][stage] = detail
+    if progress is not None:
+        task["stage_progress"][stage] = min(100, max(0, progress))
+    elif status == "Completed":
+        task["stage_progress"][stage] = 100
+    elif status == "Running" and task["stage_progress"][stage] == 0:
+        task["stage_progress"][stage] = 2.5
+    task["total_progress"] = round(
+        sum(task["stage_weights"][k] * task["stage_progress"][k] for k in task["stage_progress"]), 1
+    )
+
+
+def _hardsub_env():
+    """ONNX 的 CUDA EP 要 libcudnn.so.9，它在 venv 的 nvidia/cudnn/lib 下。
+    不挂上去会静默回落 CPU：实测同一段 120 秒视频 5.7 秒变 81 秒，慢 14 倍。"""
+    env = os.environ.copy()
+    cudnn = os.path.join(
+        os.path.dirname(os.path.dirname(sys.executable)),
+        "lib", f"python3.{sys.version_info.minor}", "site-packages", "nvidia", "cudnn", "lib",
+    )
+    if os.path.isdir(cudnn):
+        env["LD_LIBRARY_PATH"] = cudnn + os.pathsep + env.get("LD_LIBRARY_PATH", "")
+    env.setdefault("GLM_OCR_PRECISION", "fp16")
+    return env
+
+
+def run_hardsub_for_video(video_id: int) -> None:
+    """跑提取脚本，解析它吐的进度行，完成后跑 deslide 并落盘。"""
+    task = hardsub_task_status.get(video_id)
+    if task is None:
+        return
+    try:
+        video = Video.objects.get(pk=video_id)
+    except Video.DoesNotExist:
+        task["error"] = "video not found"
+        _hardsub_update(video_id, "extract", "Failed", detail="视频不存在")
+        return
+
+    media_path = os.path.join(settings.MEDIA_ROOT, "saved_video", video.url or "")
+    if not os.path.exists(media_path):
+        task["error"] = "media file missing"
+        _hardsub_update(video_id, "extract", "Failed", detail="找不到视频文件")
+        return
+
+    region = task.get("region") or {}
+    region_arg = "%s,%s,%s,%s" % (region.get("x", 0), region.get("y", 0.84),
+                                  region.get("w", 1.0), region.get("h", 0.13))
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    raw_out = os.path.join("work_dir", "temp", f"hardsub_{video_id}.srt")
+    os.makedirs(os.path.dirname(raw_out), exist_ok=True)
+    zh_name = f"{video_id}_zh.srt"
+    zh_path = os.path.join(SAVE_DIR, zh_name)
+    en_path = os.path.join(SAVE_DIR, f"{video_id}_en.srt") if task.get("keep_en") else ""
+
+    script = os.path.join(settings.BASE_DIR, "utils", "hardsub", "extract_hardsub.py")
+    cmd = [sys.executable, script, "--video", media_path, "--out", raw_out,
+           "--region", region_arg, "--fps", str(task.get("fps") or 4)]
+    if en_path:
+        cmd += ["--en-out", en_path]
+
+    with hardsub_gpu_lock:
+        _hardsub_update(video_id, "extract", "Running", detail="正在解码与识别")
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, env=_hardsub_env(), cwd=str(settings.BASE_DIR))
+            duration = None
+            for line in proc.stdout:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    evt = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if evt.get("type") == "setup":
+                    duration = evt.get("duration") or None
+                    _hardsub_update(video_id, "extract", "Running", progress=2,
+                                    detail="极性 %s" % evt.get("polarity", ""))
+                elif evt.get("type") == "progress" and duration:
+                    pct = int(min(99, evt.get("seconds", 0) / duration * 100))
+                    task["segments"] = evt.get("segments", 0)
+                    _hardsub_update(video_id, "extract", "Running", progress=pct,
+                                    detail="%d 段 / %.0f 分钟" % (evt.get("segments", 0),
+                                                                  evt.get("seconds", 0) / 60))
+                elif evt.get("type") == "done":
+                    task["segments"] = evt.get("segments", 0)
+            proc.wait()
+            if proc.returncode != 0:
+                err = (proc.stderr.read() or "")[-300:]
+                task["error"] = err
+                _hardsub_update(video_id, "extract", "Failed", detail=err[:120])
+                return
+        except Exception as exc:
+            logger.exception("硬字幕提取失败 video=%s", video_id)
+            task["error"] = str(exc)[:300]
+            _hardsub_update(video_id, "extract", "Failed", detail=str(exc)[:120])
+            return
+    _hardsub_update(video_id, "extract", "Completed")
+
+    # deslide：按出现率剔掉渗进字幕带的幻灯片文字和常驻横幅
+    _hardsub_update(video_id, "deslide", "Running")
+    try:
+        deslide = os.path.join(settings.BASE_DIR, "utils", "hardsub", "deslide.py")
+        subprocess.run([sys.executable, deslide, raw_out, zh_path],
+                       check=True, capture_output=True, text=True, cwd=str(settings.BASE_DIR))
+    except Exception:
+        logger.warning("deslide 失败，保留未过滤的结果 video=%s", video_id)
+        shutil.copy2(raw_out, zh_path)
+    _hardsub_update(video_id, "deslide", "Completed")
+
+    with transaction.atomic():
+        video.srt_path = zh_name
+        video.content_updated_at = timezone.now()
+        video.save(update_fields=["srt_path", "content_updated_at"])
+
 def process_next_task() -> None:
     """被后台线程循环调用，逐个执行"""
     try:
@@ -607,6 +756,9 @@ def process_next_task() -> None:
         if task_identifier.startswith("ext_"):
             # 外部转录任务
             generate_external_transcription(task_identifier)
+        elif task_identifier.startswith("hs_"):
+            # 硬字幕提取任务
+            run_hardsub_for_video(int(task_identifier[3:]))
         else:
             # 内部视频转录任务
             video_id = int(task_identifier)

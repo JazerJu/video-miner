@@ -117,12 +117,59 @@ const tableStyle = computed(() =>
   isDark.value ? 'width: 100%; background: #334155' : 'width: 100%; background: #ffffff',
 )
 
+interface HardsubRow {
+  id: number
+  fileName: string
+  extract: TaskStageStatus
+  deslide: TaskStageStatus
+  totalProgress: number
+  detail: string
+  segments: number
+  error: string
+}
+
 const subtitleTasks = ref<TaskRow[]>([])
+const hardsubTasks = ref<HardsubRow[]>([])
 const downloadTasks = ref<DownloadTaskRow[]>([])
 const summaryTasks = ref<SummaryTaskRow[]>([])
 let timer_download: number | undefined
 let timer_subtitle: number | undefined
 let timer_summary: number | undefined
+let timer_hardsub: number | undefined
+
+async function fetchHardsubTasks() {
+  try {
+    const res = await fetch(`${BACKEND}/api/tasks/hardsub/status`, { credentials: 'include' })
+    if (!res.ok) return
+    const raw = (await res.json()) as Record<string, any>
+    hardsubTasks.value = Object.entries(raw).map(([id, info]) => ({
+      id: +id,
+      fileName: info.filename || '',
+      extract: info.stages?.extract ?? 'Queued',
+      deslide: info.stages?.deslide ?? 'Queued',
+      totalProgress: info.total_progress || 0,
+      detail: info.stage_detail?.extract || '',
+      segments: info.segments || 0,
+      error: info.error || '',
+    }))
+  } catch {
+    // 轮询失败不打扰用户，下一轮再试
+  }
+}
+
+async function hardsubAction(id: number, action: 'retry' | 'delete') {
+  try {
+    const res = await fetch(`${BACKEND}/api/tasks/hardsub/${id}/${action}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') },
+    })
+    if (!res.ok) throw new Error(await res.text())
+    await fetchHardsubTasks()
+  } catch (err) {
+    ElMessage.error(`${err}`)
+  }
+}
 
 async function fetchSubtitleTasks() {
   try {
@@ -316,16 +363,77 @@ onMounted(() => {
   timer_download = window.setInterval(fetchDownloadTasks, POLL_INTERVAL)
   timer_subtitle = window.setInterval(fetchSubtitleTasks, POLL_INTERVAL)
   timer_summary = window.setInterval(fetchSummaryTasks, POLL_INTERVAL)
+  fetchHardsubTasks()
+  timer_hardsub = window.setInterval(fetchHardsubTasks, POLL_INTERVAL)
 })
 
 onBeforeUnmount(() => {
   clearInterval(timer_download)
   clearInterval(timer_subtitle)
   clearInterval(timer_summary)
+  clearInterval(timer_hardsub)
 })
 </script>
 
 <template>
+  <!-- 硬字幕提取任务 -->
+  <div v-if="hardsubTasks.length" class="mb-8">
+    <div
+      class="bg-gradient-to-r from-white to-slate-50 dark:from-slate-800/90 dark:to-slate-700/90 backdrop-blur-lg rounded-2xl p-6 border border-slate-200 dark:border-slate-600/50 shadow-2xl"
+    >
+      <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-6">{{ t('hardsubTasks') }}</h2>
+
+      <el-table
+        :data="hardsubTasks"
+        class="dark-table"
+        :header-cell-style="headerCellStyle"
+        :cell-style="cellStyle"
+        :row-style="rowStyle"
+        :style="tableStyle"
+      >
+        <el-table-column prop="fileName" :label="t('filename')" width="360" />
+
+        <el-table-column :label="t('totalProgress')" width="200">
+          <template #default="{ row }">
+            <div class="flex items-center">
+              <div class="w-28 bg-slate-200 dark:bg-gray-600 rounded-full h-3 mr-2">
+                <div
+                  class="bg-emerald-500 h-3 rounded-full transition-all"
+                  :style="{ width: `${row.totalProgress}%` }"
+                />
+              </div>
+              <span class="text-xs text-slate-600 dark:text-slate-300">{{ row.totalProgress }}%</span>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('hardsubStageExtract')" min-width="150">
+          <template #default="{ row }">
+            <span class="text-sm">{{ row.extract }}</span>
+            <span v-if="row.detail" class="ml-2 text-xs text-slate-400">{{ row.detail }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('hardsubStageDeslide')" min-width="110">
+          <template #default="{ row }">
+            <span class="text-sm">{{ row.deslide }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('operation')" width="120" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" text @click="hardsubAction(row.id, 'retry')">
+              {{ t('retry') }}
+            </el-button>
+            <el-button size="small" text type="danger" @click="hardsubAction(row.id, 'delete')">
+              {{ t('delete') }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+  </div>
+
   <!-- 文件上传任务 -->
   <div v-if="uploadTasks.length" class="mb-8">
     <div

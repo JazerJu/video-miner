@@ -18,6 +18,7 @@ import TasksView from '@/components/Home/TasksView.vue'
 import type { Video, Category, RequestVideo } from '@/types/media'
 import StreamMediaCard from '@/components/Home/StreamMediaCard.vue'
 import EnhancedSubtitleDialog from '@/components/dialogs/EnhancedSubtitleDialog.vue'
+import HardsubDialog from '@/components/dialogs/HardsubDialog.vue'
 import SettingsPanel from '@/components/Home/SettingsPanel.vue'
 import LibraryView from '@/components/Home/LibraryView.vue'
 import ThumbnailDialog from '@/components/dialogs/ThumbnailDialog.vue'
@@ -127,6 +128,15 @@ function generateSubtitle(video: Video): void {
   // Set the selected video for the dialog
   selectedIds.value = [video.id]
   showSubtitleDialog.value = true
+}
+
+// 硬字幕提取：字幕区域要用户自己框，所以按单个视频走对话框，不做批量
+const showHardsubDialog = ref(false)
+const hardsubVideo = ref<Video | null>(null)
+
+function extractHardsub(video: Video): void {
+  hardsubVideo.value = video
+  showHardsubDialog.value = true
 }
 
 /** 删除视频，并在所有本地 state 中同步移除 */
@@ -790,6 +800,7 @@ watch(
           :batch-mode="isBatchMode"
           v-model:selected-ids="selectedIds"
           @generate-subtitle="generateSubtitle"
+          @extract-hardsub="extractHardsub"
           @delete="deleteVideo"
           @edit-thumbnail="onEditThumbnail"
           @rename-video="handleVideoRenamed"
@@ -824,6 +835,7 @@ watch(
           :batch-mode="isBatchMode"
           v-model:selected-ids="selectedIds"
           @generate-subtitle="generateSubtitle"
+          @extract-hardsub="extractHardsub"
           @delete="deleteVideo"
           @edit-thumbnail="onEditThumbnail"
         />
@@ -861,6 +873,14 @@ watch(
       :video-id-list="selectedIds"
       :video-name-list="selectedVideos.map((v) => v.name)"
       @submitted="onSubtitleSubmitted"
+    />
+
+    <HardsubDialog
+      v-if="hardsubVideo"
+      v-model="showHardsubDialog"
+      :video-id="hardsubVideo.id"
+      :video-name="hardsubVideo.name"
+      :video-file="hardsubVideo.url"
     />
 
     <!-- 实时转录对话框 -->

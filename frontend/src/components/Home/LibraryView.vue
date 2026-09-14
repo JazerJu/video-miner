@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:selectedIds', ids: number[]): void
   (e: 'generateSubtitle', video: Video): void
+  (e: 'extractHardsub', video: Video): void
   (e: 'delete', video: Video): void
   (e: 'editThumbnail', video: Video): void
   (e: 'renameVideo', ...args: [Video, string]): void
@@ -923,6 +924,7 @@ watch(showFilterPanel, (val) => {
         @update:checked="() => toggleSelection(video.id)"
         @edit-thumbnail="() => $emit('editThumbnail', video)"
         @generate-subtitle="() => $emit('generateSubtitle', video)"
+        @extract-hardsub="() => $emit('extractHardsub', video)"
         @delete="() => $emit('delete', video)"
         @rename-video="(v: Video, name: string) => $emit('renameVideo', v, name)"
       />

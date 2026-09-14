@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { More, EditPen } from '@element-plus/icons-vue'
-import { Clock3, Play, Upload, Headphones, Link, SquarePen } from 'lucide-vue-next'
+import { Clock3, Play, Upload, Headphones, Link, SquarePen, ScanText } from 'lucide-vue-next'
 import { PictureFilled } from '@element-plus/icons-vue'
 import { computed, ref, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -19,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'edit-thumbnail', video: Video): void
   (e: 'generate-subtitle', video: Video): void
+  (e: 'extract-hardsub', video: Video): void
   (e: 'delete', video: Video): void
   (e: 'move-category', video: Video): void
   (e: 'update:checked', v: boolean): void
@@ -347,6 +348,9 @@ const LANG_OPTIONS = [
               <el-dropdown-item @click="openEditor">
                 <el-icon class="mr-2"><EditPen /></el-icon> {{ t('editSubtitle') }}
               </el-dropdown-item>
+              <el-dropdown-item @click="emit('extract-hardsub', props.video)">
+                <ScanText class="w-4 h-4 mr-2" /> {{ t('hardsubExtract') }}
+              </el-dropdown-item>
               <el-dropdown-item @click="startEditing" divided>
                 <SquarePen class="w-4 h-4 mr-2" /> {{ t('rename') }}
               </el-dropdown-item>
@@ -506,6 +510,9 @@ const LANG_OPTIONS = [
             </el-dropdown-item>
             <el-dropdown-item @click="openEditor">
               <el-icon class="mr-2"><EditPen /></el-icon> {{ t('editSubtitle') }}
+            </el-dropdown-item>
+            <el-dropdown-item @click="emit('extract-hardsub', props.video)">
+              <ScanText class="w-4 h-4 mr-2" /> {{ t('hardsubExtract') }}
             </el-dropdown-item>
             <el-dropdown-item @click="startEditing" divided>
               <SquarePen class="w-4 h-4 mr-2" /> {{ t('rename') }}

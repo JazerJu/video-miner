@@ -33,6 +33,8 @@ from .views.categories import CategoryActionView
 from .views.media import MediaActionView
 from .views.media_optimized import OptimizedMediaView
 from .views.subtitles import SubtitleActionView
+from .views.hardsub import (HardsubAddView, HardsubStatusView,
+                            HardsubTaskActionView, VideoFrameView)
 from .views.waveform import WaveformAPIView, WaveformListView
 from .views.external_transcription import (
     ExternalTranscriptionSubmitView,
@@ -251,6 +253,8 @@ urlpatterns = [
         {"action": "update_thumbnail"},
         name="video_update_thumbnail",
     ),
+    # 必须排在下面的 <str:action> 通配路由前面，否则会被它当成未知 action
+    path("api/videos/<int:video_id>/frame", VideoFrameView.as_view(), name="video_frame"),
     path(
         "api/videos/<int:video_id>/<str:action>",
         VideoActionView.as_view(),
@@ -389,6 +393,13 @@ urlpatterns = [
     ),
     path(
         "api/tasks/subtitle_generate/add", subtitles.SubtitleGenerationAddView.as_view()
+    ),
+    path("api/tasks/hardsub/add", HardsubAddView.as_view(), name="hardsub_add"),
+    path("api/tasks/hardsub/status", HardsubStatusView.as_view(), name="hardsub_status"),
+    path(
+        "api/tasks/hardsub/<int:video_id>/<str:action>",
+        HardsubTaskActionView.as_view(),
+        name="hardsub_task_action",
     ),
     path(
         "api/tasks/subtitle_translation/add",

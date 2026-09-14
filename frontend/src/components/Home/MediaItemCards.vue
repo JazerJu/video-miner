@@ -19,6 +19,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: 'extract-hardsub', video: Video): void
   (e: 'generate-subtitle', video: Video): void
   (e: 'delete', video: Video): void
   (e: 'thumbnail-updated', video: Video): void
@@ -42,6 +43,7 @@ const emit = defineEmits<{
         @edit-thumbnail="emit('edit-thumbnail', $event)"
         @update:checked="toggle(item.id, $event)"
         @generate-subtitle="emit('generate-subtitle', item)"
+        @extract-hardsub="emit('extract-hardsub', item)"
         @delete="emit('delete', item)"
       />
     </template>
