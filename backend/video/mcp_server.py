@@ -34,6 +34,83 @@ def _json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, default=str)
 
 
+
+def _watch_base_url() -> str:
+    """用户浏览器能打开的地址，和 MCP 回调用的内网地址不是一回事。"""
+    base = os.environ.get("VIDGO_PUBLIC_BASE", "").strip()
+    if base:
+        return base.rstrip("/")
+    host = os.environ.get("VIDGO_PUBLIC_HOST", "").strip() or "127.0.0.1"
+    port = os.environ.get("VIDGO_PORT", "").strip() or os.environ.get("PORT", "8080")
+    return f"http://{host}:{port}"
+
+
+def _watch_url(filename: str, seconds: float | None = None) -> str:
+    """观看页支持 #t= 跳转，秒数直接拼在后面。"""
+    if not filename:
+        return ""
+    url = f"{_watch_base_url()}/watch/{quote(filename, safe='')}"
+    if seconds is not None and seconds > 0:
+        url += f"#t={int(seconds)}"
+    return url
+
+
+SUBTITLE_DIR_NAME = "saved_srt"
+
+
+def _subtitle_path(video_id: int, lang: str) -> Path:
+    return Path(settings.MEDIA_ROOT) / SUBTITLE_DIR_NAME / f"{video_id}_{lang}.srt"
+
+
+def _available_subtitle_langs(video_id: int) -> list[str]:
+    return [lg for lg in sorted(SUBTITLE_LANGUAGES) if _subtitle_path(video_id, lg).exists()]
+
+
+_SRT_TIME = re.compile(
+    r"(\d+):(\d+):(\d+)[.,](\d+)\s*-->\s*(\d+):(\d+):(\d+)[.,](\d+)"
+)
+
+
+def _parse_srt_file(path: Path) -> list[dict[str, Any]]:
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    out: list[dict[str, Any]] = []
+    for block in raw.strip().split("\n\n"):
+        block_lines = block.strip().splitlines()
+        if len(block_lines) < 3:
+            continue
+        m = _SRT_TIME.search(block_lines[1])
+        if not m:
+            continue
+        g = [int(x) for x in m.groups()]
+        out.append({
+            "start": round(g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000, 3),
+            "end": round(g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000, 3),
+            "text": " ".join(block_lines[2:]).strip(),
+        })
+    return out
+
+
+def _vidunder_structure(video_id: int) -> dict[str, Any] | None:
+    """找这个视频最近一次视频理解产出的结构化画面数据。"""
+    import glob as _glob
+
+    db_dir = Path(settings.MEDIA_ROOT) / "vidunder" / "db"
+    hits = sorted(_glob.glob(str(db_dir / f"*_{video_id}.json")))
+    if not hits:
+        return None
+    try:
+        db = json.loads(Path(hits[-1]).read_text(encoding="utf-8"))
+        structure_path = db.get("structure_path")
+        if not structure_path or not Path(structure_path).exists():
+            return None
+        return json.loads(Path(structure_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def _run_with_db_cleanup(func, *args, **kwargs):
     close_old_connections()
     try:
@@ -118,6 +195,8 @@ def _video_payload(video: Video, include_filename: bool = True) -> dict[str, Any
         "video_source": video.video_source or "",
         "source_url": video.source_url or "",
         "has_subtitle": bool(video.srt_path),
+        "subtitle_languages": _available_subtitle_langs(video.id),
+        "watch_url": _watch_url(video.url or ""),
     }
     if include_filename:
         payload["filename"] = video.url or ""
@@ -456,9 +535,6 @@ def _mcp_context_root() -> Path:
     return Path(settings.MEDIA_ROOT) / "mcp_context"
 
 
-def _video_build_cases_root() -> Path:
-    return Path(settings.MEDIA_ROOT) / "video_build_cases"
-
 
 def _media_url_for_relative_path(relative_path: str) -> str:
     return f"/media/{relative_path.replace(os.sep, '/')}"
@@ -623,99 +699,17 @@ def _decode_data_url(data_url: str, max_bytes: int = 50_000_000) -> tuple[bytes,
 _SAFE_CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
-def _safe_case_id(case_id: str) -> str:
-    value = (case_id or "").strip()
-    if not _SAFE_CASE_ID_RE.match(value):
-        raise ValueError(
-            "case_id must start with a letter or number and contain only "
-            "letters, numbers, dot, dash, or underscore"
-        )
-    return value
 
 
-def _case_dir(case_id: str) -> Path:
-    safe_id = _safe_case_id(case_id)
-    return _video_build_cases_root() / safe_id
 
 
-def _case_manifest_path(case_id: str) -> Path:
-    return _case_dir(case_id) / "manifest.json"
 
 
-def _new_case_manifest(
-    case_id: str,
-    title: str = "",
-    reference_video_id: int | None = None,
-    description: str = "",
-    tags: list[str] | None = None,
-) -> dict[str, Any]:
-    now = timezone.now().isoformat()
-    return {
-        "case_id": _safe_case_id(case_id),
-        "title": title or case_id,
-        "description": description or "",
-        "reference_video_id": reference_video_id,
-        "tags": _clean_name_list(tags),
-        "created_at": now,
-        "updated_at": now,
-        "assets": [],
-        "runs": [],
-        "experience": [],
-        "evaluations": [],
-    }
 
 
-def _load_case_manifest(case_id: str) -> dict[str, Any]:
-    manifest_path = _case_manifest_path(case_id)
-    if not manifest_path.exists():
-        raise FileNotFoundError("case not found")
-    try:
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"case manifest is invalid: {exc}") from exc
 
 
-def _save_case_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
-    manifest["updated_at"] = timezone.now().isoformat()
-    case_id = _safe_case_id(manifest["case_id"])
-    case_dir = _case_dir(case_id)
-    case_dir.mkdir(parents=True, exist_ok=True)
-    (_case_manifest_path(case_id)).write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return manifest
 
-
-def _load_or_create_case_manifest(
-    case_id: str,
-    title: str = "",
-    reference_video_id: int | None = None,
-    description: str = "",
-    tags: list[str] | None = None,
-) -> tuple[dict[str, Any], bool]:
-    try:
-        return _load_case_manifest(case_id), False
-    except FileNotFoundError:
-        manifest = _new_case_manifest(
-            case_id,
-            title=title,
-            reference_video_id=reference_video_id,
-            description=description,
-            tags=tags,
-        )
-        return _save_case_manifest(manifest), True
-
-
-def _case_public_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
-    payload = json.loads(json.dumps(manifest, ensure_ascii=False, default=str))
-    payload["success"] = True
-    payload["case_root"] = str(_case_dir(payload["case_id"]))
-    return payload
-
-
-def _case_artifact_relative_path(path: Path) -> str:
-    return str(path.relative_to(settings.MEDIA_ROOT))
 
 
 def _context_manifest_path(context_id: str) -> Path:
@@ -942,243 +936,11 @@ def _read_media_file_sync(
     return _json(payload)
 
 
-def _create_video_build_case_sync(
-    case_id: str,
-    title: str = "",
-    reference_video_id: int | None = None,
-    description: str = "",
-    tags: list[str] | None = None,
-) -> str:
-    try:
-        if reference_video_id is not None and not Video.objects.filter(id=reference_video_id).exists():
-            return _json({"success": False, "error": "reference_video_id not found"})
-        manifest, created = _load_or_create_case_manifest(
-            case_id,
-            title=title,
-            reference_video_id=reference_video_id,
-            description=description,
-            tags=tags,
-        )
-        if not created:
-            changed = False
-            if title and manifest.get("title") != title:
-                manifest["title"] = title
-                changed = True
-            if description and manifest.get("description") != description:
-                manifest["description"] = description
-                changed = True
-            if reference_video_id is not None and manifest.get("reference_video_id") != reference_video_id:
-                manifest["reference_video_id"] = reference_video_id
-                changed = True
-            new_tags = _clean_name_list(tags)
-            if new_tags:
-                merged_tags = list(dict.fromkeys([*manifest.get("tags", []), *new_tags]))
-                if merged_tags != manifest.get("tags", []):
-                    manifest["tags"] = merged_tags
-                    changed = True
-            if changed:
-                manifest = _save_case_manifest(manifest)
-        payload = _case_public_manifest(manifest)
-        payload["created"] = created
-        return _json(payload)
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
 
 
-def _get_video_build_case_sync(case_id: str, query: str = "", max_experience_chars: int = 12000) -> str:
-    try:
-        manifest = _load_case_manifest(case_id)
-        payload = _case_public_manifest(manifest)
-        if query:
-            q = query.lower()
-            matches = []
-            for item in manifest.get("experience", []):
-                haystack = " ".join(
-                    str(item.get(key, ""))
-                    for key in ("title", "markdown", "tags", "created_at")
-                ).lower()
-                if q in haystack:
-                    matches.append(item)
-            payload["experience_matches"] = matches
-        max_experience_chars = max(1000, min(int(max_experience_chars), 100_000))
-        total = 0
-        trimmed = []
-        for item in payload.get("experience", []):
-            markdown = item.get("markdown", "")
-            remaining = max_experience_chars - total
-            if remaining <= 0:
-                break
-            if len(markdown) > remaining:
-                item = {**item, "markdown": markdown[:remaining], "truncated": True}
-            total += len(item.get("markdown", ""))
-            trimmed.append(item)
-        payload["experience"] = trimmed
-        payload["experience_chars"] = total
-        return _json(payload)
-    except FileNotFoundError:
-        return _json({"success": False, "error": "case not found"})
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
 
 
-def _add_case_asset_sync(
-    case_id: str,
-    asset_type: str,
-    caption: str = "",
-    usage: str = "",
-    source: str = "",
-    path: str = "",
-    data_url: str = "",
-    filename: str = "",
-    metadata: dict[str, Any] | None = None,
-) -> str:
-    try:
-        manifest, _ = _load_or_create_case_manifest(case_id)
-        case_dir = _case_dir(case_id)
-        assets_dir = case_dir / "assets"
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        asset_type = (asset_type or "asset").strip() or "asset"
-        now = timezone.now().isoformat()
-        payload: dict[str, Any] = {
-            "asset_id": "",
-            "type": asset_type,
-            "caption": caption or "",
-            "usage": usage or "",
-            "source": source or "",
-            "metadata": metadata or {},
-            "created_at": now,
-        }
 
-        if data_url:
-            raw, mime = _decode_data_url(data_url)
-            digest = hashlib.sha256(raw).hexdigest()[:16]
-            ext = Path(filename).suffix.lower() if filename else ""
-            if not ext:
-                ext = mimetypes.guess_extension(mime) or ".bin"
-            safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(filename).stem) if filename else asset_type
-            stored_name = f"{safe_name}_{digest}{ext}"
-            file_path = assets_dir / stored_name
-            file_path.write_bytes(raw)
-            relative_path = _case_artifact_relative_path(file_path)
-            payload.update(
-                {
-                    "relative_path": relative_path,
-                    "media_url": _media_url_for_relative_path(relative_path),
-                    "mime_type": mime,
-                    "size": len(raw),
-                    "sha256": hashlib.sha256(raw).hexdigest(),
-                }
-            )
-        elif path:
-            input_path = Path(path)
-            if input_path.exists() and input_path.is_file():
-                root = Path(settings.MEDIA_ROOT).resolve()
-                resolved = input_path.resolve()
-                try:
-                    relative_path = str(resolved.relative_to(root))
-                    payload.update(
-                        {
-                            "relative_path": relative_path,
-                            "media_url": _media_url_for_relative_path(relative_path),
-                            "size": resolved.stat().st_size,
-                        }
-                    )
-                except ValueError:
-                    return _json(
-                        {
-                            "success": False,
-                            "error": "path must be under MEDIA_ROOT or pass data_url",
-                        }
-                    )
-            else:
-                payload["external_path"] = path
-        else:
-            return _json({"success": False, "error": "Provide path or data_url"})
-
-        asset_key = json.dumps(
-            {
-                "type": payload.get("type"),
-                "relative_path": payload.get("relative_path"),
-                "external_path": payload.get("external_path"),
-                "caption": payload.get("caption"),
-                "usage": payload.get("usage"),
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        payload["asset_id"] = "asset_" + hashlib.sha256(asset_key.encode("utf-8")).hexdigest()[:12]
-        manifest.setdefault("assets", []).append(payload)
-        manifest = _save_case_manifest(manifest)
-        return _json({"success": True, "case_id": manifest["case_id"], "asset": payload})
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
-
-
-def _add_case_experience_sync(
-    case_id: str,
-    title: str,
-    markdown: str,
-    tags: list[str] | None = None,
-    source: str = "",
-) -> str:
-    try:
-        if not markdown.strip():
-            return _json({"success": False, "error": "markdown is required"})
-        manifest, _ = _load_or_create_case_manifest(case_id)
-        payload = {
-            "experience_id": "",
-            "title": title or "Untitled experience",
-            "markdown": markdown,
-            "tags": _clean_name_list(tags),
-            "source": source or "",
-            "created_at": timezone.now().isoformat(),
-        }
-        key = json.dumps(
-            {
-                "title": payload["title"],
-                "markdown": payload["markdown"],
-                "source": payload["source"],
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        payload["experience_id"] = "exp_" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
-        manifest.setdefault("experience", []).append(payload)
-        manifest = _save_case_manifest(manifest)
-        return _json({"success": True, "case_id": manifest["case_id"], "experience": payload})
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
-
-
-def _register_case_run_sync(
-    case_id: str,
-    run_id: str,
-    output_asset_id: str = "",
-    output_path: str = "",
-    render_manifest: dict[str, Any] | None = None,
-    change_log: list[dict[str, Any]] | None = None,
-    status: str = "draft",
-) -> str:
-    try:
-        if not run_id.strip():
-            return _json({"success": False, "error": "run_id is required"})
-        manifest, _ = _load_or_create_case_manifest(case_id)
-        run = {
-            "run_id": run_id.strip(),
-            "status": status or "draft",
-            "output_asset_id": output_asset_id or "",
-            "output_path": output_path or "",
-            "render_manifest": render_manifest or {},
-            "change_log": change_log or [],
-            "updated_at": timezone.now().isoformat(),
-        }
-        runs = [item for item in manifest.get("runs", []) if item.get("run_id") != run["run_id"]]
-        runs.append(run)
-        manifest["runs"] = runs
-        manifest = _save_case_manifest(manifest)
-        return _json({"success": True, "case_id": manifest["case_id"], "run": run})
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
 
 
 def _frame_path(frame: dict[str, Any]) -> Path | None:
@@ -1210,365 +972,31 @@ def _crop_box(crop: dict[str, Any] | None, image_size: tuple[int, int]) -> tuple
     return left, top, right, bottom
 
 
-def _compare_images(
-    reference_path: Path,
-    output_path: Path,
-    crop: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], Any, Any, Any]:
-    from PIL import Image, ImageChops, ImageStat
-
-    reference = Image.open(reference_path).convert("RGB")
-    output = Image.open(output_path).convert("RGB")
-    if reference.size != output.size:
-        output = output.resize(reference.size)
-    box = _crop_box(crop, reference.size)
-    if box:
-        reference = reference.crop(box)
-        output = output.crop(box)
-    diff = ImageChops.difference(reference, output)
-    stat = ImageStat.Stat(diff)
-    mean = [float(v) for v in stat.mean]
-    rms = [float(v) for v in stat.rms]
-    extrema = diff.getextrema()
-    max_delta = max(channel[1] for channel in extrema)
-    mae = sum(mean) / len(mean)
-    rms_avg = sum(rms) / len(rms)
-    metrics = {
-        "reference": str(reference_path),
-        "output": str(output_path),
-        "size": {"width": reference.width, "height": reference.height},
-        "crop": crop or None,
-        "mae": round(mae, 4),
-        "normalized_mae": round(mae / 255.0, 6),
-        "rms": round(rms_avg, 4),
-        "normalized_rms": round(rms_avg / 255.0, 6),
-        "max_channel_delta": int(max_delta),
-    }
-    return metrics, reference, output, diff
 
 
-def _persist_evaluation(
-    case_id: str | None,
-    evaluation: dict[str, Any],
-    run_id: str = "",
-) -> dict[str, Any]:
-    if not case_id:
-        return evaluation
-    manifest, _ = _load_or_create_case_manifest(case_id)
-    item = {**evaluation, "run_id": run_id or evaluation.get("run_id", "")}
-    manifest.setdefault("evaluations", []).append(item)
-    _save_case_manifest(manifest)
-    return item
 
 
-def _compare_video_contexts_sync(
-    reference_context_id: str,
-    output_context_id: str,
-    case_id: str | None = None,
-    run_id: str = "",
-    crop: dict[str, Any] | None = None,
-    frame_limit: int = 30,
-    save_artifacts: bool = True,
-) -> str:
-    reference_manifest = _load_context_manifest_sync(reference_context_id)
-    if not reference_manifest.get("success", True):
-        return _json(reference_manifest)
-    output_manifest = _load_context_manifest_sync(output_context_id)
-    if not output_manifest.get("success", True):
-        return _json(output_manifest)
-
-    reference_frames = reference_manifest.get("frames", [])
-    output_frames = output_manifest.get("frames", [])
-    frame_limit = max(1, min(int(frame_limit), 100))
-    pair_count = min(len(reference_frames), len(output_frames), frame_limit)
-    if pair_count <= 0:
-        return _json({"success": False, "error": "no frame pairs to compare"})
-
-    evaluation_id = "eval_" + hashlib.sha256(
-        json.dumps(
-            {
-                "reference_context_id": reference_context_id,
-                "output_context_id": output_context_id,
-                "crop": crop,
-                "frame_limit": frame_limit,
-                "run_id": run_id,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()[:12]
-    artifact_dir = (
-        _case_dir(case_id) / "evaluations" / evaluation_id
-        if case_id
-        else _mcp_context_root() / "comparisons" / evaluation_id
-    )
-    if save_artifacts:
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-
-    frames = []
-    for index in range(pair_count):
-        ref_frame = reference_frames[index]
-        out_frame = output_frames[index]
-        ref_path = _frame_path(ref_frame)
-        out_path = _frame_path(out_frame)
-        if ref_path is None or out_path is None:
-            frames.append(
-                {
-                    "index": index,
-                    "success": False,
-                    "error": "frame file missing",
-                    "reference_time": ref_frame.get("time"),
-                    "output_time": out_frame.get("time"),
-                }
-            )
-            continue
-        metrics, ref_img, out_img, diff_img = _compare_images(ref_path, out_path, crop=crop)
-        metrics.update(
-            {
-                "index": index,
-                "success": True,
-                "reference_time": ref_frame.get("time"),
-                "output_time": out_frame.get("time"),
-            }
-        )
-        if save_artifacts:
-            diff_path = artifact_dir / f"frame_{index:04d}_diff.jpg"
-            side_path = artifact_dir / f"frame_{index:04d}_side_by_side.jpg"
-            diff_img.save(diff_path, quality=92)
-            from PIL import Image
-
-            side = Image.new("RGB", (ref_img.width + out_img.width, max(ref_img.height, out_img.height)))
-            side.paste(ref_img, (0, 0))
-            side.paste(out_img, (ref_img.width, 0))
-            side.save(side_path, quality=92)
-            for key, path in (("diff_media_url", diff_path), ("side_by_side_media_url", side_path)):
-                relative = _case_artifact_relative_path(path)
-                metrics[key] = _media_url_for_relative_path(relative)
-        frames.append(metrics)
-
-    valid = [item for item in frames if item.get("success")]
-    aggregate = {
-        "frame_pairs": pair_count,
-        "valid_pairs": len(valid),
-        "mean_mae": round(sum(item["mae"] for item in valid) / len(valid), 4) if valid else None,
-        "mean_normalized_mae": round(sum(item["normalized_mae"] for item in valid) / len(valid), 6) if valid else None,
-        "max_channel_delta": max((item["max_channel_delta"] for item in valid), default=None),
-    }
-    evaluation = {
-        "success": True,
-        "evaluation_id": evaluation_id,
-        "type": "deterministic_context_compare",
-        "created_at": timezone.now().isoformat(),
-        "reference_context_id": reference_context_id,
-        "output_context_id": output_context_id,
-        "run_id": run_id,
-        "crop": crop or None,
-        "aggregate": aggregate,
-        "frames": frames,
-        "confidence_note": "Deterministic pixel metrics only; use VLM/OCR for semantic judgment.",
-    }
-    try:
-        _persist_evaluation(case_id, evaluation, run_id=run_id)
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
-    return _json(evaluation)
 
 
-def _run_glm_ocr_on_image(image_path: Path, prompt: str, max_tokens: int) -> str:
-    vid_under_dir = Path(__file__).resolve().parents[1] / "vid_under"
-    inserted = False
-    if str(vid_under_dir) not in sys.path:
-        sys.path.insert(0, str(vid_under_dir))
-        inserted = True
-    try:
-        from external_api import call_glm_ocr
-
-        return call_glm_ocr(str(image_path), prompt=prompt, max_tokens=max_tokens)
-    finally:
-        if inserted:
-            try:
-                sys.path.remove(str(vid_under_dir))
-            except ValueError:
-                pass
 
 
-def _ocr_video_context_sync(
-    context_id: str,
-    prompt: str = "Text Recognition:",
-    frame_limit: int = 6,
-    case_id: str | None = None,
-    run_id: str = "",
-    max_tokens: int = 1024,
-) -> str:
-    manifest = _load_context_manifest_sync(context_id)
-    if not manifest.get("success", True):
-        return _json(manifest)
-    frames = manifest.get("frames", [])
-    frame_limit = max(1, min(int(frame_limit), 20))
-    max_tokens = max(32, min(int(max_tokens), 2048))
-    results = []
-    for frame in frames[:frame_limit]:
-        frame_path = _frame_path(frame)
-        if frame_path is None:
-            results.append(
-                {
-                    "index": frame.get("index"),
-                    "time": frame.get("time"),
-                    "success": False,
-                    "error": "frame file missing",
-                }
-            )
-            continue
-        try:
-            text = _run_glm_ocr_on_image(frame_path, prompt, max_tokens)
-            results.append(
-                {
-                    "index": frame.get("index"),
-                    "time": frame.get("time"),
-                    "success": bool(text),
-                    "text": text,
-                    "text_chars": len(text or ""),
-                    "frame_media_url": frame.get("media_url"),
-                }
-            )
-        except Exception as exc:
-            results.append(
-                {
-                    "index": frame.get("index"),
-                    "time": frame.get("time"),
-                    "success": False,
-                    "error": str(exc),
-                    "frame_media_url": frame.get("media_url"),
-                }
-            )
-    evaluation = {
-        "success": any(item.get("success") for item in results),
-        "evaluation_id": "ocr_" + hashlib.sha256(
-            json.dumps(
-                {"context_id": context_id, "prompt": prompt, "frame_limit": frame_limit, "run_id": run_id},
-                ensure_ascii=False,
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()[:12],
-        "type": "glm_ocr_context",
-        "created_at": timezone.now().isoformat(),
-        "context_id": context_id,
-        "run_id": run_id,
-        "prompt": prompt,
-        "model": "GLM-OCR via VidUnder external_api.call_glm_ocr",
-        "results": results,
-        "confidence_note": "OCR is text-focused. Use deterministic compare for geometry/color and MiniCPM for coarse visual semantics.",
-    }
-    try:
-        _persist_evaluation(case_id, evaluation, run_id=run_id)
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
-    return _json(evaluation)
-
-
-def _run_minicpm_review_on_frames(
-    frame_paths: list[Path],
-    source_video_path: Path | None,
-    prompt: str,
-    max_tokens: int,
-) -> str:
-    vid_under_dir = Path(__file__).resolve().parents[1] / "vid_under"
-    inserted = False
-    if str(vid_under_dir) not in sys.path:
-        sys.path.insert(0, str(vid_under_dir))
-        inserted = True
-    try:
-        from PIL import Image
-        from agent import VideoAgent
-
-        frames = [Image.open(path).convert("RGB") for path in frame_paths]
-        db = {"clips": [], "video_path": str(source_video_path or "")}
-        agent = VideoAgent(db, [], video_path=str(source_video_path or ""))
-        try:
-            vis = agent._frames_to_visual(frames)
-            return agent._visual_ask(prompt, vis, max_tokens)
-        finally:
-            agent.unload_models()
-    finally:
-        if inserted:
-            try:
-                sys.path.remove(str(vid_under_dir))
-            except ValueError:
-                pass
-
-
-def _vlm_review_video_context_sync(
-    context_id: str,
-    prompt: str,
-    frame_limit: int = 6,
-    case_id: str | None = None,
-    run_id: str = "",
-    max_tokens: int = 512,
-) -> str:
-    manifest = _load_context_manifest_sync(context_id)
-    if not manifest.get("success", True):
-        return _json(manifest)
-    frame_limit = max(1, min(int(frame_limit), 12))
-    max_tokens = max(64, min(int(max_tokens), 2048))
-    frame_paths = []
-    for frame in manifest.get("frames", [])[:frame_limit]:
-        path = _frame_path(frame)
-        if path is not None:
-            frame_paths.append(path)
-    if not frame_paths:
-        return _json({"success": False, "error": "no frame files found"})
-    source_path = _safe_media_path((manifest.get("source") or {}).get("relative_path", ""))
-    try:
-        answer = _run_minicpm_review_on_frames(frame_paths, source_path, prompt, max_tokens)
-        conclusion = "PASS" if answer else "UNCERTAIN"
-        error = ""
-    except Exception as exc:
-        answer = ""
-        conclusion = "UNCERTAIN"
-        error = str(exc)
-    evaluation = {
-        "success": bool(answer),
-        "evaluation_id": "vlm_" + hashlib.sha256(
-            json.dumps(
-                {"context_id": context_id, "prompt": prompt, "frame_limit": frame_limit, "run_id": run_id},
-                ensure_ascii=False,
-                sort_keys=True,
-            ).encode("utf-8")
-        ).hexdigest()[:12],
-        "type": "minicpm_vlm_context_review",
-        "created_at": timezone.now().isoformat(),
-        "context_id": context_id,
-        "run_id": run_id,
-        "model": "MiniCPM-V 4.5 via VidUnder VideoAgent",
-        "conclusion": conclusion,
-        "answer": answer,
-        "error": error,
-        "evidence_frames": [
-            {
-                "relative_path": frame.get("relative_path"),
-                "media_url": frame.get("media_url"),
-                "time": frame.get("time"),
-            }
-            for frame in manifest.get("frames", [])[:frame_limit]
-        ],
-        "confidence_note": "MiniCPM review is semantic/coarse. Use compare_video_contexts for geometry/color regressions and ocr_video_context for text.",
-    }
-    try:
-        _persist_evaluation(case_id, evaluation, run_id=run_id)
-    except ValueError as exc:
-        return _json({"success": False, "error": str(exc)})
-    return _json(evaluation)
 
 
 mcp = FastMCP(
     "VidGo",
     instructions=(
-        "Use these tools to search VidGo videos, inspect video metadata, submit "
-        "long-running summary tasks, poll progress by task_id, fetch summaries, "
-        "ask questions about completed video-understanding databases, generate "
-        "subtitles, download source videos, organize videos with tags/categories, "
-        "inspect model readiness, and persist media contexts/frame packs for "
-        "MCP clients that cannot read video files directly."
+        "Tools for perceiving a VidGo video library. To understand what a video "
+        "actually contains, prefer reading the extracted data directly: "
+        "read_subtitles for speech in a time range, search_subtitles for jumpable "
+        "hits with watch links, read_screen_text for on-screen OCR (slides, code, "
+        "terminal), get_video_outline for chapters/notes/attachments, and "
+        "grab_frames to see the picture at chosen timestamps. Every result carries "
+        "a watch_url with a #t= offset the user can open. Also: search and list "
+        "videos, submit long-running summary tasks and poll them, generate "
+        "subtitles, download sources, and organize videos with tags/categories. "
+        "To browse rather than search, read the resources vidgo://library and "
+        "vidgo://video/{id}: they say, per video, what data actually exists "
+        "(subtitles and in which languages, screen text, chapters, notes, summary)."
     ),
     streamable_http_path="/mcp",
     sse_path="/sse",
@@ -1806,262 +1234,16 @@ async def get_video_context(
     )
 
 
-@mcp.tool()
-async def create_video_build_case(
-    case_id: str,
-    title: str = "",
-    reference_video_id: int | None = None,
-    description: str = "",
-    tags: list[str] | None = None,
-) -> str:
-    """Create or update a video-build helper case by case_id.
-
-    A case stores reusable assets, experience notes, render runs, and review
-    reports under MEDIA_ROOT/video_build_cases/<case_id>/manifest.json. This is
-    intentionally file-backed for the first version so MCP clients can persist
-    build memory without adding database migrations.
-
-    Args:
-        case_id: Stable case id such as polymatter_unemployment_chart.
-        title: Human-readable title.
-        reference_video_id: Optional VidGo video id for the source/reference.
-        description: Short case description.
-        tags: Searchable style/task tags.
-    """
-    return await _run_sync(
-        _create_video_build_case_sync,
-        case_id,
-        title,
-        reference_video_id,
-        description,
-        tags,
-    )
 
 
-@mcp.tool()
-async def get_video_build_case(
-    case_id: str,
-    query: str = "",
-    max_experience_chars: int = 12000,
-) -> str:
-    """Return a video-build helper case manifest and optional experience search.
-
-    Args:
-        case_id: Stable case id.
-        query: Optional substring query over experience title/body/tags.
-        max_experience_chars: Maximum markdown characters returned from stored experience.
-    """
-    return await _run_sync(
-        _get_video_build_case_sync,
-        case_id,
-        query,
-        max_experience_chars,
-    )
 
 
-@mcp.tool()
-async def add_case_asset(
-    case_id: str,
-    asset_type: str,
-    caption: str = "",
-    usage: str = "",
-    source: str = "",
-    path: str = "",
-    data_url: str = "",
-    filename: str = "",
-    metadata: dict[str, Any] | None = None,
-) -> str:
-    """Attach an asset reference or uploaded data URL to a build case.
-
-    Use data_url for client-provided screenshots/crops/temp media. A server path
-    is accepted only when it already lives under MEDIA_ROOT.
-
-    Args:
-        case_id: Stable case id.
-        asset_type: image, video, crop, font, audio, html, etc.
-        caption: Human-readable caption for retrieval.
-        usage: How this asset is used in the build.
-        source: Source/license/provenance note.
-        path: Existing MEDIA_ROOT path to reference.
-        data_url: Base64 data URL to persist under the case assets directory.
-        filename: Optional preferred filename for data_url assets.
-        metadata: Optional structured metadata.
-    """
-    return await _run_sync(
-        _add_case_asset_sync,
-        case_id,
-        asset_type,
-        caption,
-        usage,
-        source,
-        path,
-        data_url,
-        filename,
-        metadata,
-    )
 
 
-@mcp.tool()
-async def add_case_experience(
-    case_id: str,
-    title: str,
-    markdown: str,
-    tags: list[str] | None = None,
-    source: str = "",
-) -> str:
-    """Append reusable markdown experience to a video-build case.
-
-    Args:
-        case_id: Stable case id.
-        title: Experience title.
-        markdown: Experience body.
-        tags: Retrieval tags.
-        source: Optional source path or note.
-    """
-    return await _run_sync(
-        _add_case_experience_sync,
-        case_id,
-        title,
-        markdown,
-        tags,
-        source,
-    )
 
 
-@mcp.tool()
-async def register_case_run(
-    case_id: str,
-    run_id: str,
-    output_asset_id: str = "",
-    output_path: str = "",
-    render_manifest: dict[str, Any] | None = None,
-    change_log: list[dict[str, Any]] | None = None,
-    status: str = "draft",
-) -> str:
-    """Register or replace one render/build run under a case.
-
-    Args:
-        case_id: Stable case id.
-        run_id: Stable run id such as run_014 or final.
-        output_asset_id: Optional asset id for the output video.
-        output_path: Optional local/server output path note.
-        render_manifest: Renderer/fps/resolution/audio/frame-count details.
-        change_log: Structured list of edits made in this run.
-        status: draft, reviewed, final, failed, etc.
-    """
-    return await _run_sync(
-        _register_case_run_sync,
-        case_id,
-        run_id,
-        output_asset_id,
-        output_path,
-        render_manifest,
-        change_log,
-        status,
-    )
 
 
-@mcp.tool()
-async def compare_video_contexts(
-    reference_context_id: str,
-    output_context_id: str,
-    case_id: str | None = None,
-    run_id: str = "",
-    crop: dict[str, Any] | None = None,
-    frame_limit: int = 30,
-    save_artifacts: bool = True,
-) -> str:
-    """Deterministically compare two persisted video contexts frame-by-frame.
-
-    This uses pixel metrics, optional crop rectangles, and optional side-by-side
-    / diff artifacts. It is for visual geometry/color regression checks, not
-    semantic judgment.
-
-    Args:
-        reference_context_id: Context id from create_video_context for the reference.
-        output_context_id: Context id from create_video_context for the reproduced output.
-        case_id: Optional case id to store the evaluation under.
-        run_id: Optional run id to attach to the evaluation.
-        crop: Optional dict {x,y,width,height} in frame pixels.
-        frame_limit: Maximum frame pairs to compare.
-        save_artifacts: Persist diff and side-by-side images.
-    """
-    return await _run_sync(
-        _compare_video_contexts_sync,
-        reference_context_id,
-        output_context_id,
-        case_id,
-        run_id,
-        crop,
-        frame_limit,
-        save_artifacts,
-    )
-
-
-@mcp.tool()
-async def ocr_video_context(
-    context_id: str,
-    prompt: str = "Text Recognition:",
-    frame_limit: int = 6,
-    case_id: str | None = None,
-    run_id: str = "",
-    max_tokens: int = 1024,
-) -> str:
-    """Run GLM-OCR on frames from a persisted video context.
-
-    This calls VidUnder's GLM-OCR integration. It is intended for exact text/OCR
-    evidence, especially when MiniCPM semantic review is too coarse.
-
-    Args:
-        context_id: Context id from create_video_context.
-        prompt: OCR prompt. Use Text Recognition: for exact text.
-        frame_limit: Maximum frames to OCR.
-        case_id: Optional case id to store the OCR evaluation under.
-        run_id: Optional run id.
-        max_tokens: Maximum generated OCR tokens per frame.
-    """
-    return await _run_sync(
-        _ocr_video_context_sync,
-        context_id,
-        prompt,
-        frame_limit,
-        case_id,
-        run_id,
-        max_tokens,
-    )
-
-
-@mcp.tool()
-async def vlm_review_video_context(
-    context_id: str,
-    prompt: str,
-    frame_limit: int = 6,
-    case_id: str | None = None,
-    run_id: str = "",
-    max_tokens: int = 512,
-) -> str:
-    """Run a MiniCPM-V semantic review over frames from a video context.
-
-    This is a coarse visual/semantic check. It should be paired with
-    compare_video_contexts for geometry/color and ocr_video_context for text.
-
-    Args:
-        context_id: Context id from create_video_context.
-        prompt: Focused visual review question.
-        frame_limit: Maximum frames to feed to MiniCPM-V.
-        case_id: Optional case id to store the VLM evaluation under.
-        run_id: Optional run id.
-        max_tokens: Maximum generated answer tokens.
-    """
-    return await _run_sync(
-        _vlm_review_video_context_sync,
-        context_id,
-        prompt,
-        frame_limit,
-        case_id,
-        run_id,
-        max_tokens,
-    )
 
 
 @mcp.tool()
@@ -2798,40 +1980,6 @@ async def get_summary_result(
     return _json(result)
 
 
-@mcp.tool()
-async def ask_video(
-    question: str,
-    video_id: int | None = None,
-    filename: str | None = None,
-    title: str | None = None,
-    ctx: Context | None = None,
-) -> str:
-    """Ask a question about a video that already has a VidUnder summary database.
-
-    Args:
-        question: Natural-language question to ask about the video.
-        video_id: Numeric VidGo video id. Preferred when available.
-        filename: Stored media filename from list_videos/search_videos.
-        title: Exact or partial human-readable video title.
-    """
-    if not question.strip():
-        return _json({"success": False, "error": "question is required"})
-
-    resolved = await _resolve_video(video_id, filename, title)
-    if not resolved.get("success"):
-        return _json(resolved)
-
-    video = resolved["video"]
-    path = f"/api/video-ask/{quote(video['filename'], safe='')}"
-    result = await _call_vidgo_api(
-        ctx,
-        "POST",
-        path,
-        {"question": question.strip()},
-        timeout=600,
-    )
-    return _json(result)
-
 
 @mcp.tool()
 async def query_download_url(url: str, ctx: Context | None = None) -> str:
@@ -3279,6 +2427,505 @@ async def clear_bilibili_sessdata(ctx: Context | None = None) -> str:
             "/api/media-credentials/bilibili-sessdata/",
         )
     )
+
+
+
+@mcp.tool()
+async def read_subtitles(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    start: float = 0.0,
+    end: float | None = None,
+    lang: str | None = None,
+    limit: int = 400,
+) -> str:
+    """Read a video transcript by time range, with timestamps and jumpable links.
+
+    This is the cheapest way to learn what is said in a specific part of a video.
+    Prefer it over asking another model to summarize.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        start: Start of the range in seconds.
+        end: End of the range in seconds. Omit to read to the end.
+        lang: Subtitle language (zh, en, jp, de). Defaults to the first available.
+        limit: Maximum cues to return. Values above 2000 are clamped.
+    """
+    return await _run_sync(
+        _read_subtitles_sync, video_id, filename, title, start, end, lang, limit
+    )
+
+
+def _read_subtitles_sync(video_id, filename, title, start, end, lang, limit) -> str:
+    resolved = _resolve_video_sync(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    vid = resolved["video"]["id"]
+    media_name = resolved["video"].get("filename") or ""
+    available = _available_subtitle_langs(vid)
+    if not available:
+        return _json({"success": False, "error": "video has no subtitle files", "video_id": vid})
+    chosen = LANGUAGE_ALIASES.get((lang or "").lower(), (lang or "").lower()) or available[0]
+    if chosen not in available:
+        return _json({
+            "success": False,
+            "error": f"no {chosen} subtitle for this video",
+            "available_languages": available,
+        })
+    limit = max(1, min(int(limit), 2000))
+    stop = float(end) if end is not None else float("inf")
+    cues = [
+        {
+            "start": c["start"],
+            "end": c["end"],
+            "text": c["text"],
+            "watch_url": _watch_url(media_name, c["start"]),
+        }
+        for c in _parse_srt_file(_subtitle_path(vid, chosen))
+        if c["end"] > float(start) and c["start"] < stop and c["text"]
+    ]
+    truncated = len(cues) > limit
+    return _json({
+        "success": True,
+        "video_id": vid,
+        "title": resolved["video"].get("title", ""),
+        "language": chosen,
+        "available_languages": available,
+        "range": {"start": float(start), "end": None if end is None else float(end)},
+        "count": min(len(cues), limit),
+        "truncated": truncated,
+        "cues": cues[:limit],
+    })
+
+
+@mcp.tool()
+async def search_subtitles(
+    query: str,
+    video_id: int | None = None,
+    lang: str | None = None,
+    limit: int = 40,
+    max_videos: int = 200,
+) -> str:
+    """Find spoken lines matching a phrase, each with its timestamp and watch link.
+
+    Unlike search_videos, every hit here says when it happens and gives a URL that
+    opens the watch page at that moment.
+
+    Args:
+        query: Phrase to look for in subtitles. Case-insensitive.
+        video_id: Restrict the search to one video. Omit to search the library.
+        lang: Subtitle language to search (zh, en, jp, de). Omit to search all.
+        limit: Maximum hits to return. Values above 200 are clamped.
+        max_videos: Maximum videos to scan when searching the whole library.
+    """
+    return await _run_sync(_search_subtitles_sync, query, video_id, lang, limit, max_videos)
+
+
+def _search_subtitles_sync(query, video_id, lang, limit, max_videos) -> str:
+    import time as _time
+
+    needle = (query or "").strip().lower()
+    if not needle:
+        return _json({"success": False, "error": "query is required", "hits": []})
+    limit = max(1, min(int(limit), 200))
+    langs = [LANGUAGE_ALIASES.get((lang or "").lower(), (lang or "").lower())] if lang else sorted(SUBTITLE_LANGUAGES)
+
+    if video_id is not None:
+        videos = [v for v in [_find_video(video_id=video_id)] if v is not None]
+    else:
+        videos = list(
+            Video.objects.exclude(srt_path__isnull=True).exclude(srt_path="")
+            .order_by("-id")[: max(1, min(int(max_videos), 2000))]
+        )
+
+    hits, scanned, deadline = [], 0, _time.time() + 10.0
+    truncated = False
+    for video in videos:
+        if _time.time() > deadline:
+            truncated = True
+            break
+        scanned += 1
+        for lg in langs:
+            path = _subtitle_path(video.id, lg)
+            if not path.exists():
+                continue
+            for cue in _parse_srt_file(path):
+                if needle in cue["text"].lower():
+                    hits.append({
+                        "video_id": video.id,
+                        "title": video.name,
+                        "language": lg,
+                        "start": cue["start"],
+                        "end": cue["end"],
+                        "text": cue["text"],
+                        "watch_url": _watch_url(video.url or "", cue["start"]),
+                    })
+                    if len(hits) >= limit:
+                        return _json({
+                            "success": True, "query": query, "videos_scanned": scanned,
+                            "truncated": True, "count": len(hits), "hits": hits,
+                        })
+    return _json({
+        "success": True, "query": query, "videos_scanned": scanned,
+        "truncated": truncated, "count": len(hits), "hits": hits,
+    })
+
+
+@mcp.tool()
+async def read_screen_text(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    start: float = 0.0,
+    end: float | None = None,
+    kinds: list[str] | None = None,
+    limit: int = 60,
+    max_chars: int = 1200,
+) -> str:
+    """Read text already OCR'd from the picture: slides, code screens, terminals.
+
+    Requires a completed video-understanding build. Each entry carries its
+    timestamp and a watch link.
+
+    Note on provenance: slides and code_snapshots are raw GLM-OCR output.
+    terminal_outputs went through an LLM merge step that rewrites and translates,
+    so treat that text as a paraphrase, not as what is literally on screen.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        start: Start of the range in seconds.
+        end: End of the range in seconds. Omit to read to the end.
+        kinds: Any of slides, code_snapshots, terminal_outputs. Omit for all.
+        limit: Maximum entries to return. Values above 300 are clamped.
+        max_chars: Truncate each entry's text to this many characters.
+    """
+    return await _run_sync(
+        _read_screen_text_sync, video_id, filename, title, start, end, kinds, limit, max_chars
+    )
+
+
+_SCREEN_FIELDS = {
+    "slides": ("ocr_text", "glm_ocr_raw"),
+    "code_snapshots": ("code", "glm_ocr_raw"),
+    "terminal_outputs": ("text", "llm_merged_ocr"),
+}
+
+
+def _read_screen_text_sync(video_id, filename, title, start, end, kinds, limit, max_chars) -> str:
+    resolved = _resolve_video_sync(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    vid = resolved["video"]["id"]
+    media_name = resolved["video"].get("filename") or ""
+    structure = _vidunder_structure(vid)
+    if structure is None:
+        return _json({
+            "success": False,
+            "video_id": vid,
+            "error": "no video-understanding build for this video; run submit_summary_task first",
+        })
+    wanted = [k for k in (kinds or list(_SCREEN_FIELDS)) if k in _SCREEN_FIELDS]
+    if not wanted:
+        return _json({"success": False, "error": f"kinds must be any of {sorted(_SCREEN_FIELDS)}"})
+    limit = max(1, min(int(limit), 300))
+    max_chars = max(80, min(int(max_chars), 8000))
+    stop = float(end) if end is not None else float("inf")
+
+    entries = []
+    for kind in wanted:
+        field, provenance = _SCREEN_FIELDS[kind]
+        for item in structure.get(kind, []) or []:
+            text = " ".join(str(item.get(field) or "").split())
+            when = float(item.get("time", 0) or 0)
+            if not text or not (float(start) <= when < stop):
+                continue
+            entries.append({
+                "kind": kind,
+                "time": when,
+                "text_source": provenance,
+                "text": text[:max_chars],
+                "truncated": len(text) > max_chars,
+                "watch_url": _watch_url(media_name, when),
+            })
+    entries.sort(key=lambda e: e["time"])
+    return _json({
+        "success": True,
+        "video_id": vid,
+        "title": resolved["video"].get("title", ""),
+        "count": min(len(entries), limit),
+        "truncated": len(entries) > limit,
+        "provenance_note": (
+            "slides and code_snapshots are raw GLM-OCR; terminal_outputs was rewritten "
+            "by an LLM merge step and may not match the screen literally"
+        ),
+        "entries": entries[:limit],
+    })
+
+
+@mcp.tool()
+async def get_video_outline(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+) -> str:
+    """Get a video's chapters, notes, and attachments.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+    """
+    return await _run_sync(_get_video_outline_sync, video_id, filename, title)
+
+
+
+def _chapter_seconds(value: Any) -> float | None:
+    """章节时间可能是秒数，也可能写成 00:04:10 或 4:10。"""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    parts = text.split(":")
+    if not (2 <= len(parts) <= 3):
+        return None
+    total = 0.0
+    for part in parts:
+        try:
+            total = total * 60 + float(part)
+        except ValueError:
+            return None
+    return total
+
+
+def _flatten_chapters(nodes, media_name, depth=0, out=None):
+    out = [] if out is None else out
+    if not isinstance(nodes, list):
+        return out
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        seconds = _chapter_seconds(node.get("startTime"))
+        out.append({
+            "depth": depth,
+            "title": node.get("title", ""),
+            "start": seconds,
+            "watch_url": _watch_url(media_name, seconds) if seconds is not None else "",
+        })
+        _flatten_chapters(node.get("children"), media_name, depth + 1, out)
+    return out
+
+
+def _get_video_outline_sync(video_id, filename, title) -> str:
+    resolved = _resolve_video_sync(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    video = _find_video(video_id=resolved["video"]["id"])
+    if video is None:
+        return _json({"success": False, "error": "video not found"})
+    media_name = video.url or ""
+    attachments = [
+        {
+            "original_name": a.original_name,
+            "file_type": a.file_type,
+            "file_size": a.file_size,
+            "context_type": a.context_type,
+            "alt_text": a.alt_text,
+        }
+        for a in video.attachments.filter(is_active=True)
+    ]
+    chapters = _flatten_chapters(video.chapters, media_name)
+    return _json({
+        "success": True,
+        "video_id": video.id,
+        "title": video.name,
+        "watch_url": _watch_url(media_name),
+        "chapters": chapters,
+        "chapter_count": len(chapters),
+        "notes": video.notes or "",
+        "has_notes": bool((video.notes or "").strip()),
+        "attachments": attachments,
+    })
+
+
+@mcp.tool()
+async def grab_frames(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    times: list[float] | None = None,
+    start: float = 0.0,
+    end: float | None = None,
+    max_frames: int = 6,
+    width: int = 960,
+) -> str:
+    """Look at the picture: return frames at chosen timestamps as inline images.
+
+    Use this when the question is about what is shown rather than what is said.
+    Frames are cached under MEDIA_ROOT/mcp_context so repeat calls are cheap.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        times: Specific timestamps in seconds. Omit to sample evenly across the range.
+        start: Start of the range when sampling evenly.
+        end: End of the range when sampling evenly.
+        max_frames: How many frames to return. Values above 24 are clamped.
+        width: Frame width in pixels. Clamped to 160-1920.
+    """
+    return await _run_sync(
+        _create_video_context_sync,
+        video_id,
+        filename,
+        title,
+        times,
+        None,
+        start,
+        end,
+        max(1, min(int(max_frames), 24)),
+        width,
+        True,
+        False,
+    )
+
+
+
+def _build_index() -> tuple[set[int], set[int]]:
+    """哪些视频跑过视频理解、哪些已经出过摘要。文件名尾段就是 video_id。"""
+    import glob as _glob
+
+    built: set[int] = set()
+    db_dir = Path(settings.MEDIA_ROOT) / "vidunder" / "db"
+    for p in _glob.glob(str(db_dir / "*.json")):
+        tail = Path(p).stem.rsplit("_", 1)[-1]
+        if tail.isdigit():
+            built.add(int(tail))
+
+    summarized: set[int] = set()
+    out_dir = Path(settings.MEDIA_ROOT) / "vidunder" / "output"
+    for p in _glob.glob(str(out_dir / "*_summary.md")):
+        parts = Path(p).stem.split("_")
+        if len(parts) >= 2 and parts[-2].isdigit():
+            summarized.add(int(parts[-2]))
+    return built, summarized
+
+
+@mcp.resource(
+    "vidgo://library",
+    name="VidGo library",
+    mime_type="application/json",
+    description="Every video in the library and what data exists for each one.",
+)
+async def library_resource() -> str:
+    """Browse the whole library without searching."""
+    return await _run_sync(_library_resource_sync)
+
+
+def _library_resource_sync() -> str:
+    built, summarized = _build_index()
+    videos = (
+        Video.objects.select_related("category")
+        .prefetch_related("tags")
+        .order_by("-id")
+    )
+    rows = []
+    for v in videos:
+        langs = _available_subtitle_langs(v.id)
+        rows.append(
+            {
+                "id": v.id,
+                "title": v.name,
+                "duration_seconds": v.video_length_seconds,
+                "raw_lang": v.raw_lang or "",
+                "category": v.category.name if v.category else None,
+                "tags": [t.name for t in v.tags.all()],
+                "subtitle_languages": langs,
+                "has_screen_text": v.id in built,
+                "has_summary": v.id in summarized,
+                "last_played_seconds": v.last_played_time or 0,
+                "watch_url": _watch_url(v.url or ""),
+            }
+        )
+    return _json(
+        {
+            "total": len(rows),
+            "with_subtitles": sum(1 for r in rows if r["subtitle_languages"]),
+            "with_screen_text": sum(1 for r in rows if r["has_screen_text"]),
+            "with_summary": sum(1 for r in rows if r["has_summary"]),
+            "note": (
+                "has_screen_text means read_screen_text will return data. "
+                "subtitle_languages lists what read_subtitles can load."
+            ),
+            "videos": rows,
+        }
+    )
+
+
+@mcp.resource(
+    "vidgo://video/{video_id}",
+    name="VidGo video",
+    mime_type="application/json",
+    description="One video: metadata, subtitle languages, screen text, chapters, notes.",
+)
+async def video_resource(video_id: str) -> str:
+    """Everything known about one video, without calling several tools."""
+    return await _run_sync(_video_resource_sync, video_id)
+
+
+def _video_resource_sync(video_id: str) -> str:
+    try:
+        vid = int(str(video_id).strip())
+    except (TypeError, ValueError):
+        return _json({"success": False, "error": "video_id must be a number"})
+    video = _find_video(video_id=vid)
+    if video is None:
+        return _json({"success": False, "error": "video not found"})
+
+    built, summarized = _build_index()
+    media_name = video.url or ""
+    payload = _video_payload(video)
+    structure = _vidunder_structure(vid) if vid in built else None
+    screen = {}
+    if structure:
+        for kind, (field, provenance) in _SCREEN_FIELDS.items():
+            items = [
+                it for it in (structure.get(kind) or [])
+                if str(it.get(field) or "").strip()
+            ]
+            if items:
+                screen[kind] = {
+                    "count": len(items),
+                    "text_source": provenance,
+                    "first_time": float(items[0].get("time", 0) or 0),
+                    "last_time": float(items[-1].get("time", 0) or 0),
+                }
+    chapters = _flatten_chapters(video.chapters, media_name)
+    payload.update(
+        {
+            "success": True,
+            "last_played_seconds": video.last_played_time or 0,
+            "content_updated_at": video.content_updated_at,
+            "has_summary": vid in summarized,
+            "screen_text": screen,
+            "chapters": chapters,
+            "chapter_count": len(chapters),
+            "has_notes": bool((video.notes or "").strip()),
+            "attachment_count": video.attachments.filter(is_active=True).count(),
+        }
+    )
+    return _json(payload)
 
 
 def streamable_http_app():
