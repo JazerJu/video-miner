@@ -49,6 +49,17 @@
                 </button>
               </el-tooltip>
 
+              <!-- 全屏字幕表：列表占满屏幕，专心改文字 -->
+              <el-tooltip :content="t('fullscreenList')" placement="bottom">
+                <button
+                  @click="openFullscreenList"
+                  data-open-fullscreen-list
+                  class="px-4 py-2 bg-white/80 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 text-sm rounded-lg transition-colors border border-slate-200 dark:border-white/10"
+                >
+                  <Maximize2Icon class="w-4 h-4" />
+                </button>
+              </el-tooltip>
+
               <!-- 导出按钮 -->
               <el-dropdown @command="handleExport" trigger="click">
                 <button
@@ -256,6 +267,110 @@
       </div>
     </div>
 
+    <!-- 全屏字幕表：只管改文字，排版参考 VideoCaptioner -->
+    <Teleport to="body">
+      <div
+        v-if="fullscreenList"
+        data-fullscreen-subtitle-list
+        class="fixed inset-0 z-[60] flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+        @keydown.stop
+      >
+        <div
+          class="flex items-center gap-3 px-5 py-3 border-b border-slate-200 dark:border-white/10 bg-white/90 dark:bg-slate-800/90 flex-shrink-0"
+        >
+          <span class="font-semibold truncate max-w-[35%]">{{ props.videoName || t('subtitleList') }}</span>
+          <span
+            class="flex-shrink-0 px-2 py-0.5 rounded-full text-xs bg-blue-600/15 text-blue-600 dark:text-blue-300 border border-blue-500/30"
+          >
+            {{ filteredSubtitles.length }} {{ t('items') }}
+          </span>
+          <span v-if="listDirty" data-fullscreen-dirty class="flex-shrink-0 text-xs text-amber-600 dark:text-amber-400">
+            {{ t('unsavedChanges') }}
+          </span>
+
+          <div class="flex-1"></div>
+
+          <label class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+            <input type="checkbox" v-model="followPlayback" class="w-3.5 h-3.5 rounded accent-blue-500" />
+            {{ t('followPlayback') }}
+          </label>
+
+          <button
+            @click="persistListEdits"
+            :disabled="!listDirty || savingList"
+            data-fullscreen-save
+            class="px-4 py-1.5 bg-blue-600/90 hover:bg-blue-600 disabled:opacity-40 text-white text-sm rounded-lg transition-colors"
+          >
+            {{ savingList ? t('saving') : t('save') }}
+          </button>
+          <button
+            @click="closeFullscreenList"
+            data-fullscreen-close
+            :title="t('exitFullscreenList')"
+            class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 text-sm rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <Minimize2Icon class="w-4 h-4" />{{ t('close') }}
+          </button>
+        </div>
+
+        <div
+          class="grid gap-3 px-5 py-2 text-xs font-semibold tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-white/10 flex-shrink-0"
+          :style="{ gridTemplateColumns: fullscreenColumns }"
+        >
+          <div>#</div>
+          <div>{{ t('subtitleStartTime') }}</div>
+          <div>{{ t('subtitleEndTime') }}</div>
+          <div>{{ t('original') }}</div>
+          <div v-if="showTranslatedEditor">{{ t('translatedSubtitle') }}</div>
+        </div>
+
+        <div ref="fullscreenListContainer" class="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-5 pb-8">
+          <div
+            v-for="s in filteredSubtitles"
+            :key="s.originalIndex"
+            :ref="(el) => { if (el) fullscreenRowRefs[s.originalIndex] = el as HTMLElement }"
+            class="grid gap-3 items-start border-b border-slate-200/70 dark:border-white/5 py-1"
+            :class="currentSubtitleIndex === s.originalIndex ? 'bg-green-50 dark:bg-green-900/20' : ''"
+            :style="{ gridTemplateColumns: fullscreenColumns }"
+          >
+            <button
+              @click="seekToSubtitle(s.originalIndex)"
+              :title="t('jumpToTime')"
+              class="text-left text-xs font-mono pt-2.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              {{ s.originalIndex + 1 }}
+            </button>
+            <input
+              :value="formatTimecode(s.start)"
+              @change="applyTimecode(s.originalIndex, 'start', $event.target as HTMLInputElement)"
+              class="w-full px-2 py-1.5 text-xs font-mono bg-transparent rounded border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white dark:hover:border-white/20 dark:focus:bg-white/5 focus:outline-none text-slate-600 dark:text-slate-300"
+            />
+            <input
+              :value="formatTimecode(s.end)"
+              @change="applyTimecode(s.originalIndex, 'end', $event.target as HTMLInputElement)"
+              class="w-full px-2 py-1.5 text-xs font-mono bg-transparent rounded border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white dark:hover:border-white/20 dark:focus:bg-white/5 focus:outline-none text-slate-600 dark:text-slate-300"
+            />
+            <textarea
+              :value="s.text"
+              @input="setRawText(s.originalIndex, ($event.target as HTMLTextAreaElement).value)"
+              @focus="seekTargetIndex = s.originalIndex"
+              rows="1"
+              :placeholder="t('enterSubtitleOriginal')"
+              class="w-full px-2 py-1.5 text-sm leading-relaxed bg-transparent rounded border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white dark:hover:border-white/20 dark:focus:bg-white/5 focus:outline-none text-slate-900 dark:text-white placeholder-slate-400 fs-cell"
+            />
+            <textarea
+              v-if="showTranslatedEditor"
+              :value="s.translation"
+              @input="setForeignText(s.originalIndex, ($event.target as HTMLTextAreaElement).value)"
+              rows="1"
+              :placeholder="t('enterSubtitleTranslation')"
+              class="w-full px-2 py-1.5 text-sm leading-relaxed bg-transparent rounded border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white dark:hover:border-white/20 dark:focus:bg-white/5 focus:outline-none text-slate-900 dark:text-white placeholder-slate-400 fs-cell"
+            />
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Language Selection Dialog -->
     <div
       v-if="showLanguageDialog"
@@ -389,6 +504,8 @@ import {
   Edit3 as Edit3Icon,
   ArrowBigDown,
   Clock,
+  Maximize2 as Maximize2Icon,
+  Minimize2 as Minimize2Icon,
 } from 'lucide-vue-next'
 import { ElMessage } from '@/composables/useNotification'
 import { Upload, Download } from '@element-plus/icons-vue'
@@ -993,6 +1110,136 @@ defineExpose({
   updateSubtitleTiming,
 })
 
+/* ── 全屏字幕表 ────────────────────────────────────────────────
+   卡片列表一屏放不下几条，改一遍字幕要滚很久。这里把同一份数据摊成表格铺满屏幕，
+   时间和文字都能直接改，改完统一写回，不走单条「编辑」对话框。 */
+const fullscreenList = ref(false)
+const followPlayback = ref(true)
+const savingList = ref(false)
+const listDirtyRaw = ref(false)
+const listDirtyForeign = ref(false)
+const seekTargetIndex = ref<number | null>(null)
+const listDirty = computed(() => listDirtyRaw.value || listDirtyForeign.value)
+const fullscreenListContainer = ref<HTMLElement | null>(null)
+const fullscreenRowRefs: { [key: number]: HTMLElement } = {}
+const fullscreenColumns = computed(() =>
+  showTranslatedEditor.value ? '2.5rem 7.5rem 7.5rem 1fr 1fr' : '2.5rem 7.5rem 7.5rem 1fr',
+)
+
+function formatTimecode(seconds: number) {
+  const total = Math.max(0, Math.round((Number(seconds) || 0) * 1000))
+  const ms = total % 1000
+  const secs = (total - ms) / 1000
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(Math.floor(secs / 3600))}:${pad(Math.floor((secs % 3600) / 60))}:${pad(secs % 60)}.${String(ms).padStart(3, '0')}`
+}
+
+// 认 00:00:08.965、00:08.965、8.965 三种写法，认不出来返回 null
+function parseTimecode(text: string): number | null {
+  const parts = text.trim().replace(',', '.').split(':')
+  if (parts.length > 3) return null
+  let seconds = 0
+  for (const part of parts) {
+    if (!/^\d+(\.\d+)?$/.test(part)) return null
+    seconds = seconds * 60 + Number(part)
+  }
+  return Number.isFinite(seconds) ? seconds : null
+}
+
+function applyTimecode(index: number, field: 'start' | 'end', input: HTMLInputElement) {
+  const raw = rawSubtitle.value[index]
+  if (!raw) return
+  const value = parseTimecode(input.value)
+  if (value === null) {
+    ElMessage.error(t('badTimecode'))
+    input.value = formatTimecode(raw[field])
+    return
+  }
+  if (value !== raw[field]) {
+    raw[field] = value
+    syncForeignTiming(index)
+    listDirtyRaw.value = true
+    if (foreignSubtitle.value[index]) listDirtyForeign.value = true
+  }
+  input.value = formatTimecode(raw[field])
+}
+
+function setRawText(index: number, value: string) {
+  const raw = rawSubtitle.value[index]
+  if (!raw || raw.text === value) return
+  raw.text = value
+  listDirtyRaw.value = true
+}
+
+function setForeignText(index: number, value: string) {
+  const foreign = ensureForeignSubtitle(index)
+  if (foreign.text === value) return
+  foreign.text = value
+  listDirtyForeign.value = true
+}
+
+function seekToSubtitle(index: number) {
+  const raw = rawSubtitle.value[index]
+  if (raw) emit('seek-time', raw.start)
+}
+
+async function persistListEdits() {
+  if (savingList.value || !listDirty.value) return
+  savingList.value = true
+  try {
+    if (listDirtyRaw.value) {
+      await linkSubtitles(props.id, props.rawLang || 'zh', rawSubtitle.value)
+      listDirtyRaw.value = false
+    }
+    if (listDirtyForeign.value && shouldPersistForeignTrack()) {
+      await linkSubtitles(props.id, locale.value as string, foreignSubtitle.value)
+      foreignTrackLoaded.value = true
+    }
+    listDirtyForeign.value = false
+  } finally {
+    savingList.value = false
+  }
+}
+
+// 装在捕获阶段：表格根节点会把 keydown 拦下来，不让播放器的空格、方向键热键误触发
+function onFullscreenKeydown(event: KeyboardEvent) {
+  if (!fullscreenList.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    void closeFullscreenList()
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    void persistListEdits()
+  }
+}
+
+function openFullscreenList() {
+  fullscreenList.value = true
+  document.addEventListener('keydown', onFullscreenKeydown, true)
+  void nextTick(() => scrollFullscreenToCurrent())
+}
+
+// 关之前先把改动写回去，别让人白改一遍
+async function closeFullscreenList() {
+  await persistListEdits()
+  fullscreenList.value = false
+  document.removeEventListener('keydown', onFullscreenKeydown, true)
+}
+
+function scrollFullscreenToCurrent() {
+  if (!followPlayback.value || currentSubtitleIndex.value === null) return
+  fullscreenRowRefs[currentSubtitleIndex.value]?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+watch(currentSubtitleIndex, () => {
+  if (fullscreenList.value) scrollFullscreenToCurrent()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', onFullscreenKeydown, true)
+})
+
+
 /* build a fresh VTT every time the array changes */
 // 1) WATCH THE RAW TRACK (index 0)
 watch(
@@ -1439,6 +1686,13 @@ function handleManualScroll() {
 :deep(.el-textarea__inner:focus) {
   border-color: var(--el-color-primary) !important;
   box-shadow: 0 0 0 2px var(--el-color-primary-light-8) !important;
+}
+
+/* 全屏表格里的文字格：高度跟着内容长，不用手动拖 */
+.fs-cell {
+  resize: vertical;
+  min-height: 2.25rem;
+  field-sizing: content;
 }
 
 /* 自定义滚动条 - 与背景相融 */
