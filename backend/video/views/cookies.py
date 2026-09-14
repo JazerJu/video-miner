@@ -76,3 +76,21 @@ class YoutubeCookiesStatusView(View):
                 "file_size": file_size,
             }
         )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class YoutubeCookiesClearView(View):
+    """POST /api/cookies/youtube/clear — 删除已保存的 cookies.txt，之后下载不带 cookies。
+
+    YouTube 对带和不带 cookies 的请求用的反爬策略不同，带着过期或被风控的 cookies 反而下不动，
+    所以要能切回无 cookies 状态。下载器只在文件存在时才传 cookiefile，删掉文件即可。
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request):
+        save_path = os.path.join(COOKIES_DIR, "youtube-cookies.txt")
+        removed = os.path.exists(save_path)
+        if removed:
+            os.remove(save_path)
+        return JsonResponse({"success": True, "removed": removed})

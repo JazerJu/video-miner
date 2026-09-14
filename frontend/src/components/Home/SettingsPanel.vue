@@ -921,6 +921,14 @@
               />
             </svg>
             {{ t('cookiesUploadedAt', { time: formatCookiesTime(cookiesStatus.last_modified!) }) }}
+            <button
+              type="button"
+              class="ml-3 rounded-md border border-red-300 px-2 py-0.5 text-xs text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
+              :disabled="cookiesClearing"
+              @click="handleCookiesClear"
+            >
+              {{ cookiesClearing ? t('clearingCookies') : t('clearCookies') }}
+            </button>
           </div>
         </div>
 
@@ -2008,6 +2016,7 @@ import {
 import {
   getYoutubeCookiesStatus,
   uploadYoutubeCookies,
+  clearYoutubeCookies,
   type CookiesStatus,
 } from '@/composables/CookiesAPI'
 import { useI18n } from 'vue-i18n'
@@ -2831,6 +2840,7 @@ const cookiesStatus = ref<CookiesStatus | null>(null)
 const cookiesLoading = ref(false)
 const cookiesUploading = ref(false)
 const cookiesHover = ref(false)
+const cookiesClearing = ref(false)
 const bilibiliSessDataStatus = ref<BilibiliSessDataStatus | null>(null)
 const bilibiliSessDataValidating = ref(false)
 
@@ -3095,6 +3105,33 @@ const handleCookiesUpload = async (event: Event) => {
   } finally {
     cookiesUploading.value = false
     input.value = ''
+  }
+}
+
+// 清空 cookies：YouTube 对带与不带 cookies 的请求反爬策略不同，下载受阻时要能切回无 cookies
+const handleCookiesClear = async () => {
+  try {
+    await ElMessageBox.confirm(t('clearCookiesConfirm'), t('clearCookies'), {
+      confirmButtonText: t('confirm'),
+      cancelButtonText: t('cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  try {
+    cookiesClearing.value = true
+    const result = await clearYoutubeCookies()
+    if (result.success) {
+      ElMessage.success(t('cookiesCleared'))
+      await loadCookiesStatus()
+    } else {
+      ElMessage.error(result.error || t('clearCookiesFailed'))
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || t('clearCookiesFailed'))
+  } finally {
+    cookiesClearing.value = false
   }
 }
 

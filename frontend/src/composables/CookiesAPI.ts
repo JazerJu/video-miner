@@ -49,3 +49,23 @@ export async function uploadYoutubeCookies(file: File): Promise<CookiesUploadRes
   }
   return response.json()
 }
+
+export interface CookiesClearResult {
+  success: boolean
+  removed: boolean
+  error?: string
+}
+
+/** 删除已保存的 cookies.txt，之后下载不带 cookies（YouTube 对带与不带 cookies 的请求反爬策略不同） */
+export async function clearYoutubeCookies(): Promise<CookiesClearResult> {
+  const csrf = await getCSRFToken()
+  const response = await fetch(`${BACKEND}/api/cookies/youtube/clear`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': csrf },
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+  return response.json()
+}

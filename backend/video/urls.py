@@ -325,6 +325,11 @@ urlpatterns = [
         cookies.YoutubeCookiesStatusView.as_view(),
         name="youtube_cookies_status",
     ),
+    path(
+        "api/cookies/youtube/clear",
+        cookies.YoutubeCookiesClearView.as_view(),
+        name="youtube_cookies_clear",
+    ),
     # 流式转录
     path(
         "api/stream_transcription/resolve",
