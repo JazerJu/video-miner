@@ -6,6 +6,15 @@ from typing import Dict, Optional, Any, Callable
 logger = logging.getLogger(__name__)
 
 
+
+_LOCAL_NODE = "/media/jju/ExtraDisk/VidGo/tools/node-v22.20.0-linux-x64/bin/node"
+
+
+def _node_runtime():
+    """yt-dlp 的 js_runtimes 配置。本地有新版 node 就指过去，否则交给它自己找。"""
+    return {"path": _LOCAL_NODE} if os.path.exists(_LOCAL_NODE) else {}
+
+
 class YouTubeDownloader:
     def __init__(self):
         self.base_ydl_opts = {
@@ -14,8 +23,31 @@ class YouTubeDownloader:
             "ignoreerrors": True,
             "noplaylist": True,
             "quiet": True,
-            # yt-dlp 2026+ 默认只用 deno 解密 YouTube n 参数，需显式启用 node
-            "js_runtimes": {"node": {}},
+            # yt-dlp 2026.06 把系统的 node-20 标成 unsupported，四个 JS 运行时全
+            # unavailable，于是只能退到 android vr player client，媒体 URL 一律
+            # 403。这里指向本地解压的 node 22（不装系统包、不改 PATH）。
+            "js_runtimes": {"node": _node_runtime()},
+            # **别用 mweb**：它只开出一个格式 `18/mp4/360p` 合流、纯音频 0 个。
+            # 画质被锁死在 360p，而且请求 bestaudio 时会静默回退成整段视频，
+            # 从产物上看不出错（101 分钟的片子拿到 233 MB mp4）。
+            # 两个视频上逐 client 实测（走代理 + 登录 cookies）：
+            #   client         2wIxPWK6nCs     6Q-ESEmDf4Q
+            #   default        84 格式/35 音频  124/78
+            #   tv_embedded    84/35           124/78
+            #   web_embedded   55/32           Video unavailable
+            #   mweb           5/0             5/0
+            #   android_vr     5/0             5/0
+            #   web_music / web_creator / web / ios / web_safari  取不到
+            # 只用 web_embedded 跑 243 个，55 个拿不到纯音频。
+            # `default` 当初被判 403，是在没有 node-22 和登录 cookies 的时候测的。
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["default", "tv_embedded", "web_embedded"]
+                }
+            },
+            # 多语配音轨（意/印尼/德/葡/法）码率和原声接近，纯按码率排会挑中配音，
+            # 音频就和字幕对不上了。lang 放第一位才拿得到 original。
+            "format_sort": ["lang", "res", "abr"],
         }
         # 自动加载 cookies.txt（如果存在）
         from django.conf import settings as django_settings
@@ -203,10 +235,12 @@ class YouTubeDownloader:
         # Set format based on preferences
         if merge_audio_video:
             # Try to get separate video and audio, fallback to combined
-            ydl_opts["format"] = "bestvideo[height<=720]+bestaudio/best[height<=720]"
+            ydl_opts["format"] = (
+                "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+            )
         else:
             # Get best combined format with reasonable quality
-            ydl_opts["format"] = "best[height<=720]"
+            ydl_opts["format"] = "best[height<=1080]"
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
