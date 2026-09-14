@@ -40,8 +40,8 @@ const uploadSubtitles = (event: Event): void => {
       let targetSubtitles: typeof subtitles
 
       if (showTranslationProxy.value) {
-        // 翻译模式：使用用户界面语言
-        targetLang = userInterfaceLanguage.value
+        // 翻译模式：用当前显示的译文语言；还没有译文时取第一种不是原文的候选语言，免得覆盖原文字幕
+        targetLang = translationLang.value || translationLangCandidates(props.rawLang || 'zh')[0] || 'en'
         console.log(`上传翻译字幕，语言: ${targetLang}`)
       } else {
         // 原文模式：使用视频原始语言
@@ -79,12 +79,15 @@ const props = defineProps<{
   rawLang?: string
   videoName?: string
   showTranslation?: boolean
+  // 播放器语言面板里点选的译文语言，优先加载它
+  requestedTranslationLang?: string | null
 }>()
 
 const emit = defineEmits<{
   (e: 'seek', time: number): void
   (e: 'update-bloburls', blobUrls: Array<string | undefined>): void
   (e: 'update:showTranslation', value: boolean): void
+  (e: 'translation-lang', lang: string | null): void
 }>()
 
 function isActive(s: Subtitle) {
@@ -102,6 +105,35 @@ const foreignSub = ref<Subtitle[]>([])
 const chapters = ref<Chapter[]>([]) // 章节数据
 const userInterfaceLanguage = ref<string>('zh') // 用户界面语言设置
 const isLoadingSubtitles = ref(false) // 防止在加载过程中触发watch handlers的竞态条件
+
+// 实际加载到的译文语言。候选顺序：播放器里点选的语言、设置里的「默认译文语言」、中英日；
+// 跳过原文语言：默认译文语言和原文相同时（比如中文视频配中文默认），以前会把原文再当译文加载一遍，双语显示两遍原文
+const TRANSLATION_LANG_ORDER = ['zh', 'en', 'ja']
+const translationLang = ref<string | null>(null)
+
+function translationLangCandidates(primaryLang: string) {
+  return [props.requestedTranslationLang, userInterfaceLanguage.value, ...TRANSLATION_LANG_ORDER].filter(
+    (lang, index, list): lang is string => !!lang && lang !== primaryLang && list.indexOf(lang) === index,
+  )
+}
+
+async function loadTranslationTrack(id: number, primaryLang: string) {
+  for (const lang of translationLangCandidates(primaryLang)) {
+    try {
+      const track = await fetchSubtitle(id, lang)
+      if (track.length) {
+        foreignSub.value = track
+        translationLang.value = lang
+        console.log(`Translation subtitles (${lang}) loaded:`, track.length, 'items')
+        return
+      }
+    } catch {
+      // 这种语言没有字幕，试下一个
+    }
+  }
+  foreignSub.value = []
+  translationLang.value = null
+}
 
 // 加载章节数据
 const loadChapters = async () => {
@@ -158,14 +190,8 @@ onMounted(async () => {
     subtitles.value = []
   }
 
-  // 外文字幕 (use user's preferred language for translation)
-  try {
-    foreignSub.value = await fetchSubtitle(props.id, foreignLang)
-    console.log('Translation subtitles loaded:', foreignSub.value.length, 'items')
-  } catch (error) {
-    console.warn(`Translation subtitles (${foreignLang}) not found:`, error)
-    foreignSub.value = []
-  }
+  // 外文字幕：按候选顺序找第一种有字幕、又不是原文的语言
+  await loadTranslationTrack(props.id, primaryLang)
 
   // 加载章节数据
   await loadChapters()
@@ -199,6 +225,7 @@ onMounted(async () => {
 
   // Emit initial update to parent component
   emit('update-bloburls', blobUrls.value)
+  emit('translation-lang', translationLang.value)
 })
 
 // Prop Id变化，随之获取Subtitle的数值。
@@ -224,18 +251,8 @@ watch(
       subtitles.value = []
     }
 
-    // Load translation subtitles
-    try {
-      foreignSub.value = await fetchSubtitle(id, foreignLang)
-      console.log(
-        `[Watch] Translation subtitles (${foreignLang}) loaded:`,
-        foreignSub.value.length,
-        'items',
-      )
-    } catch (error) {
-      console.warn(`[Watch] Translation subtitles (${foreignLang}) not found:`, error)
-      foreignSub.value = []
-    }
+    // Load translation subtitles: first candidate language that has subtitles and is not the original
+    await loadTranslationTrack(id, primaryLang)
 
     // 重新加载章节数据
     await loadChapters()
@@ -275,6 +292,28 @@ watch(
 
     // Emit the update to parent component
     emit('update-bloburls', blobUrls.value)
+    emit('translation-lang', translationLang.value)
+  },
+)
+
+// 播放器里点了另一种译文语言：重新加载译文轨道
+watch(
+  () => props.requestedTranslationLang,
+  async (lang) => {
+    const primaryLang = props.rawLang || 'zh'
+    if (!lang || lang === primaryLang || lang === translationLang.value || isLoadingSubtitles.value) return
+    isLoadingSubtitles.value = true
+    await loadTranslationTrack(props.id, primaryLang)
+    if (blobUrls.value[1]) URL.revokeObjectURL(blobUrls.value[1])
+    if (blobUrls.value[2]) URL.revokeObjectURL(blobUrls.value[2])
+    blobUrls.value[1] = foreignSub.value.length > 0 ? generateVTT('translation', [foreignSub.value]) : undefined
+    blobUrls.value[2] =
+      subtitles.value.length > 0 && foreignSub.value.length > 0
+        ? generateVTT('both', [subtitles.value, foreignSub.value])
+        : undefined
+    isLoadingSubtitles.value = false
+    emit('update-bloburls', blobUrls.value)
+    emit('translation-lang', translationLang.value)
   },
 )
 watch(

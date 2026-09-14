@@ -685,6 +685,9 @@
           <p class="text-sm text-slate-500 text-center dark:text-gray-400">
             {{ previewEffectNote }}
           </p>
+          <p class="text-xs text-slate-400 text-center dark:text-gray-500" data-subtitle-scale-note>
+            {{ t('subtitleScaleNote') }}
+          </p>
         </div>
       </div>
 

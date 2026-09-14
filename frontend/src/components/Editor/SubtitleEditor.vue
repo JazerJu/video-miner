@@ -226,14 +226,14 @@
 
                 <!-- ▸ READ-ONLY STATE  -->
                 <template v-else>
-                  <div class="text-sm text-slate-900 dark:text-white leading-relaxed" v-show="displayMode === 'both' || displayMode === 'raw'">
+                  <div class="text-sm text-slate-900 dark:text-white leading-relaxed" v-show="!hasTranslation || displayMode === 'both' || displayMode === 'raw'">
                     <span class="text-xs text-slate-500 dark:text-slate-400 block mb-1">{{ t('original') }}:</span>
                     {{ s.text }}
                   </div>
 
-                  <div class="border-t border-slate-200 dark:border-white/10 my-2" v-show="displayMode === 'both'" />
+                  <div class="border-t border-slate-200 dark:border-white/10 my-2" v-show="hasTranslation && displayMode === 'both'" />
 
-                  <div class="text-sm text-slate-700 dark:text-slate-200 leading-relaxed" v-show="displayMode === 'both' || displayMode === 'translated'">
+                  <div class="text-sm text-slate-700 dark:text-slate-200 leading-relaxed" v-show="hasTranslation && (displayMode === 'both' || displayMode === 'translated')">
                     <span class="text-xs text-slate-500 dark:text-slate-400 block mb-1"
                       >{{ t('translatedSubtitle') }}:</span
                     >
@@ -418,7 +418,7 @@ const locale = i18nComposer.locale
 const { success: successNotify, error: errorNotify, info: infoNotify } = useNotification()
 
 const rawSubtitle = ref<Subtitle[]>(subtitles.value)
-const foreignSubtitle = ref<Subtitle[]>(subtitles.value)
+const foreignSubtitle = ref<Subtitle[]>([])
 
 const bilingualSubs = computed(() =>
   rawSubtitle.value.map((orig, i) => ({
@@ -440,21 +440,32 @@ const editFilterEnd = ref<number | null>(null)
 // 显示模式：'both' | 'raw' | 'translated'
 const displayMode = ref<'both' | 'raw' | 'translated'>('both')
 const editDisplayMode = ref<'both' | 'raw' | 'translated'>('both')
-const displayModeOptions = computed(() => [
-  { value: 'both' as const, label: t('bilingual') },
-  { value: 'raw' as const, label: t('original') },
-  { value: 'translated' as const, label: t('translatedSubtitle') },
-])
-const showRawEditor = computed(() => displayMode.value !== 'translated')
-const showTranslatedEditor = computed(() => displayMode.value !== 'raw')
 const foreignTrackLoaded = ref(false)
+// 只有译文语言和原文语言不同、并且真的加载到了译文内容，才算有译文轨道
+const hasTranslation = computed(() => foreignTrackLoaded.value && hasForeignContent())
+const displayModeOptions = computed(() =>
+  hasTranslation.value
+    ? [
+        { value: 'both' as const, label: t('bilingual') },
+        { value: 'raw' as const, label: t('original') },
+        { value: 'translated' as const, label: t('translatedSubtitle') },
+      ]
+    : [{ value: 'raw' as const, label: t('original') }],
+)
+const showRawEditor = computed(() => !hasTranslation.value || displayMode.value !== 'translated')
+const showTranslatedEditor = computed(() => hasTranslation.value && displayMode.value !== 'raw')
 
 function hasForeignContent(track: Subtitle[] = foreignSubtitle.value) {
   return track.some((sub) => sub?.text?.trim())
 }
 
+function isSeparateForeignLang() {
+  return (locale.value as string) !== (props.rawLang || 'zh')
+}
+
 function shouldPersistForeignTrack() {
-  return foreignTrackLoaded.value || hasForeignContent()
+  // 译文语言和原文语言相同时两者是同一个字幕文件：绝不能再写一遍，否则会用旧内容覆盖刚改好的原文
+  return isSeparateForeignLang() && (foreignTrackLoaded.value || hasForeignContent())
 }
 
 function ensureForeignSubtitle(index: number): Subtitle {
@@ -918,14 +929,23 @@ async function tryInit(id: number) {
     rawSubtitle.value = []
   }
 
-  try {
-    foreignSubtitle.value = await fetchSubtitle(id, foreignLang) // 译文字幕
-    foreignTrackLoaded.value = true
-    console.log('Translation subtitles loaded:', foreignSubtitle.value.length, 'items')
-  } catch (error) {
-    console.warn(`Translation subtitles (${foreignLang}) not found:`, error)
-    foreignSubtitle.value = []
-    foreignTrackLoaded.value = false
+  foreignSubtitle.value = []
+  foreignTrackLoaded.value = false
+  if (foreignLang !== primaryLang) {
+    try {
+      const track = await fetchSubtitle(id, foreignLang) // 译文字幕
+      // 后端找不到译文时可能回退成原文：内容和原文完全一样就当作没有译文
+      const sameAsRaw =
+        track.length === rawSubtitle.value.length &&
+        track.every((sub, i) => sub.text === rawSubtitle.value[i]?.text)
+      if (track.length && !sameAsRaw) {
+        foreignSubtitle.value = track
+        foreignTrackLoaded.value = true
+      }
+      console.log('Translation subtitles loaded:', track.length, 'items', sameAsRaw ? '(same as raw, ignored)' : '')
+    } catch (error) {
+      console.warn(`Translation subtitles (${foreignLang}) not found:`, error)
+    }
   }
 
   updateBlobTracks()

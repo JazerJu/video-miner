@@ -87,6 +87,9 @@ function updateBloburl(blobUrlsAccepted: Array<string | undefined>) {
 
 // ───────────────── state ─────────────────
 const showTranslation = ref(false)
+// 译文语言：播放器语言面板里点选的（没点过为 null），以及字幕面板实际加载到的
+const requestedTranslationLang = ref<string | null>(null)
+const translationLang = ref<string | null>(null)
 const isVideoFullscreen = ref(false)
 const showChapterMarkers = ref(true) // Control chapter marker visibility
 import { BACKEND } from '@/composables/ConfigAPI'
@@ -620,6 +623,8 @@ onMounted(() => {
                 @autoplay-settings-changed="handleAutoPlaySettingsChanged"
                 @fullscreen-change="handleFullscreenChange"
                 @ready="handlePlayerReady"
+                :translationLang="translationLang"
+                @translation-lang-change="requestedTranslationLang = $event"
                 class="w-full h-full"
               />
             </div>
@@ -663,6 +668,8 @@ onMounted(() => {
               :videoName="videoData.name"
               :showChapterMarkers="showChapterMarkers"
               @update-bloburls="updateBloburl"
+              :requestedTranslationLang="requestedTranslationLang"
+              @translation-lang="translationLang = $event"
               @seek="handleSeekFromSubs"
               @toggle-chapter-markers="handleChapterMarkerToggle"
             />

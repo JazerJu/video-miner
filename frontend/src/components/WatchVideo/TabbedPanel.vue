@@ -13,12 +13,14 @@ const props = defineProps<{
   rawLang?: string
   videoName?: string
   showChapterMarkers?: boolean
+  requestedTranslationLang?: string | null
 }>()
 
 const emit = defineEmits<{
   (e: 'seek', time: number): void
   (e: 'update-bloburls', blobUrls: Array<string | undefined>): void
   (e: 'toggle-chapter-markers', show: boolean): void
+  (e: 'translation-lang', lang: string | null): void
 }>()
 
 const activeTab = ref<'subtitles' | 'chapters'>('subtitles')
@@ -66,6 +68,8 @@ const showTranslation = ref(false)
           v-model:show-translation="showTranslation"
           @seek="emit('seek', $event)"
           @update-bloburls="emit('update-bloburls', $event)"
+          :requestedTranslationLang="requestedTranslationLang"
+          @translation-lang="emit('translation-lang', $event)"
         />
       </div>
 

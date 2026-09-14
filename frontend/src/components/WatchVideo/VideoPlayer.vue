@@ -1,8 +1,6 @@
 <!-- 视频播放器核心组件 -->
 <script setup lang="ts">
-import { generateVTT } from '@/composables/Buildvtt'
-import { useSubtitles } from '@/composables/useSubtitles'
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, getCurrentInstance } from 'vue'
 import videojs from 'video.js'
 import type Player from 'video.js/dist/types/player'
 import { ChapterAPI } from '@/composables/ChapterAPI'
@@ -11,9 +9,10 @@ import { Languages, Check, Settings as SettingsIcon } from 'lucide-vue-next'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
 import { ElSwitch } from 'element-plus'
 import { useMediaFiles } from '@/composables/useMediaFiles'
+import { useI18n } from 'vue-i18n'
 
-const { fetchSubtitle } = useSubtitles()
 const { checkDubbingFile, checkSubtitleExistence } = useMediaFiles()
+const { t, locale } = useI18n()
 
 const props = defineProps<{
   src: string
@@ -25,10 +24,11 @@ const props = defineProps<{
   sourceType?: 'file' | 'hls'
   audioSrc?: string
   audioSourceType?: 'file' | 'hls'
+  // 字幕面板实际加载的译文语言。观看页传入，用来在语言面板上打勾、判断点选的语言要不要重新加载
+  translationLang?: string | null
 }>()
 
 const dubbingLang = ref<string | null>(null)
-const subtitleLang = ref<string | null>(null)
 const isBilingual = ref(false)
 const availableDubbings = ref<Record<string, boolean>>({})
 const availableSubtitles = ref<Record<string, boolean>>({})
@@ -84,7 +84,13 @@ const checkFiles = async () => {
   }
 }
 
-const { loadSubtitleSettings, injectGlobalSubtitleStyles } = useSubtitleStyle()
+const {
+  loadSubtitleSettings,
+  subtitleSettings,
+  foreignSubtitleSettings,
+  subtitleTextStyle,
+  subtitleScaleFor,
+} = useSubtitleStyle()
 
 const emit = defineEmits<{
   (e: 'time-update', t: number): void
@@ -93,6 +99,7 @@ const emit = defineEmits<{
   (e: 'fullscreen-change', isFullscreen: boolean): void
   (e: 'open-subtitle-settings'): void
   (e: 'ready'): void
+  (e: 'translation-lang-change', lang: string): void
 }>()
 
 const handleDubbingChange = (command: string | null) => {
@@ -139,146 +146,211 @@ const handleDubbingChange = (command: string | null) => {
   }
 }
 
-const handleSubtitleChange = async (command: string | null) => {
-    subtitleLang.value = command
-    
-    if (command && player) {
-        const trackId = `dynamic-vtt-${command}`
-        const tracks = Array.from(player.textTracks() as any)
-        let track = tracks.find((t: any) => t.id === trackId)
-        
-        // If track not found by ID, check if it matches Primary/Translation
-        if (!track) {
-             if (command === props.rawLang) {
-                track = tracks.find((t: any) => t.id === 'dynamic-vtt-Primary')
-             } else {
-                // Check if Translation track matches this language?
-                // We don't know the language of Translation track easily without checking SubtitlePanel state.
-                // But we can try to fetch and add a specific track for this language.
-             }
-        }
+// ── 字幕显示 ─────────────────────────────────────────────
+// 原文、译文是两条独立的时间轨，分成两层画在播放器里，各用各的样式（首页「字幕样式」里原文字幕、译文字幕两套设置）。
+// video.js 只负责加载 VTT、算出当前时刻的 cue：轨道 mode 只用 hidden（照常计算、不渲染）和 disabled，从不设 showing。
+// 以前交给 video.js 渲染：几条轨道共用一个显示容器，样式挂在容器属性上，被隐藏的轨道照样触发 cuechange 改写这个属性，
+// 原文、译文来回切几次样式就串了；双语则是把两种文字拼成一条 cue，只能套原文样式，而且是按序号而不是按时间配对的。
+type SubtitleRole = 'primary' | 'translation'
 
-        if (!track) {
-            // Fetch and add
-            try {
-                if (props.videoId) {
-                    const subs = await fetchSubtitle(props.videoId, command)
-                    if (subs && subs.length > 0) {
-                        const vttUrl = generateVTT(command as any, [subs])
-                        player.addRemoteTextTrack({
-                            id: trackId,
-                            kind: 'subtitles',
-                            label: command,
-                            language: command,
-                            src: vttUrl,
-                            default: false
-                        })
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to load subtitle:', e)
-            }
-        }
+const primaryLang = computed(() => props.rawLang || 'zh')
+// 显示哪一层：primary 原文、translation 译文、null 关闭；双语开关打开时两层都显示
+const subtitleRole = ref<SubtitleRole | null>(null)
+// 选了原文以外的语言时记下是哪种；页面没传译文语言时（字幕编辑页）用它在面板上打勾
+const pickedTranslationLang = ref<string | null>(null)
+const subtitleLang = computed(() => {
+  if (subtitleRole.value === 'primary') return primaryLang.value
+  if (subtitleRole.value === 'translation') return props.translationLang || pickedTranslationLang.value
+  return null
+})
+let subtitleChoiceMade = false
+
+const primaryCueText = ref('')
+const translationCueText = ref('')
+const subtitleHost = ref<HTMLElement | null>(null)
+const primaryBlockEl = ref<HTMLElement | null>(null)
+const translationBlockEl = ref<HTMLElement | null>(null)
+const primaryBlockHeight = ref(0)
+const translationBlockHeight = ref(0)
+// 双语时上下两层之间至少留这么多像素，背景的上下内边距不会叠在一起
+const SUBTITLE_STACK_GAP = 10
+// 播放器当前高度：字幕按它等比缩放，全屏和页面内的字幕相对画面一样大
+const playerHeight = ref(0)
+const subtitleScale = computed(() => subtitleScaleFor(playerHeight.value))
+const primaryTextStyle = computed(() => subtitleTextStyle(subtitleSettings.value, subtitleScale.value))
+const translationTextStyle = computed(() => subtitleTextStyle(foreignSubtitleSettings.value, subtitleScale.value))
+// 控制栏和进度条在播放器底部占掉的高度，不随字幕缩放；字幕按比例缩小后不能压到它上面
+const controlBarClearance = ref(0)
+const SUBTITLE_CONTROL_MARGIN = 6
+
+const handleSubtitleChange = (command: string | null) => {
+  subtitleChoiceMade = true
+  if (command === null) {
+    subtitleRole.value = null
+    pickedTranslationLang.value = null
+  } else if (command === primaryLang.value) {
+    subtitleRole.value = 'primary'
+    pickedTranslationLang.value = null
+  } else {
+    // 原文以外的语言都画在译文层、用译文样式。观看页会按这个语言重新加载译文轨道，加载好之前先显示原来那条
+    subtitleRole.value = 'translation'
+    pickedTranslationLang.value = command
+    if (props.translationLang !== undefined && props.translationLang !== command) {
+      emit('translation-lang-change', command)
     }
-    
-    updateSubtitleDisplay()
+  }
+  refreshSubtitleTracks()
 }
 
 const toggleBilingual = (val: boolean) => {
-    isBilingual.value = val
-    updateSubtitleDisplay()
+  isBilingual.value = val
+  refreshSubtitleTracks()
 }
 
-const updateSubtitleDisplay = () => {
-    if (!player) return
-    
-    // Hide all tracks first
-    const tracks = Array.from(player.textTracks() as any)
-    tracks.forEach((t: any) => t.mode = 'hidden')
-    
-    if (!subtitleLang.value) return // Off
+function findSubtitleTrack(key: 'Primary' | 'Translation'): any | null {
+  if (!player) return null
+  const tracks = player.textTracks() as any
+  for (let i = 0; i < tracks.length; i++) {
+    if (tracks[i].id === `${TRACK_PREFIX}${key}`) return tracks[i]
+  }
+  return null
+}
 
-    // Logic:
-    // If bilingual is ON: show 'both' track if available, else show single track
-    // If bilingual is OFF: show single track
-    
-    // We rely on updateSubtitleTracks to have added the tracks with specific IDs or labels
-    // The existing updateSubtitleTracks adds:
-    // id: dynamic-vtt-Primary (index 0)
-    // id: dynamic-vtt-Translation (index 1)
-    // id: dynamic-vtt-Both (index 2)
-    
-    // But wait, the existing logic assumes:
-    // Primary = props.blobUrls[0] (usually Chinese/Original)
-    // Translation = props.blobUrls[1] (usually English/UserLang)
-    // Both = props.blobUrls[2]
-    
-    // If I select "English" (which might be Translation), I want to show Translation track.
-    // If I select "Chinese" (Primary), I want Primary track.
-    // If I select "Japanese", and it's not in blobUrls, I can't show it unless I fetch it.
-    
-    // CURRENT LIMITATION: I can only switch between what's loaded in blobUrls.
-    // blobUrls comes from SubtitlePanel.
-    // SubtitlePanel loads Primary (rawLang) and Translation (userLang).
-    // If user selects a 3rd language, it won't work with current architecture unless I update SubtitlePanel.
-    
-    // For now, I will map the selection to the available tracks.
-    // 'zh' -> Primary (if rawLang is zh) or Translation (if userLang is zh)
-    // 'en' -> Primary (if rawLang is en) or Translation (if userLang is en)
-    
-    // To make this robust, I should probably just toggle the tracks based on what they contain.
-    // But I don't know what language 'Primary' is without checking props.rawLang.
-    
-    // Let's assume:
-    // Primary = props.rawLang (default 'zh')
-    // Translation = 'en' (or whatever user set)
-    
-    // If I select 'zh':
-    // If rawLang == 'zh', show Primary.
-    // Else if userLang == 'zh', show Translation.
-    
-    // If isBilingual is true:
-    // Show 'Both' track.
-    
-    if (isBilingual.value) {
-        const bothTrack = tracks.find((t: any) => t.id === 'dynamic-vtt-Both') as any
-        if (bothTrack) {
-            bothTrack.mode = 'showing'
-            return
-        }
-    }
-    
-    // Single language
-    // Find track with matching language
-    // video.js tracks have .language property.
-    // updateSubtitleTracks sets .language to 'primary' or 'translation'.
-    // This is not standard language code.
-    
-    // I need to know which track corresponds to which language.
-    // props.rawLang is Primary.
-    // I don't know Translation language easily here (it's in SubtitlePanel).
-    
-    // HACK: Just try to match standard codes if possible, or fallback to Primary/Translation logic.
-    // Since I can't easily change SubtitlePanel right now, I will implement a simplified logic:
-    // If subtitleLang is 'zh', try to find a track that is Chinese.
-    // But the tracks are labeled '原文', '译文'.
-    
-    // I will modify updateSubtitleTracks to set the correct language code if possible, 
-    // OR I will just assume:
-    // If subtitleLang == props.rawLang -> Primary
-    // Else -> Translation
-    
-    let targetId = ''
-    if (subtitleLang.value === props.rawLang) {
-        targetId = 'dynamic-vtt-Primary'
-    } else {
-        targetId = 'dynamic-vtt-Translation'
-    }
-    
-    const track = tracks.find((t: any) => t.id === targetId) as any
-    if (track) {
-        track.mode = 'showing'
-    }
+// 按当前选择算出每一层该读哪条轨道
+function plannedSubtitleTracks(): Record<SubtitleRole, any | null> {
+  const role = subtitleRole.value
+  if (!role) return { primary: null, translation: null }
+  return {
+    primary: role === 'primary' || isBilingual.value ? findSubtitleTrack('Primary') : null,
+    translation: role === 'translation' || isBilingual.value ? findSubtitleTrack('Translation') : null,
+  }
+}
+
+let listenedSubtitleTracks: any[] = []
+
+function refreshSubtitleTracks() {
+  if (!player) return
+  const plan = plannedSubtitleTracks()
+  const wanted = [plan.primary, plan.translation].filter(Boolean)
+  const tracks = player.textTracks() as any
+  for (let i = 0; i < tracks.length; i++) {
+    const track = tracks[i]
+    if (!track.id?.startsWith(TRACK_PREFIX)) continue
+    const mode = wanted.includes(track) ? 'hidden' : 'disabled'
+    if (track.mode !== mode) track.mode = mode
+  }
+  for (const track of listenedSubtitleTracks) {
+    track.removeEventListener('cuechange', updateSubtitleOverlay)
+    track.removeEventListener('loadeddata', updateSubtitleOverlay)
+  }
+  listenedSubtitleTracks = wanted
+  for (const track of wanted) {
+    track.addEventListener('cuechange', updateSubtitleOverlay)
+    track.addEventListener('loadeddata', updateSubtitleOverlay)
+  }
+  updateSubtitleOverlay()
+}
+
+// 还没选过字幕时和以前一样，默认显示第一条可用的字幕
+function applyDefaultSubtitleChoice(urls: (string | undefined)[]) {
+  if (subtitleChoiceMade) return
+  if (urls[0]) subtitleRole.value = 'primary'
+  else if (urls[1]) subtitleRole.value = 'translation'
+  else return
+  subtitleChoiceMade = true
+}
+
+// 字幕里可能带 <i>、<font> 之类的标签，字幕层只显示文字
+function cleanCueText(text: string) {
+  return String(text ?? '')
+    .replace(/<\/?[a-zA-Z][^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim()
+}
+
+function activeCueText(track: any): string {
+  const cues = track?.activeCues
+  if (!cues || !cues.length) return ''
+  const lines: string[] = []
+  for (let i = 0; i < cues.length; i++) {
+    const text = cleanCueText(cues[i].text)
+    if (text) lines.push(text)
+  }
+  return lines.join('\n')
+}
+
+function updateSubtitleOverlay() {
+  const plan = plannedSubtitleTracks()
+  primaryCueText.value = activeCueText(plan.primary)
+  translationCueText.value = activeCueText(plan.translation)
+}
+
+// 两层各按自己的「距底边距离」摆放；同时出现又会叠在一起时，把靠上的那层往上推
+const subtitleBottoms = computed(() => {
+  const scale = subtitleScale.value
+  // 窄窗口里按比例算出的位置可能落进控制栏，这时抬到控制栏上方
+  const floor = controlBarClearance.value > 0 ? controlBarClearance.value + SUBTITLE_CONTROL_MARGIN * scale : 0
+  const primary = Math.max(subtitleSettings.value.bottomDistance * scale, floor)
+  const translation = Math.max(foreignSubtitleSettings.value.bottomDistance * scale, floor)
+  const gap = SUBTITLE_STACK_GAP * scale
+  if (!primaryCueText.value || !translationCueText.value) return { primary, translation }
+  if (primary <= translation) {
+    return { primary, translation: Math.max(translation, primary + primaryBlockHeight.value + gap) }
+  }
+  return { primary: Math.max(primary, translation + translationBlockHeight.value + gap), translation }
+})
+
+let subtitleBlockObserver: ResizeObserver | null = null
+watch([primaryBlockEl, translationBlockEl], ([primaryEl, translationEl], [oldPrimaryEl, oldTranslationEl]) => {
+  if (typeof ResizeObserver === 'undefined') return
+  if (!subtitleBlockObserver) {
+    subtitleBlockObserver = new ResizeObserver(() => {
+      primaryBlockHeight.value = primaryBlockEl.value?.offsetHeight ?? 0
+      translationBlockHeight.value = translationBlockEl.value?.offsetHeight ?? 0
+    })
+  }
+  for (const el of [oldPrimaryEl, oldTranslationEl]) if (el) subtitleBlockObserver.unobserve(el)
+  for (const el of [primaryEl, translationEl]) if (el) subtitleBlockObserver.observe(el)
+})
+
+// 字幕层放进 video.js 的播放器元素，全屏时跟着一起全屏；插在原生字幕容器后面，层级在视频之上、控制栏之下
+let playerSizeObserver: ResizeObserver | null = null
+
+function measureControlBarClearance() {
+  if (!player) return
+  const root = player.el() as HTMLElement
+  const rootBottom = root.getBoundingClientRect().bottom
+  // 第一次播放前控制栏是 display:none，高度为 0，不用避让；播放中自动隐藏只是变透明，高度还在，字幕位置保持不动
+  const tops = ['.vjs-control-bar', '.vjs-progress-control']
+    .map((selector) => root.querySelector(selector) as HTMLElement | null)
+    .filter((el): el is HTMLElement => !!el)
+    .map((el) => el.getBoundingClientRect())
+    .filter((rect) => rect.height > 0)
+    .map((rect) => rect.top)
+  controlBarClearance.value = tops.length ? Math.max(0, rootBottom - Math.min(...tops)) : 0
+}
+
+function mountSubtitleLayer() {
+  if (!player || subtitleHost.value) return
+  const root = player.el() as HTMLElement
+  const host = document.createElement('div')
+  host.className = 'vidgo-subtitle-layer'
+  host.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;'
+  const nativeDisplay = root.querySelector('.vjs-text-track-display')
+  root.insertBefore(host, nativeDisplay ? nativeDisplay.nextSibling : null)
+  subtitleHost.value = host
+  playerHeight.value = host.clientHeight
+  measureControlBarClearance()
+  if (typeof ResizeObserver !== 'undefined') {
+    playerSizeObserver = new ResizeObserver(() => {
+      playerHeight.value = host.clientHeight
+      measureControlBarClearance()
+    })
+    playerSizeObserver.observe(host)
+  }
 }
 
 const TRACK_PREFIX = 'dynamic-vtt-'
@@ -702,86 +774,27 @@ function updateSubtitleTracks(player: Player | null, urls: (string | undefined)[
     }
   }
 
-  if (!urls) return
-  
-  // Create dynamic descriptors based on available URLs and their actual content
-  const dynamicDescriptors: Array<{ key: string, label: string, srclang: string, index: number }> = []
-  
-  // blobUrls structure: [primaryLang, foreignLang, both]
-  // We need to determine which languages these actually contain
-  if (urls[0]) {
-    // Primary language subtitle is available
-    dynamicDescriptors.push({
-      key: 'Primary',
-      label: '原文', // Will show the primary language
-      srclang: 'primary',
-      index: 0
-    })
-  }
-  
-  if (urls[1]) {
-    // Foreign language subtitle is available  
-    dynamicDescriptors.push({
-      key: 'Translation',
-      label: '译文', // Will show the translation language
-      srclang: 'translation', 
-      index: 1
-    })
-  }
-  
-  if (urls[2] && urls[0] && urls[1]) {
-    // Both languages available - only show if both primary and translation exist
-    dynamicDescriptors.push({
-      key: 'Both',
-      label: '双语', // Bilingual
-      srclang: 'both',
-      index: 2
-    })
-  }
-
-  // Add tracks for available subtitles
-  dynamicDescriptors.forEach(({ key, label, srclang, index }, i) => {
-    const src = urls[index]
-    if (!src) return
-    
+  // blobUrls 顺序：[原文, 译文, 原文+译文合并]。合并的那条不再使用：双语时原文、译文两条轨道按各自的时间轴同时显示
+  const descriptors = [
+    { key: 'Primary', label: '原文', language: 'primary', index: 0 },
+    { key: 'Translation', label: '译文', language: 'translation', index: 1 },
+  ]
+  for (const { key, label, language, index } of descriptors) {
+    const src = urls?.[index]
+    if (!src) continue
     player.addRemoteTextTrack({
       id: `${TRACK_PREFIX}${key}`,
       kind: 'subtitles',
-      label, // 菜单上显示的文字
-      language: srclang, // video.js language
+      label,
+      language,
       src,
-      default: i === 0, // 第一个轨道设为默认
+      // 不设默认轨道，否则 video.js 会自己把它设成 showing 渲染出来，和字幕层重复
+      default: false,
     })
+  }
 
-    // Add a listener to detect when this track becomes active and mark the display
-    // We need to use a different approach since we can't reliably access the track object
-    setTimeout(() => {
-      const textTracks = player.textTracks()
-      // Convert TextTrackList to array and find the track we just added
-      const trackArray = Array.from(textTracks as any) as any[]
-      const targetTrack = trackArray.find((track: any) => 
-        track.language === srclang && track.kind === 'subtitles'
-      )
-      
-      if (targetTrack) {
-        targetTrack.addEventListener('cuechange', () => {
-          // Find all text track display containers
-          const textTrackDisplays = player.el().querySelectorAll('.vjs-text-track-display')
-          textTrackDisplays.forEach((display: Element) => {
-            const displayElement = display as HTMLElement
-            // Check if this display has active cues from our track
-            if (targetTrack.activeCues && targetTrack.activeCues.length > 0) {
-              // Mark the display with the subtitle language
-              displayElement.setAttribute('data-subtitle-lang', srclang)
-            } else {
-              // Remove the attribute if no active cues
-              displayElement.removeAttribute('data-subtitle-lang')
-            }
-          })
-        })
-      }
-    }, 100) // Small delay to ensure track is added
-  })
+  if (urls) applyDefaultSubtitleChoice(urls)
+  refreshSubtitleTracks()
 }
 
 // Hotkey functionality
@@ -900,10 +913,10 @@ function showMediaError(message: string) {
   const errorMessage = document.createElement('div')
   errorMessage.innerHTML = `
     <div style="background: rgba(220, 53, 69, 0.9); padding: 20px; border-radius: 8px; max-width: 400px;">
-      <div style="font-size: 18px; margin-bottom: 10px;">⚠️ 播放错误</div>
+      <div style="font-size: 18px; margin-bottom: 10px;">⚠️ ${t('playbackError')}</div>
       <div style="margin-bottom: 15px;">${message}</div>
       <div style="font-size: 14px; color: rgba(255,255,255,0.8);">
-        建议尝试使用其他浏览器或转换视频格式为MP4
+        ${t('playbackErrorHint')}
       </div>
     </div>
   `
@@ -1152,6 +1165,13 @@ onMounted(async () => {
       },
     },
   })
+
+  mountSubtitleLayer()
+  // 字幕层靠这些事件刷新：播放时 cuechange 逐帧准确，暂停时拖进度条靠 seeked 和 timeupdate；换视频源会清掉轨道，要重新挂监听
+  player.on(['timeupdate', 'seeked', 'loadedmetadata'], updateSubtitleOverlay)
+  // 控制栏第一次播放时才显示出来，全屏切换时位置也会变
+  player.on(['play', 'playing', 'fullscreenchange', 'playerresize'], () => requestAnimationFrame(measureControlBarClearance))
+  player.on('loadstart', refreshSubtitleTracks)
 
   if (props.sourceType === 'hls') {
     loadHlsSource(props.src)
@@ -2315,6 +2335,8 @@ onBeforeUnmount(() => {
   destroyAudioHlsInstance()
   resetSeparateAudioElement()
   destroyHlsInstance()
+  subtitleBlockObserver?.disconnect()
+  playerSizeObserver?.disconnect()
   // Clean up player
   player?.dispose()
 })
@@ -2365,8 +2387,8 @@ onBeforeUnmount(() => {
               <!-- Subtitle content (directly shown, no tab bar needed) -->
               <div class="lang-panel-body">
                 <button class="lang-panel-item" @click="handleSubtitleChange(null)">
-                  <span :class="{ 'text-accent': subtitleLang === null }">关闭</span>
-                  <Check v-if="subtitleLang === null" :size="14" class="text-accent" />
+                  <span :class="{ 'text-accent': subtitleRole === null }">{{ t('close') }}</span>
+                  <Check v-if="subtitleRole === null" :size="14" class="text-accent" />
                 </button>
                 <button
                   class="lang-panel-item"
@@ -2401,24 +2423,46 @@ onBeforeUnmount(() => {
 
                 <!-- Bilingual toggle -->
                 <div class="lang-panel-row" @click.stop>
-                  <span>双语字幕</span>
+                  <span>{{ t('bilingualSubtitle') }}</span>
                   <el-switch
                     v-model="isBilingual"
                     size="small"
                     @change="(val: string | number | boolean) => toggleBilingual(Boolean(val))"
-                    :disabled="!subtitleLang"
+                    :disabled="!subtitleRole"
                   />
                 </div>
 
                 <!-- Subtitle settings -->
                 <button class="lang-panel-item" @click="emit('open-subtitle-settings'); closeLanguagePanel()">
-                  <span>字幕样式</span>
+                  <span>{{ t('subtitleSettings') }}</span>
                   <SettingsIcon :size="14" class="opacity-60" />
                 </button>
               </div>
             </div>
           </Transition>
         </div>
+      </div>
+    </Teleport>
+
+    <!-- 字幕层：原文、译文各一块，各用各的时间轴和样式 -->
+    <Teleport v-if="subtitleHost" :to="subtitleHost">
+      <div
+        v-show="primaryCueText"
+        ref="primaryBlockEl"
+        class="vidgo-subtitle-block"
+        :style="{ bottom: `${subtitleBottoms.primary}px` }"
+        data-subtitle-role="primary"
+      >
+        <span class="vidgo-subtitle-text" :style="primaryTextStyle">{{ primaryCueText }}</span>
+      </div>
+      <div
+        v-show="translationCueText"
+        ref="translationBlockEl"
+        class="vidgo-subtitle-block"
+        :style="{ bottom: `${subtitleBottoms.translation}px` }"
+        data-subtitle-role="translation"
+      >
+        <span class="vidgo-subtitle-text" :style="translationTextStyle">{{ translationCueText }}</span>
       </div>
     </Teleport>
   </div>
@@ -2617,5 +2661,22 @@ onBeforeUnmount(() => {
 .lang-panel-leave-to {
   opacity: 0;
   transform: translateY(4px) scale(0.98);
+}
+
+/* 字幕层：原文、译文两块分开定位；文字背景只包住文字，折行后每行各自带背景 */
+.vidgo-subtitle-block {
+  position: absolute;
+  left: 3%;
+  right: 3%;
+  text-align: center;
+  pointer-events: none;
+}
+
+.vidgo-subtitle-text {
+  display: inline;
+  line-height: 1.4;
+  white-space: pre-line;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 </style>

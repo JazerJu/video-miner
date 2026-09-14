@@ -28,6 +28,7 @@
               :src="videoSrc"
               :blobUrls="blobUrls"
               :videoId="videoData.id"
+              :rawLang="videoData.rawLang"
               @time-update="handleTimeUpdate"
               @ready="handlePlayerReady"
               class="absolute inset-0 w-full h-full"
@@ -78,7 +79,6 @@
         </div>
       </div>
     </div>
-    
   </div>
 </template>
 
