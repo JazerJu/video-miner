@@ -677,6 +677,41 @@ class VideoAgent:
             print(f"  [cleanup] removed {removed} .npy files ({freed / 1024**2:.0f} MB)")
 
     def _summarize_inner(self, thinking_budget, top_n, min_coverage, progress_cb=None):
+        """Detect chapters, summarize each chapter, assemble.
+
+        These steps used to run as an LLM tool loop. The LLM skipped or merged chapters and rewrote
+        titles (the lfs-p3 summary stopped at 16:50 of 22:44). The steps are fixed, so code runs them
+        now; the tool loop stays only as a fallback when chapter detection fails.
+        """
+        detected = self._detect_chapters()
+        chapters = detected.get("chapters") or []
+        if not chapters:
+            print(f"  [summarize] chapter detection failed ({detected.get('error')}), using tool loop")
+            return self._summarize_with_tool_loop(thinking_budget, top_n, min_coverage, progress_cb)
+        print(f"  [summarize] {len(chapters)} chapters via {detected.get('_source')}")
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        summaries = [None] * len(chapters)
+        overview = detected.get("overview", "")
+
+        def work(i):
+            ch = chapters[i]
+            return i, self._summarize_chapter(
+                ch["start_seconds"], ch["end_seconds"], ch["title"], gist=ch.get("gist", ""),
+                prev_title=chapters[i - 1]["title"] if i > 0 else "",
+                next_title=chapters[i + 1]["title"] if i + 1 < len(chapters) else "",
+                overview=overview)
+
+        done = 0
+        with ThreadPoolExecutor(max_workers=min(4, len(chapters))) as pool:
+            for fut in as_completed([pool.submit(work, i) for i in range(len(chapters))]):
+                i, result = fut.result()
+                summaries[i] = result.get("summary") or "信息不足，无法生成该章节摘要。"
+                done += 1
+                if progress_cb:
+                    progress_cb(done, len(chapters))
+        return self._assemble_summary(summaries, min_coverage, chapters=chapters, overview=overview)
+
+    def _summarize_with_tool_loop(self, thinking_budget, top_n, min_coverage, progress_cb=None):
 
         messages = [
             {"role": "system", "content": self._SUMMARIZE_SYSTEM_PROMPT},
@@ -781,7 +816,8 @@ class VideoAgent:
             return self._inject_slides(final_resp["choices"][0]["message"].get("content", "信息不足，无法生成总结。"))
         return "信息不足，无法生成总结。"
 
-    def _assemble_summary(self, chapter_summaries: list, min_coverage: float = 0.60) -> str:
+    def _assemble_summary(self, chapter_summaries: list, min_coverage: float = 0.60,
+                          chapters: list | None = None, overview: str = "") -> str:
         extract_path = self._extract_json_path()
         slides_data = []
         slides_base = None
@@ -800,6 +836,8 @@ class VideoAgent:
             clip_captions[int(c["start"] / 10)] = c.get("caption", "")
 
         header = f"# 视频结构化总结\n\n> 共 {len(chapter_summaries)} 个章节\n\n"
+        if overview:
+            header += f"{overview.strip()}\n\n"
         toc = "## 目录\n\n"
         body = ""
         for i, summary in enumerate(chapter_summaries, 1):
@@ -820,6 +858,10 @@ class VideoAgent:
                         start_sec = val
                     else:
                         end_sec = val
+
+            if chapters and i <= len(chapters):
+                start_sec = chapters[i - 1]["start_seconds"]
+                end_sec = chapters[i - 1]["end_seconds"]
 
             chapter_slides = []
             if slides_data and start_sec < end_sec:
@@ -845,7 +887,8 @@ class VideoAgent:
 
         total_images = body.count("![")
 
-        return header + toc + "\n---\n" + body
+        # body 的每一段都以分隔线开头，这里不再多加一条
+        return header + toc + body
 
     def _crop_slide_for_summary(self, slide: dict, min_coverage: float = 0.60) -> str | None:
         """Use Gemini to get precise bbox for a single slide, crop and save.
@@ -919,6 +962,168 @@ class VideoAgent:
         return result
 
     def _detect_chapters(self, min_chapter_secs: int = 120) -> dict:
+        """Topic chapters covering the whole video.
+
+        An LLM reads the timestamped transcript plus on-screen OCR events and puts boundaries at real
+        topic changes. The embedding-similarity cut found 3 chapters in lfs-p3 (YouTube lists 6) and a
+        22-minute first chapter in lfs-p4; it stays as the fallback.
+        """
+        try:
+            result = self._detect_chapters_llm()
+            if result.get("chapters"):
+                return result
+            print(f"  [chapters] LLM segmentation unusable: {result.get('error')}")
+        except Exception as exc:
+            print(f"  [chapters] LLM segmentation failed: {exc}")
+        return self._detect_chapters_embedding(min_chapter_secs)
+
+    def _video_duration(self) -> float:
+        duration = float(self.db.get("duration") or 0)
+        if not duration and self.db.get("clips"):
+            duration = float(self.db["clips"][-1]["end"])
+        if not duration and self.srt:
+            duration = float(self.srt[-1]["end"])
+        return duration
+
+    def _compact_transcript(self, budget_chars: int = 60000, block_secs: float = 20) -> str:
+        blocks, cur_start, cur = [], None, []
+        for e in self.srt:
+            if cur_start is None:
+                cur_start = e["start"]
+            cur.append(str(e["text"]).strip())
+            if e["end"] - cur_start >= block_secs:
+                blocks.append((cur_start, " ".join(cur)))
+                cur_start, cur = None, []
+        if cur:
+            blocks.append((cur_start, " ".join(cur)))
+        total = sum(len(t) for _, t in blocks)
+        limit = max(80, budget_chars // max(1, len(blocks))) if total > budget_chars else None
+        return "\n".join(f"[{self._fmt(s)}] {t[:limit] if limit else t}" for s, t in blocks)
+
+    def _screen_events_text(self, max_items: int = 160) -> str:
+        """Compact OCR events (slides / code / terminal) used as chapter hints."""
+        path = self._extract_json_path()
+        if not path:
+            return ""
+        try:
+            with open(path, encoding="utf-8") as f:
+                structure = _json.load(f)
+        except Exception:
+            return ""
+        events = []
+        for key, label, field in (("slides", "幻灯片", "ocr_text"), ("code_snapshots", "代码", "code"),
+                                  ("terminal_outputs", "终端", "text")):
+            for item in structure.get(key, []):
+                text = " ".join(str(item.get(field) or "").split())
+                if text:
+                    events.append((float(item.get("time", 0)), label, text[:80]))
+        events.sort()
+        if len(events) > max_items:
+            step = len(events) / max_items
+            events = [events[int(i * step)] for i in range(max_items)]
+        return "\n".join(f"[{self._fmt(t)}] {label}: {text}" for t, label, text in events)
+
+    @staticmethod
+    def _clean_chapter_title(title) -> str:
+        import re
+        t = str(title or "").strip().strip("\"'“”「」")
+        t = re.sub(r"^(第\s*[\d一二三四五六七八九十]+\s*[章节部分]|章节\s*\d+|chapter\s*\d+|\d+\s*[\.、\)）:：])\s*[：:\-—.、]?\s*", "", t, flags=re.I)
+        t = re.sub(r"[\[（(【]\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–—~至到]\s*\d{1,2}:\d{2}(?::\d{2})?\s*[\]）)】]", "", t)
+        t = re.sub(r"\d{1,2}:\d{2}(?::\d{2})?\s*[-–—~]\s*\d{1,2}:\d{2}(?::\d{2})?", "", t)
+        return t.strip(" ：:-—·|")[:40]
+
+    def _detect_chapters_llm(self) -> dict:
+        import re
+        duration = self._video_duration()
+        if not self.srt or len(self.srt) < 5 or duration <= 0:
+            return {"_source": "detect_chapters_llm", "error": "字幕不足或时长未知"}
+        transcript = self._compact_transcript()
+        events = self._screen_events_text()
+        minutes = duration / 60
+        lo, hi = max(2, round(minutes / 8)), max(3, round(minutes / 3))
+        prompt = (
+            f"下面是一段视频的带时间戳字幕{'，以及画面中识别到的幻灯片/代码/终端事件' if events else ''}。"
+            f"视频总时长 {self._fmt(duration)}（{int(duration)} 秒）。\n\n"
+            "请按「话题或操作目标的切换」给视频划分章节：\n"
+            "- 边界放在内容真正转向的地方，例如开始一个新步骤、开始测试、换到下一个软件包或概念；不要按固定时长平均切\n"
+            f"- 这个视频通常应分成 {lo}–{hi} 章；单章尽量不超过 10 分钟，也不要短于 1 分钟\n"
+            "- 开场白或片尾不足 1 分钟时并入相邻章节\n"
+            "- 第一章从 0 秒开始，章节首尾相接，按时间升序\n"
+            f"- 标题 4–16 个字，用{self._lang}写，说清这一章做成了什么；不要写序号、时间或“章节”字样\n"
+            "- gist 用一句话写这一章的具体内容\n"
+            "- overview 用 1–2 句话概括整个视频\n\n"
+            "只输出 JSON，不要任何解释：\n"
+            '{"overview": "...", "chapters": [{"start": 0, "title": "...", "gist": "..."}]}\n\n'
+            f"字幕（start 用这里的秒数）：\n{transcript}\n"
+            + (f"\n画面事件（OCR，时间为出现时刻）：\n{events}\n" if events else "")
+        )
+        raw = call_deepseek(prompt, system="你是视频结构分析助手，只输出合法 JSON。",
+                            max_tokens=8192, model="deepseek-flash", timeout=300)
+        match = re.search(r"\{[\s\S]*\}", raw or "")
+        if not match:
+            return {"_source": "detect_chapters_llm", "error": f"无 JSON 输出: {(raw or '')[:120]!r}"}
+        try:
+            data = _json.loads(match.group(0))
+        except ValueError as exc:
+            return {"_source": "detect_chapters_llm", "error": f"JSON 解析失败: {exc}"}
+        chapters = self._normalize_chapters(data.get("chapters") or [], duration)
+        if len(chapters) < 2 and duration > 600:
+            return {"_source": "detect_chapters_llm", "error": f"只得到 {len(chapters)} 章"}
+        return {
+            "_source": "detect_chapters_llm (deepseek-flash)",
+            "overview": str(data.get("overview") or "").strip(),
+            "total_chapters": len(chapters),
+            "chapters": chapters,
+        }
+
+    def _normalize_chapters(self, raw: list, duration: float, min_secs: float = 60) -> list:
+        """Sort, clamp and merge LLM chapter starts into contiguous chapters covering [0, duration]."""
+        points = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                start = float(item.get("start", item.get("start_seconds")))
+            except (TypeError, ValueError):
+                continue
+            title = self._clean_chapter_title(item.get("title", ""))
+            if 0 <= start < duration and title:
+                points.append([start, title, str(item.get("gist") or "").strip()[:300]])
+        points.sort(key=lambda p: p[0])
+        deduped = []
+        for p in points:
+            if deduped and p[0] - deduped[-1][0] < 1:
+                continue
+            deduped.append(p)
+        if not deduped:
+            return []
+        deduped[0][0] = 0.0
+        merged = []
+        for i, p in enumerate(deduped):
+            end = deduped[i + 1][0] if i + 1 < len(deduped) else duration
+            if end - p[0] < min_secs and len(deduped) > 1:
+                if merged:
+                    continue  # 太短：并入前一章（前一章延伸到下一个保留的起点）
+                if i + 1 < len(deduped):
+                    deduped[i + 1][0] = 0.0  # 开头太短：并入下一章
+                    continue
+            merged.append(p)
+        chapters = []
+        for i, (start, title, gist) in enumerate(merged):
+            end = merged[i + 1][0] if i + 1 < len(merged) else duration
+            chapters.append({
+                "chapter": i + 1,
+                "title": title,
+                "gist": gist,
+                "start_seconds": round(start, 1),
+                "end_seconds": round(end, 1),
+                "start_time": self._fmt(start),
+                "end_time": self._fmt(end),
+                "duration": round(end - start),
+            })
+        return chapters
+
+    def _detect_chapters_embedding(self, min_chapter_secs: int = 120) -> dict:
         if not self.srt or len(self.srt) < 5:
             return {"_source": "detect_chapters", "error": "字幕不足，无法检测章节"}
 
@@ -1119,7 +1324,10 @@ class VideoAgent:
             text = re.sub(pat, '', text, count=1, flags=re.DOTALL)
         return text.strip()
 
-    def _summarize_chapter(self, start_sec: float, end_sec: float, chapter_title: str) -> dict:
+    def _summarize_chapter(self, start_sec: float, end_sec: float, chapter_title: str,
+                           gist: str = "", prev_title: str = "", next_title: str = "",
+                           overview: str = "") -> dict:
+        chapter_title = self._clean_chapter_title(chapter_title) or chapter_title
         transcript = self._transcript_in_range(start_sec, end_sec)
 
         captions = []
@@ -1206,11 +1414,23 @@ class VideoAgent:
             except Exception:
                 pass
 
+        context_lines = []
+        if overview:
+            context_lines.append(f"整个视频讲的是：{overview}")
+        if gist:
+            context_lines.append(f"本章主题：{gist}")
+        if prev_title or next_title:
+            context_lines.append(f"上一章：{prev_title or '无'}；下一章：{next_title or '无'}（不要展开相邻章节的内容）")
+        if not transcript.strip():
+            context_lines.append("注意：这一段没有字幕（可能是片头片尾、静默操作或结束画面）。只根据画面描述和 OCR 简要说明，不要编造讲解内容，写几行即可。")
+        context_block = ("\n".join(context_lines) + "\n\n") if context_lines else ""
+
         prompt = (
             f"请为视频章节「{chapter_title}」（{self._fmt(start_sec)}-{self._fmt(end_sec)}）生成详细的结构化摘要。\n\n"
+            f"{context_block}"
             f"该章节字幕：\n{transcript}\n\n"
             f"{terminal_section}{ocr_code_section}{slides_section}\n\n"
-            f"该章节画面描述（AI caption，仅供参考；优先采用上方 OCR 逐字抄录的终端/代码/幻灯片文字）：\n{caption_text}"
+            f"该章节画面描述（AI caption，仅供参考；优先采用上方 OCR 逐字抄录的终端/代码/幻灯片文字）：\n{caption_text}\n\n"
             f"要求：\n"
             f"- 严格按照时间顺序，逐段展开叙述，不要遗漏任何重要内容\n"
             f"- 每个知识点/操作步骤必须展开描述：先说明背景/目的，再写出具体内容（代码要完整写出，命令要写出完整命令行，配置要写出具体参数值）\n"

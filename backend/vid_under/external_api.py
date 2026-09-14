@@ -91,8 +91,10 @@ def extract_text(result: dict | None) -> str:
     return ""
 
 
-def call_deepseek(prompt: str, system: str = "你是视频分析助手。", max_tokens: int = 1024) -> str:
-    return _call_openai_compat(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, "deepseek-chat", prompt, system, max_tokens)
+def call_deepseek(prompt: str, system: str = "你是视频分析助手。", max_tokens: int = 1024,
+                  model: str | None = None, timeout: int = 120) -> str:
+    return _call_openai_compat(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model or "deepseek-chat", prompt, system, max_tokens,
+                               timeout=timeout)
 
 
 def call_step(prompt: str, system: str = "你是视频分析助手。", max_tokens: int = 1024) -> str:
@@ -267,7 +269,7 @@ def _call_openai_compat_raw(base_url: str, api_key: str, model: str, messages: l
         return {}
 
 
-def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, system: str, max_tokens: int, images: list = None) -> str:
+def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, system: str, max_tokens: int, images: list = None, timeout: int = 120) -> str:
     if not api_key:
         return ""
     url = f"{base_url}/chat/completions"
@@ -288,7 +290,7 @@ def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, sy
         "Authorization": f"Bearer {api_key}",
     })
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             result = json.loads(resp.read().decode())
             msg = result["choices"][0]["message"]
             content = msg.get("content") or ""
