@@ -144,3 +144,6 @@ docs/superpowers/
 
 # Test artifacts
 backend/.coverage
+
+# 品牌图标变体的位图在本机渲染，不进 git，见 backend/CLAUDE.md 的 Brand Icon 一节
+frontend/brand-icons/**/*.ico

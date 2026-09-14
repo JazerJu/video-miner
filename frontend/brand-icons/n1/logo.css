@@ -1,0 +1,22 @@
+/* brand-icon: n1  藏青徽章 + 银灰头 + 白角 + 青绿面窗，深色描边。
+   源文件是 frontend/brand-icons/n1/logo.css，switch.sh 会把它拷成 src/assets/brand-logo.css，改色请改源文件。 */
+.vm-logo {
+  --vm-badge: #16202F;
+  --vm-horn: #F0F5FA;
+  --vm-head: #C3CEDE;
+  --vm-visor: #27A094;
+  --vm-ink: #0B1220;
+  --vm-visor-rim: #0B1220;
+}
+/* 深色模式：藏青徽章贴着深色侧栏会消失，提亮到 slate-700 */
+.dark .vm-logo {
+  --vm-badge: #334155;
+}
+.vm-logo .vm-badge { fill: var(--vm-badge); }
+.vm-logo .vm-parts { stroke: var(--vm-ink); }
+.vm-logo .vm-horn { fill: var(--vm-horn); }
+.vm-logo .vm-head { fill: var(--vm-head); }
+.vm-logo .vm-visor { fill: var(--vm-visor); stroke: var(--vm-visor-rim); }
+.vm-logo rect,
+.vm-logo g,
+.vm-logo path { transition: fill 0.15s, stroke 0.15s; }

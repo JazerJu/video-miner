@@ -1,0 +1,25 @@
+/* brand-icon: legacy  2026-08-17 的 E3 版：藏青徽章 + 青绿字形，接缝和面窗镂空；深色模式徽章与字形对调。
+   源文件是 frontend/brand-icons/legacy/logo.css，switch.sh 会把它拷成 src/assets/brand-logo.css。 */
+.vm-logo {
+  --vm-badge: #16202F;
+  --vm-horn: #27A094;
+  --vm-head: #27A094;
+  --vm-visor: #16202F;
+  --vm-ink: #16202F;
+  --vm-visor-rim: none;
+}
+.dark .vm-logo {
+  --vm-badge: #27A094;
+  --vm-horn: #10202C;
+  --vm-head: #10202C;
+  --vm-visor: #27A094;
+  --vm-ink: #27A094;
+}
+.vm-logo .vm-badge { fill: var(--vm-badge); }
+.vm-logo .vm-parts { stroke: var(--vm-ink); }
+.vm-logo .vm-horn { fill: var(--vm-horn); }
+.vm-logo .vm-head { fill: var(--vm-head); }
+.vm-logo .vm-visor { fill: var(--vm-visor); stroke: var(--vm-visor-rim); }
+.vm-logo rect,
+.vm-logo g,
+.vm-logo path { transition: fill 0.15s, stroke 0.15s; }
