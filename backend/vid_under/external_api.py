@@ -38,9 +38,7 @@ def _get_embed_session():
     return _embed_session, _embed_tokenizer
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    if not texts:
-        return []
+def _embed_texts_bge(texts: list[str]) -> list[list[float]]:
     session, tokenizer = _get_embed_session()
     encoded = [tokenizer.encode(t) for t in texts]
     input_ids = np.array([e.ids for e in encoded], dtype=np.int64)
@@ -57,6 +55,277 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     norms = np.linalg.norm(pooled, axis=1, keepdims=True)
     pooled = pooled / (norms + 1e-8)
     return pooled.tolist()
+
+
+# ── WeMM 编码后端 ──────────────────────────────────────────────
+# 本环境没有 torch，WeMM 只能跑在独立的 wemm-venv 里，用常驻子进程通信。
+# 实测：字幕行粒度上 WeMM 比 bge 显著更好（549 语音 0.50->0.79，548 0.46->0.76，
+# 两个视频的置信区间都不跨 0）；caption 粒度收益跨 0，所以只在字幕行检索上启用。
+WEMM_PYTHON = os.environ.get("VIDUNDER_WEMM_PYTHON",
+                             "/media/jju/ExtraDisk/models/wemm-venv/bin/python")
+WEMM_SERVER = os.environ.get("VIDUNDER_WEMM_SERVER",
+                             os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          "wemm_embed_server.py"))
+WEMM_READY_TIMEOUT = float(os.environ.get("VIDUNDER_WEMM_READY_TIMEOUT", "600"))
+WEMM_CALL_TIMEOUT = float(os.environ.get("VIDUNDER_WEMM_CALL_TIMEOUT", "300"))
+# 实测常驻进程占 4.75 GB，留点余量按 5 GB 申请名额
+WEMM_NEED_GB = float(os.environ.get("VIDUNDER_WEMM_NEED_GB", "5"))
+
+_wemm_proc = None
+_wemm_failed = False
+_wemm_slot = None
+
+
+def _wemm_start():
+    """拉起常驻编码进程。冷启动约 10 秒（预量化副本）/ 300 秒（未量化原版）。
+
+    先申请一个跨进程 GPU 名额。名额数按显卡显存算：16GB 单卡只有 1 个，所以同一台
+    机器上不会同时跑起第二个 WeMM；32GB 或双卡会算出更多，自动放开并发。
+    申请不到名额时返回 None 让调用方回落 bge，但**不**置 _wemm_failed ——
+    那是暂时性的资源竞争，过会儿可能就有名额了，而模型缺失才是永久性失败。
+    """
+    global _wemm_proc, _wemm_failed, _wemm_slot
+    if _wemm_proc is not None and _wemm_proc.poll() is None:
+        return _wemm_proc
+    if _wemm_proc is not None:
+        # 上一个服务已经死了：先还它占的名额。名额记的是本进程 PID，本进程活着就不会被当僵死锁回收，
+        # 16GB 卡上只有 1 个名额，不还的话之后每次都申请不到
+        _wemm_proc = None
+        if _wemm_slot is not None:
+            try:
+                import gpu_slots
+                gpu_slots.release(_wemm_slot)
+            except ImportError:
+                pass
+            _wemm_slot = None
+    if _wemm_failed:
+        return None
+    import select
+    import subprocess
+    import time
+    if not os.path.isfile(WEMM_SERVER) or not os.path.isfile(WEMM_PYTHON):
+        _wemm_failed = True
+        print("  [wemm] 找不到解释器或服务脚本，回落 bge", flush=True)
+        return None
+
+    slot = None
+    try:
+        import gpu_slots
+    except ImportError:
+        gpu_slots = None
+    if gpu_slots is not None:
+        slot = gpu_slots.acquire(need_gb=WEMM_NEED_GB, tag="wemm")
+        if slot is None:
+            print("  [wemm] 无空闲 GPU 名额（本机共 %d 个），本次回落 bge"
+                  % len(gpu_slots.plan(need_gb=WEMM_NEED_GB)), flush=True)
+            return None
+
+    env = dict(os.environ)
+    if not env.get("VIDUNDER_WEMM_MODEL"):
+        # 从设置页下载的模型放在 MODEL_ROOT/wemm/ 下；没下载的机器交给服务端用它自己的默认路径
+        try:
+            from config import MODEL_ROOT
+            downloaded = os.path.join(str(MODEL_ROOT), "wemm", "WeMM-Embedding-4B-nf4")
+            if os.path.isfile(os.path.join(downloaded, "model.safetensors")):
+                env["VIDUNDER_WEMM_MODEL"] = downloaded
+        except Exception:
+            pass
+    if slot is not None:
+        env["CUDA_VISIBLE_DEVICES"] = str(slot[1])   # 多卡时把进程钉在分到的那张卡上
+    proc = subprocess.Popen([WEMM_PYTHON, WEMM_SERVER],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, text=True, bufsize=1, env=env)
+    deadline = time.time() + WEMM_READY_TIMEOUT
+    while time.time() < deadline:
+        if proc.stdout in select.select([proc.stdout], [], [], 1.0)[0]:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get("ready"):
+                _wemm_proc = proc
+                _wemm_slot = slot
+                return proc
+            if msg.get("ok") is False:
+                print("  [wemm] 启动失败: %s，回落 bge" % msg.get("error"), flush=True)
+                break
+        if proc.poll() is not None:
+            break
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    if slot is not None and gpu_slots is not None:
+        gpu_slots.release(slot)                      # 起不来就别占着名额
+    _wemm_failed = True
+    print("  [wemm] 未能就绪，回落 bge", flush=True)
+    return None
+
+
+def _embed_texts_wemm(texts):
+    """成功返回向量列表，任何失败返回 None 交给调用方回落 bge。"""
+    global _wemm_proc, _wemm_slot
+    proc = _wemm_start()
+    if proc is None:
+        return None
+    import base64
+    import select
+    import time
+    try:
+        proc.stdin.write(json.dumps({"texts": list(texts)}, ensure_ascii=False) + "\n")
+        proc.stdin.flush()
+        deadline = time.time() + WEMM_CALL_TIMEOUT
+        while time.time() < deadline:
+            if proc.stdout in select.select([proc.stdout], [], [], 1.0)[0]:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                resp = json.loads(line)
+                if not resp.get("ok"):
+                    print("  [wemm] 编码失败: %s，回落 bge" % resp.get("error"), flush=True)
+                    return None
+                buf = base64.b64decode(resp["b64"])
+                arr = np.frombuffer(buf, dtype=np.float32).reshape(resp["n"], resp["dim"])
+                return arr.tolist()
+            if proc.poll() is not None:
+                break
+    except Exception as exc:
+        print("  [wemm] 通信异常 %s: %s，回落 bge" % (type(exc).__name__, exc), flush=True)
+    _wemm_proc = None
+    if _wemm_slot is not None:                       # 进程没了，名额要还回去
+        try:
+            import gpu_slots
+            gpu_slots.release(_wemm_slot)
+        except ImportError:
+            pass
+        _wemm_slot = None
+    return None
+
+
+WEMM_IDLE_SECONDS = float(os.environ.get("VIDUNDER_WEMM_IDLE_SECONDS", "300"))
+_wemm_idle_timer = None
+
+
+def _wemm_touch(restart=True):
+    """空闲计时：一段时间没人编码就自己退出，别一直占着 5GB 显存挡住转录和 OCR。"""
+    global _wemm_idle_timer
+    import threading
+    if _wemm_idle_timer is not None:
+        _wemm_idle_timer.cancel()
+        _wemm_idle_timer = None
+    if restart and WEMM_IDLE_SECONDS > 0:
+        _wemm_idle_timer = threading.Timer(WEMM_IDLE_SECONDS, _wemm_shutdown)
+        _wemm_idle_timer.daemon = True
+        _wemm_idle_timer.start()
+
+
+def wemm_release():
+    """立刻关掉常驻 WeMM 服务、让出显存。建完一次索引就调。"""
+    _wemm_touch(restart=False)
+    _wemm_shutdown()
+
+
+def embed_items_wemm(items, fps=2.0, video_max_tokens=None):
+    """文字和视频片段合编成 WeMM 向量，给 find_clips 的索引和查询用。
+
+    和 embed_texts 不同，失败直接抛异常、不回落 bge：索引是 2560 维，bge 是 512 维，混了就算不了余弦。
+    items 形如 [{"text": "...", "video": "/path/clip.mp4"}]，两个键至少给一个。
+    """
+    global _wemm_proc, _wemm_slot
+    import base64
+    import select
+    import time
+    _wemm_touch(restart=False)
+    proc = _wemm_start()
+    if proc is None:
+        raise RuntimeError("WeMM embedding server is unavailable "
+                           "(model missing, or not enough free GPU memory)")
+    req = {"items": list(items), "fps": float(fps)}
+    if video_max_tokens:
+        req["video_max_tokens"] = int(video_max_tokens)
+    error = "WeMM embedding server died or timed out"
+    try:
+        proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+        proc.stdin.flush()
+        deadline = time.time() + WEMM_CALL_TIMEOUT
+        while time.time() < deadline:
+            if proc.stdout in select.select([proc.stdout], [], [], 1.0)[0]:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                resp = json.loads(line)
+                if not resp.get("ok"):
+                    _wemm_touch()
+                    raise RuntimeError("WeMM encode failed: %s" % resp.get("error"))
+                arr = np.frombuffer(base64.b64decode(resp["b64"]), dtype=np.float32)
+                _wemm_touch()
+                return arr.reshape(resp["n"], resp["dim"])
+            if proc.poll() is not None:
+                break
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        error = "WeMM communication error %s: %s" % (type(exc).__name__, exc)
+    # 进程挂了或超时：清掉句柄、还名额，下次调用会重新拉起
+    _wemm_proc = None
+    if _wemm_slot is not None:
+        try:
+            import gpu_slots
+            gpu_slots.release(_wemm_slot)
+        except ImportError:
+            pass
+        _wemm_slot = None
+    raise RuntimeError(error)
+
+
+def _wemm_shutdown():
+    """进程正常退出时收掉常驻服务并归还名额，别留下占着显存又不在账上的孤儿。"""
+    global _wemm_proc, _wemm_slot
+    proc, _wemm_proc = _wemm_proc, None
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=10)
+        except Exception:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+    if _wemm_slot is not None:
+        try:
+            import gpu_slots
+            gpu_slots.release(_wemm_slot)
+        except ImportError:
+            pass
+        _wemm_slot = None
+
+
+import atexit as _atexit
+
+_atexit.register(_wemm_shutdown)
+
+
+def embed_texts(texts: list[str], backend: str | None = None) -> list[list[float]]:
+    """backend="wemm" 时走 WeMM（2560 维），否则走 bge（512 维）。
+
+    注意：查询必须和它要比对的那张向量表用同一个 backend，否则维度对不上。
+    WeMM 不可用时自动回落 bge，调用方需按维度判断是否重建向量表。
+    设 VIDUNDER_WEMM_EMBED=0 可全局关掉 WeMM。
+    """
+    if not texts:
+        return []
+    if backend == "wemm" and os.environ.get("VIDUNDER_WEMM_EMBED", "1") != "0":
+        vecs = _embed_texts_wemm(texts)
+        if vecs is not None:
+            return vecs
+    return _embed_texts_bge(texts)
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:

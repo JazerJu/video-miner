@@ -1464,6 +1464,8 @@ def process_vidunder_download_task() -> None:
 # ── vidUnder Summary Task ──────────────────────────────────────
 
 summary_task_queue: Queue[str] = Queue()
+# find_clips 的片段索引任务也排在这个队列里，由同一个 worker 串行执行，不会和总结同时占 GPU
+clip_index_task_status: dict[str, dict] = {}
 
 summary_task_status = defaultdict(
     lambda: {
@@ -1893,6 +1895,39 @@ def generate_summary_for_video(task_id: str) -> None:
         task["status"] = "Failed"
 
 
+def generate_clip_index_for_video(task_id: str) -> None:
+    """建 find_clips 的片段索引：字幕 + 屏幕文字 + 画面，每 10 秒合编一个 WeMM 向量。"""
+    import os
+    import sys
+    import time as _t
+    import traceback
+
+    task = clip_index_task_status[task_id]
+    task["status"] = "Running"
+    task["started_at"] = int(_t.time())
+    vid_under_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vid_under")
+    if vid_under_dir not in sys.path:
+        sys.path.insert(0, vid_under_dir)
+    try:
+        _inject_vidunder_config()
+        from clip_index import build_clip_index
+
+        def _progress(done, total):
+            task["progress"] = int(done / total * 100) if total else 0
+            task["detail"] = f"{done}/{total} clips encoded"
+
+        meta = build_clip_index(
+            task["video_id"], task["video_path"], task.get("srt_path"), task.get("structure_path"),
+            task["index_dir"], force_index=task.get("force_index", False), progress_cb=_progress,
+        )
+        task.update(status="Completed", progress=100, index_quality=meta["index_quality"],
+                    n_segments=meta["n_segments"], build_seconds=meta["build_seconds"],
+                    detail=f"{meta['n_segments']} clips indexed", finished_at=int(_t.time()))
+    except Exception as exc:
+        logger.error("Clip index task %s failed: %s\n%s", task_id, exc, traceback.format_exc())
+        task.update(status="Failed", error_message=str(exc)[:500], finished_at=int(_t.time()))
+
+
 def process_summary_task() -> None:
     """Background worker: process one summary task from queue."""
     try:
@@ -1900,6 +1935,9 @@ def process_summary_task() -> None:
     except Empty:
         return
     try:
-        generate_summary_for_video(task_id)
+        if task_id in clip_index_task_status:
+            generate_clip_index_for_video(task_id)
+        else:
+            generate_summary_for_video(task_id)
     finally:
         summary_task_queue.task_done()

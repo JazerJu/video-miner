@@ -2854,6 +2854,12 @@ const VIDUNDER_MODELS: Array<Required<Pick<VidUnderModel, 'name' | 'label' | 'de
     totalSize: 95000000,
   },
   {
+    name: 'wemm-embedding',
+    label: 'WeMM Embedding 4B (NF4)',
+    description: 'Video + text embedding for clip search (needs a torch environment)',
+    totalSize: 4763911544,
+  },
+  {
     name: 'fun-asr',
     label: 'FUN-ASR Nano',
     description: 'Fun-ASR speech recognition (ONNX + GGUF)',

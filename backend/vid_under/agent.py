@@ -2639,12 +2639,16 @@ class VideoAgent:
         return combined, top_clips
 
     def _search_transcript_embed(self, query, top_k=10):
-        if self._srt_embeds is None:
+        # 字幕行检索走 WeMM：实测比 bge 显著更好（549 语音 MRR 0.50->0.79，
+        # 548 0.46->0.76，两个视频的置信区间都不跨 0）。caption 那路收益跨 0，仍留 bge。
+        # 先编码查询，再按它的维度决定是否重建整表 —— WeMM 回落 bge 时维度会从
+        # 2560 变成 512，两边不一致的话余弦没法算。
+        qe = embed_texts([query], backend="wemm")[0]
+        if self._srt_embeds is None or len(self._srt_embeds[0]) != len(qe):
             texts = [e["text"] for e in self.srt]
             print(f"  计算 {len(texts)} 条字幕的 embedding...")
-            self._srt_embeds = embed_texts(texts)
+            self._srt_embeds = embed_texts(texts, backend="wemm")
             print("  字幕 embedding 完成.")
-        qe = embed_texts([query])[0]
         scored = [(i, cosine_similarity(qe, self._srt_embeds[i])) for i in range(len(self.srt))]
         scored.sort(key=lambda x: x[1], reverse=True)
         return [{**self.srt[i], "score": round(sim, 3)} for i, sim in scored[:top_k]]

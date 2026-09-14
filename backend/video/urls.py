@@ -44,6 +44,7 @@ from .views.external_transcription import (
     ExternalTranscriptionListView,
     ExternalTranscriptionDeleteView,
 )
+from .views.clip_index import ClipIndexAddView, ClipIndexSearchView, ClipIndexStatusView
 from .views.summary import (
     SummaryAddView,
     SummaryStatusView,
@@ -441,6 +442,10 @@ urlpatterns = [
     path("api/subtitle-fonts/<str:filename>", SubtitleFontDetailView.as_view(), name="subtitle_font_detail"),
     # vidUnder Summary
     path("api/summary/add", SummaryAddView.as_view(), name="summary_add"),
+    path("api/clip-index/add", ClipIndexAddView.as_view(), name="clip_index_add"),
+    path("api/clip-index/status", ClipIndexStatusView.as_view(), name="clip_index_status"),
+    path("api/clip-index/<str:task_id>/status", ClipIndexStatusView.as_view(), name="clip_index_task_status"),
+    path("api/clip-index/search", ClipIndexSearchView.as_view(), name="clip_index_search"),
     path("api/summary/<str:task_id>/status", SummaryStatusView.as_view(), name="summary_status"),
     path("api/summary/<str:task_id>/delete", SummaryDeleteView.as_view(), name="summary_delete"),
     path("api/summary/<str:task_id>/retry", SummaryRetryView.as_view(), name="summary_retry"),

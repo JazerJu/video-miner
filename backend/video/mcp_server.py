@@ -380,6 +380,8 @@ MODEL_ALIASES = {
     "ocr": "glm-ocr",
     "embedding": "embedding",
     "bge": "embedding",
+    "wemm": "wemm-embedding",
+    "wemm-embedding": "wemm-embedding",
 }
 SENSITIVE_KEY_PARTS = ("api_key", "sessdata", "token", "secret", "password")
 
@@ -1947,6 +1949,107 @@ async def get_summary_status(
     else:
         path = "/api/summary/status"
     return _json(await _call_vidgo_api(ctx, "GET", path))
+
+
+@mcp.tool()
+async def submit_clip_index_task(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    force_index: bool = False,
+    ctx: Context | None = None,
+) -> str:
+    """Build the clip index that find_clips searches. Long-running; returns a task_id.
+
+    Each 10-second clip is encoded into one vector from its subtitles, on-screen text
+    and frames. Videos without subtitles are refused by default and the error explains
+    the options; set force_index=true to index screen text and frames only, which is
+    reliable for what is shown on screen but weak for what the speaker says.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        force_index: Build the index even if the video has no subtitles.
+    """
+    resolved = await _resolve_video(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    vid = resolved["video"]["id"]
+    result = await _call_vidgo_api(ctx, "POST", "/api/clip-index/add",
+                                   {"video_id": vid, "force_index": bool(force_index)})
+    if result.get("success"):
+        result["next_step"] = (f"Poll get_clip_index_status(video_id={vid}) until status is Completed, "
+                               "then call find_clips.")
+    return _json(result)
+
+
+@mcp.tool()
+async def get_clip_index_status(
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    task_id: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Check whether a video has a clip index for find_clips, and index task progress.
+
+    With a video, returns state (missing, ready or stale), index_quality (full or
+    no_subtitles) and any running task. With task_id, returns that task. With nothing,
+    lists all index tasks.
+
+    Args:
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        task_id: Task id returned by submit_clip_index_task.
+    """
+    if task_id:
+        return _json(await _call_vidgo_api(ctx, "GET", f"/api/clip-index/{quote(task_id, safe='')}/status"))
+    if video_id is None and not filename and not title:
+        return _json(await _call_vidgo_api(ctx, "GET", "/api/clip-index/status"))
+    resolved = await _resolve_video(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    return _json(await _call_vidgo_api(ctx, "GET", f"/api/clip-index/status?video_id={resolved['video']['id']}"))
+
+
+@mcp.tool()
+async def find_clips(
+    query: str,
+    video_id: int | None = None,
+    filename: str | None = None,
+    title: str | None = None,
+    top_k: int = 5,
+    ctx: Context | None = None,
+) -> str:
+    """Find the 10-second clips that best match a natural-language description.
+
+    Use this when you can describe what happens or what is on screen but do not know
+    the exact words (search_subtitles needs exact wording). Returns each clip's start,
+    end, similarity score, a subtitle snippet and a watch_url; then read the clips in
+    detail with read_subtitles, read_screen_text or grab_frames. relevance_margin is the
+    top score minus the video's median score: small values suggest the content may not
+    be in the video at all. Needs an index built by submit_clip_index_task.
+
+    Args:
+        query: What you are looking for, in any language.
+        video_id: Numeric VidGo video id. Preferred when available.
+        filename: Stored media filename from list_videos/search_videos.
+        title: Exact or partial human-readable video title.
+        top_k: Clips to return, 1-20. Use about 10 for hard questions.
+    """
+    resolved = await _resolve_video(video_id, filename, title)
+    if not resolved.get("success"):
+        return _json(resolved)
+    video = resolved["video"]
+    top_k = max(1, min(int(top_k or 5), 20))
+    # 第一次查询要拉起 WeMM 服务（预量化副本约 10 秒），超时给宽一点
+    result = await _call_vidgo_api(ctx, "POST", "/api/clip-index/search",
+                                   {"video_id": video["id"], "query": query, "top_k": top_k}, timeout=180)
+    for clip in result.get("clips") or []:
+        clip["watch_url"] = _watch_url(video.get("filename") or "", clip.get("start"))
+    return _json(result)
 
 
 @mcp.tool()
