@@ -136,9 +136,109 @@ def _call_gemini_vision(prompt: str, images: list, system: str, max_tokens: int)
     return ""
 
 
-def call_deepseek_tools(messages: list[dict], tools: list[dict], max_tokens: int = 1024) -> dict:
+def call_deepseek_tools(messages: list[dict], tools: list[dict], max_tokens: int = 1024, model: str | None = None) -> dict:
     """Call DeepSeek with tool-calling support. Returns raw response dict."""
-    return _call_openai_compat_raw(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, "deepseek-chat", messages, max_tokens, tools)
+    return _call_openai_compat_raw(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model or "deepseek-chat", messages, max_tokens, tools)
+
+
+def ask_model_name() -> str:
+    """Model for the interactive video Q&A.
+
+    On DeepSeek's official API the Q&A uses deepseek-flash, which streams reasoning tokens and
+    supports tool calls. Set VIDUNDER_ASK_MODEL to override.
+    """
+    override = os.environ.get("VIDUNDER_ASK_MODEL", "").strip()
+    if override:
+        return override
+    if "api.deepseek.com" in (DEEPSEEK_BASE_URL or ""):
+        return "deepseek-flash"
+    import config as _cfg
+    return getattr(_cfg, "DEEPSEEK_MODEL", "") or "deepseek-chat"
+
+
+def _strip_reasoning(messages: list[dict]) -> list[dict]:
+    return [{k: v for k, v in m.items() if k != "reasoning_content"} for m in messages]
+
+
+def call_deepseek_tools_stream(messages: list[dict], tools: list[dict], max_tokens: int = 8192,
+                               on_delta=None, model: str | None = None, cancel=None,
+                               timeout: int = 180) -> dict:
+    """Streaming variant of call_deepseek_tools.
+
+    on_delta(kind, text) receives kind "reasoning" or "content" while tokens arrive. The return
+    value keeps the non-streaming shape {"choices": [{"message": ..., "finish_reason": ...}]},
+    so callers handle both the same way. Returns {} on failure or cancellation.
+    """
+    if not DEEPSEEK_API_KEY:
+        return {}
+    payload = {"model": model or ask_model_name(), "messages": messages,
+               "max_tokens": max_tokens, "stream": True}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
+    for attempt in (1, 2):
+        req = urllib.request.Request(f"{DEEPSEEK_BASE_URL}/chat/completions",
+                                     data=json.dumps(payload, ensure_ascii=False).encode(), headers=headers)
+        content, reasoning, calls, finish = [], [], {}, ""
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                for raw in resp:
+                    if cancel is not None and cancel.is_set():
+                        return {}
+                    line = raw.decode("utf-8", "ignore").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data)
+                    except ValueError:
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    delta = choice.get("delta") or {}
+                    piece = delta.get("reasoning_content") or delta.get("reasoning")
+                    if piece:
+                        reasoning.append(piece)
+                        if on_delta:
+                            on_delta("reasoning", piece)
+                    piece = delta.get("content")
+                    if piece:
+                        content.append(piece)
+                        if on_delta:
+                            on_delta("content", piece)
+                    for tc in delta.get("tool_calls") or []:
+                        slot = calls.setdefault(tc.get("index", 0), {
+                            "id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                        if tc.get("id"):
+                            slot["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        slot["function"]["name"] += fn.get("name") or ""
+                        slot["function"]["arguments"] += fn.get("arguments") or ""
+                    if choice.get("finish_reason"):
+                        finish = choice["finish_reason"]
+        except urllib.error.HTTPError as e:
+            body = e.read().decode()[:500]
+            # 有的思考模式版本不接受历史里回传的 reasoning_content：去掉后重试一次
+            if attempt == 1 and e.code == 400 and "reasoning" in body:
+                payload["messages"] = _strip_reasoning(messages)
+                continue
+            print(f"  API Error {e.code}: {body}", flush=True)
+            return {}
+        except Exception as e:
+            print(f"  API stream exception: {e}", flush=True)
+            return {}
+        message = {"role": "assistant", "content": "".join(content)}
+        if reasoning:
+            message["reasoning_content"] = "".join(reasoning)
+        if calls:
+            message["tool_calls"] = [calls[i] for i in sorted(calls)]
+        return {"choices": [{"message": message, "finish_reason": finish}]}
+    return {}
 
 
 def _call_openai_compat_raw(base_url: str, api_key: str, model: str, messages: list[dict], max_tokens: int, tools: list[dict] = None) -> dict:

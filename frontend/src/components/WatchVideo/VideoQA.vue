@@ -13,12 +13,27 @@ const props = defineProps<{
   filename: string
 }>()
 
+interface ToolStep {
+  id: string
+  name: string
+  args: Record<string, unknown>
+  status: 'running' | 'done' | 'error'
+  summary?: string
+  elapsedMs?: number
+  open?: boolean
+}
+
 interface ChatMessage {
   id: number
-  role: 'user' | 'assistant' | 'tool'
+  role: 'user' | 'assistant'
   content: string
   renderedHtml?: string
-  toolName?: string
+  // 以下只用于 assistant：思考过程、工具调用轨迹、流式中的正文
+  reasoning?: string
+  steps?: ToolStep[]
+  draft?: string
+  phase?: 'thinking' | 'tools' | 'answering' | 'done' | 'error'
+  showReasoning?: boolean
   isStreaming?: boolean
 }
 
@@ -30,6 +45,18 @@ const isSubmittingSummary = ref(false)
 const chatContainer = ref<HTMLElement | null>(null)
 let msgCounter = 0
 
+// 后端按 conversation_id 保存多轮上下文：每个聊天面板一份，点「新对话」换一个
+const makeConversationId = () =>
+  globalThis.crypto?.randomUUID?.() ?? `c${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+let conversationId = makeConversationId()
+let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null
+
+function newChat() {
+  activeReader?.cancel().catch(() => {})
+  messages.value = []
+  conversationId = makeConversationId()
+}
+
 async function scrollToBottom() {
   await nextTick()
   if (chatContainer.value) {
@@ -38,7 +65,7 @@ async function scrollToBottom() {
 }
 
 async function renderMarkdown(msg: ChatMessage) {
-  if (msg.role === 'user' || msg.role === 'tool') return
+  if (msg.role !== 'assistant') return
   msg.renderedHtml = await markdownToHtml(msg.content)
   await nextTick()
   const container = chatContainer.value
@@ -48,85 +75,127 @@ async function renderMarkdown(msg: ChatMessage) {
   }
 }
 
+function formatArgs(args: Record<string, unknown>) {
+  return Object.entries(args || {})
+    .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
+    .join('  ')
+}
+
+function applyEvent(msg: ChatMessage, event: any) {
+  switch (event.type) {
+    case 'reasoning_delta':
+      msg.reasoning = (msg.reasoning || '') + event.text
+      if (msg.phase !== 'answering') msg.phase = 'thinking'
+      break
+    case 'content_delta':
+      msg.draft = (msg.draft || '') + event.text
+      msg.phase = 'answering'
+      break
+    case 'tool_call':
+      // 调工具之前模型说的话是过渡语，不算最终回答
+      msg.draft = ''
+      msg.steps = [
+        ...(msg.steps || []),
+        { id: event.id || `${event.name}-${msg.steps?.length || 0}`, name: event.name, args: event.args || {}, status: 'running' },
+      ]
+      msg.phase = 'tools'
+      break
+    case 'tool_result': {
+      const steps = msg.steps || []
+      const step =
+        steps.find((s) => s.id === event.id) ||
+        [...steps].reverse().find((s) => s.name === event.name && s.status === 'running')
+      if (step) {
+        step.status = event.ok === false ? 'error' : 'done'
+        step.summary = event.summary
+        step.elapsedMs = event.elapsed_ms
+      }
+      break
+    }
+    case 'finalizing':
+      msg.phase = 'answering'
+      break
+    case 'answer':
+      msg.content = event.content || msg.draft || ''
+      msg.draft = ''
+      msg.phase = 'done'
+      msg.isStreaming = false
+      msg.showReasoning = false
+      break
+    case 'error':
+      msg.content = `${msg.content || msg.draft || ''}\n\nError: ${event.content}`.trim()
+      msg.draft = ''
+      msg.phase = 'error'
+      msg.isStreaming = false
+      break
+  }
+}
+
 async function sendMessage() {
   const text = inputText.value.trim()
   if (!text || isLoading.value) return
 
-  const userMsg: ChatMessage = { id: ++msgCounter, role: 'user', content: text }
-  messages.value.push(userMsg)
+  messages.value.push({ id: ++msgCounter, role: 'user', content: text })
   inputText.value = ''
+  messages.value.push({
+    id: ++msgCounter,
+    role: 'assistant',
+    content: '',
+    reasoning: '',
+    steps: [],
+    draft: '',
+    phase: 'thinking',
+    showReasoning: true,
+    isStreaming: true,
+  })
+  // 从数组里取回响应式代理，后面直接改字段才会刷新界面
+  const msg = messages.value[messages.value.length - 1]
   await scrollToBottom()
-
   isLoading.value = true
 
   try {
     const res = await fetch(`${BACKEND}/api/video-ask-stream/${encodeURIComponent(props.filename)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: text }),
+      body: JSON.stringify({ question: text, conversation_id: conversationId }),
     })
-
-    if (!res.ok) {
+    if (!res.ok || !res.body) {
       const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-      messages.value.push({ id: ++msgCounter, role: 'assistant', content: `Error: ${err.error || `HTTP ${res.status}`}` })
-      await scrollToBottom()
+      applyEvent(msg, { type: 'error', content: err.error || `HTTP ${res.status}` })
       return
     }
 
-    const reader = res.body!.getReader()
+    const reader = res.body.getReader()
+    activeReader = reader
     const decoder = new TextDecoder()
     let buffer = ''
-
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
-
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue
-        const dataStr = line.slice(6)
-        if (!dataStr) continue
         try {
-          const event = JSON.parse(dataStr)
-          if (event.type === 'tool_call') {
-            const label = t('vuToolCall') + ': ' + event.name
-            const existingIdx = messages.value.findIndex(m => m.role === 'tool' && m.toolName === event.name)
-            if (existingIdx !== -1) {
-              messages.value[existingIdx] = { ...messages.value[existingIdx], content: label, renderedHtml: undefined }
-            } else {
-              messages.value.push({ id: ++msgCounter, role: 'tool', content: label, toolName: event.name })
-            }
-            await scrollToBottom()
-          } else if (event.type === 'tool_result') {
-            const idx = messages.value.findIndex(m => m.role === 'tool' && m.toolName === event.name)
-            if (idx !== -1) {
-              messages.value[idx].content = (messages.value[idx].content || '') + ' ✓'
-            }
-            await scrollToBottom()
-          } else if (event.type === 'thinking') {
-            messages.value.push({ id: ++msgCounter, role: 'tool', content: t('vuThinking'), toolName: 'thinking', isStreaming: true })
-            await scrollToBottom()
-          } else if (event.type === 'answer') {
-            messages.value = messages.value.filter(m => m.role !== 'tool')
-            const assistantMsg: ChatMessage = { id: ++msgCounter, role: 'assistant', content: event.content }
-            messages.value.push(assistantMsg)
-            await scrollToBottom()
-            await renderMarkdown(assistantMsg)
-          } else if (event.type === 'error') {
-            messages.value.push({ id: ++msgCounter, role: 'assistant', content: `Error: ${event.content}` })
-            await scrollToBottom()
-          }
-        } catch {}
+          applyEvent(msg, JSON.parse(line.slice(6)))
+        } catch {
+          // 半截或非 JSON 的行直接跳过
+        }
       }
+      await scrollToBottom()
     }
+    if (msg.isStreaming) {
+      // 流意外结束：已经收到的正文当回答保留
+      applyEvent(msg, msg.draft ? { type: 'answer', content: msg.draft } : { type: 'error', content: 'stream ended' })
+    }
+    if (msg.phase === 'done') await renderMarkdown(msg)
   } catch (e: any) {
-    messages.value = messages.value.filter(m => m.role !== 'tool')
-    messages.value.push({ id: ++msgCounter, role: 'assistant', content: `Error: ${e.message || 'Unknown error'}` })
-    await scrollToBottom()
+    if (msg.isStreaming) applyEvent(msg, { type: 'error', content: e.message || 'Unknown error' })
   } finally {
+    activeReader = null
     isLoading.value = false
+    await scrollToBottom()
   }
 }
 
@@ -274,6 +343,14 @@ function handleKeydown(e: KeyboardEvent) {
       <span class="text-sm font-medium text-slate-600 dark:text-gray-300 pl-8">
         {{ t('videoQA') }}
       </span>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="messages.length"
+          @click="newChat"
+          class="px-3 py-1.5 text-xs rounded-md border border-slate-300 text-slate-600 hover:bg-slate-100 transition-colors dark:border-white/15 dark:text-gray-300 dark:hover:bg-white/10"
+        >
+          {{ t('vuNewChat') }}
+        </button>
       <div class="relative">
         <button
           @click="showSummaryMenu = !showSummaryMenu"
@@ -307,6 +384,7 @@ function handleKeydown(e: KeyboardEvent) {
           </button>
         </div>
       </div>
+      </div>
     </div>
 
     <!-- Messages Area -->
@@ -331,27 +409,60 @@ function handleKeydown(e: KeyboardEvent) {
           </div>
         </div>
 
-        <!-- Assistant Message -->
-        <div v-else-if="msg.role === 'assistant'" class="flex justify-start">
-          <div
-            :data-msg-id="msg.id"
-            class="max-w-[85%] px-4 py-3 rounded-2xl rounded-bl-md bg-slate-100 text-slate-800 text-sm dark:bg-slate-700/50 dark:text-slate-200"
-          >
-            <div v-if="msg.renderedHtml" class="msg-html prose prose-sm max-w-none dark:prose-invert" v-html="msg.renderedHtml"></div>
-            <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
-            <div v-if="msg.isStreaming" class="flex items-center gap-1 mt-2">
-              <span class="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
-              <span class="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
-              <span class="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
+        <!-- Assistant Message：思考过程 → 工具调用轨迹 → 回答 -->
+        <div v-else class="flex justify-start">
+          <div :data-msg-id="msg.id" class="w-full max-w-[92%] space-y-2">
+            <div v-if="msg.reasoning" class="rounded-xl border border-slate-200 bg-slate-50/80 dark:border-white/10 dark:bg-white/5">
+              <button
+                type="button"
+                @click="msg.showReasoning = !msg.showReasoning"
+                class="flex w-full items-center gap-2 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
+              >
+                <span v-if="msg.phase === 'thinking'" class="h-2 w-2 shrink-0 rounded-full bg-teal-500 animate-pulse"></span>
+                <span v-else class="h-2 w-2 shrink-0 rounded-full bg-slate-300 dark:bg-slate-500"></span>
+                <span class="font-medium">{{ msg.phase === 'thinking' ? t('vuThinking') : t('vuReasoningDone', { n: msg.reasoning.length }) }}</span>
+                <svg class="ml-auto h-3 w-3 transition-transform" :class="{ 'rotate-180': msg.showReasoning }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <div
+                v-show="msg.showReasoning"
+                class="max-h-56 overflow-y-auto whitespace-pre-wrap border-t border-slate-200 px-3 py-2 text-xs leading-relaxed text-slate-500 dark:border-white/10 dark:text-slate-400"
+              >{{ msg.reasoning }}</div>
             </div>
-          </div>
-        </div>
 
-        <!-- Tool Call Indicator -->
-        <div v-else-if="msg.role === 'tool'" class="flex justify-start">
-          <div class="flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 dark:border-slate-500 dark:bg-slate-800/30">
-            <div class="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-            <span class="text-xs text-slate-500 dark:text-slate-400">{{ msg.toolName }}</span>
+            <div v-if="msg.steps && msg.steps.length" class="rounded-xl border border-slate-200 divide-y divide-slate-200 dark:border-white/10 dark:divide-white/10">
+              <div class="px-3 py-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                {{ t('vuToolSteps', { n: msg.steps.length }) }}
+              </div>
+              <div v-for="step in msg.steps" :key="step.id" class="px-3 py-2 text-xs">
+                <button type="button" class="flex w-full items-center gap-2 text-left" @click="step.open = !step.open">
+                  <span v-if="step.status === 'running'" class="h-3 w-3 shrink-0 rounded-full border-2 border-teal-500 border-t-transparent animate-spin"></span>
+                  <span v-else-if="step.status === 'done'" class="shrink-0 text-teal-600 dark:text-teal-400">✓</span>
+                  <span v-else class="shrink-0 text-red-500">✕</span>
+                  <span class="shrink-0 font-mono font-medium text-slate-700 dark:text-slate-200">{{ step.name }}</span>
+                  <span class="min-w-0 flex-1 truncate font-mono text-slate-400">{{ formatArgs(step.args) }}</span>
+                  <span v-if="step.elapsedMs != null" class="shrink-0 text-slate-400">{{ (step.elapsedMs / 1000).toFixed(1) }}s</span>
+                </button>
+                <div
+                  v-if="step.open && step.summary"
+                  class="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-500 dark:bg-white/5 dark:text-slate-400"
+                >{{ step.summary }}</div>
+              </div>
+            </div>
+
+            <div
+              v-if="msg.content || msg.draft || msg.isStreaming"
+              class="px-4 py-3 rounded-2xl rounded-bl-md bg-slate-100 text-slate-800 text-sm dark:bg-slate-700/50 dark:text-slate-200"
+            >
+              <div v-if="msg.renderedHtml" class="msg-html prose prose-sm max-w-none dark:prose-invert" v-html="msg.renderedHtml"></div>
+              <div v-else-if="msg.content || msg.draft" class="whitespace-pre-wrap">{{ msg.content || msg.draft }}</div>
+              <div v-if="msg.isStreaming" class="flex items-center gap-1" :class="{ 'mt-2': msg.content || msg.draft }">
+                <span class="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
+                <span class="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
+                <span class="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
+              </div>
+            </div>
           </div>
         </div>
       </template>

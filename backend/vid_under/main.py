@@ -109,7 +109,7 @@ def cmd_ask(questions=None):
     if questions:
         for q in questions:
             print(f"\n查询: {q}")
-            answer = agent.ask(q)
+            answer = agent.ask(q, conversation_id="cli")
             print(f"\n{'='*60}\n{answer}\n{'='*60}")
         return
 
@@ -125,11 +125,11 @@ def cmd_ask(questions=None):
         if question.lower() in ("exit", "quit", "q"):
             break
         if question.lower() == "reset":
-            agent.reset_conversation()
+            agent._conversations.pop("cli", None)  # ask() 现在按会话保存历史
             print("  上下文已重置")
             continue
 
-        answer = agent.ask(question)
+        answer = agent.ask(question, conversation_id="cli")
         print(f"\n{'='*60}\n{answer}\n{'='*60}")
 
 

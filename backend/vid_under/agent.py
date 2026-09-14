@@ -1,5 +1,7 @@
 # coding=utf-8
 import os
+import threading
+import time as _time
 import glob as _glob
 import numpy as np
 from pathlib import Path
@@ -7,7 +9,7 @@ from PIL import Image as PILImage
 import json as _json
 from external_api import (
     call_gemini, extract_text, embed_texts, cosine_similarity,
-    call_deepseek, call_step, call_step_with_images, call_deepseek_tools,
+    call_deepseek, call_step, call_step_with_images, call_deepseek_tools, call_deepseek_tools_stream, ask_model_name,
     call_glm_ocr, _pil_to_base64,
 )
 from srt_utils import search_transcript, transcript_for_timerange
@@ -350,6 +352,11 @@ class VideoAgent:
             self._SYSTEM_PROMPT_NO_SRT = self._SYSTEM_PROMPT_NO_SRT.replace("用中文回答", f"用{self._lang}回答")
             self._SUMMARIZE_SYSTEM_PROMPT = self._SUMMARIZE_SYSTEM_PROMPT.replace("用中文输出（原始字幕/代码保持原文）", f"用{self._lang}输出（原始字幕/代码保持原文）")
         self._clip_count = len(db.get("clips", []))
+        # 问答会话：每个前端对话一份消息历史，互不串线（以前所有请求共用 self._messages）
+        self._conversations = {}
+        self._conv_lock = threading.Lock()
+        # 本地模型（MiniCPM-V / GLM-OCR / embedding）不是线程安全的：工具执行和卸载互斥
+        self._tool_lock = threading.RLock()
 
     def _fmt(self, sec):
         m, s = divmod(int(sec), 60)
@@ -365,18 +372,20 @@ class VideoAgent:
         print("  [lazy] models loaded")
 
     def unload_models(self):
-        if self._model is None and self._ctx is None and self._siglip is None and self._resampler is None:
-            return
-        if self._sampler is not None and hasattr(self._sampler, "free"):
-            self._sampler.free()
-        self._ctx = None
-        self._sampler = None
-        self._siglip = None
-        self._resampler = None
-        self._model = None
-        import gc
-        gc.collect()
-        print("  [unload] models released")
+        # 等正在执行的工具跑完再释放，避免 sampler/ctx 在解码途中被 free
+        with self._tool_lock:
+            if self._model is None and self._ctx is None and self._siglip is None and self._resampler is None:
+                return
+            if self._sampler is not None and hasattr(self._sampler, "free"):
+                self._sampler.free()
+            self._ctx = None
+            self._sampler = None
+            self._siglip = None
+            self._resampler = None
+            self._model = None
+            import gc
+            gc.collect()
+            print("  [unload] models released")
 
     def _ensure_clip_embeds(self):
         if self._clip_embeds is not None:
@@ -1322,106 +1331,161 @@ class VideoAgent:
         "注意：不要跳过任何章节，确保覆盖完整视频内容。"
     )
 
-    def reset_conversation(self):
+    def _system_prompt(self):
         if not self.srt or len(self.srt) < 5:
-            prompt = self._SYSTEM_PROMPT_NO_SRT
-        else:
-            prompt = self._SYSTEM_PROMPT
-        self._messages = [{"role": "system", "content": prompt}]
+            return self._SYSTEM_PROMPT_NO_SRT
+        return self._SYSTEM_PROMPT
 
-    def ask(self, question, max_rounds=6, on_event=None):
+    def reset_conversation(self):
+        self._messages = [{"role": "system", "content": self._system_prompt()}]
+
+    # 只读字幕/已提取内容的工具不碰本地模型，不需要排队拿工具锁
+    _LOCK_FREE_TOOLS = {"search_transcript", "read_transcript_range", "get_extracted_content", "read_summary"}
+
+    class _Conversation:
+        """One chat's message history; old turns are trimmed so the context stays bounded."""
+
+        def __init__(self, system_prompt):
+            self.messages = [{"role": "system", "content": system_prompt}]
+            self.turn_starts = []
+            self.lock = threading.Lock()
+            self.used = _time.time()
+
+        def begin_turn(self, question, keep_turns=4):
+            if len(self.turn_starts) >= keep_turns:
+                cut = self.turn_starts[-(keep_turns - 1)]
+                self.messages = [self.messages[0]] + self.messages[cut:]
+                self.turn_starts = [i - (cut - 1) for i in self.turn_starts if i >= cut]
+            # 以前轮次的思考过程不再回传：省 token，也避免模型拒收历史里的 reasoning_content
+            for m in self.messages:
+                m.pop("reasoning_content", None)
+            self.turn_starts.append(len(self.messages))
+            self.messages.append({"role": "user", "content": question})
+
+    def _conversation(self, conversation_id):
+        if not conversation_id:
+            return VideoAgent._Conversation(self._system_prompt())
+        with self._conv_lock:
+            conv = self._conversations.get(conversation_id)
+            if conv is None:
+                conv = VideoAgent._Conversation(self._system_prompt())
+                self._conversations[conversation_id] = conv
+                if len(self._conversations) > 20:
+                    for key, _ in sorted(self._conversations.items(), key=lambda kv: kv[1].used)[:-20]:
+                        self._conversations.pop(key, None)
+            conv.used = _time.time()
+            return conv
+
+    @staticmethod
+    def _tool_result_preview(result, limit=600):
+        if isinstance(result, dict):
+            desc = str(result.get("_description") or "")
+            body = _json.dumps({k: v for k, v in result.items() if not str(k).startswith("_")}, ensure_ascii=False)
+            return (f"{desc}\n{body}" if desc else body)[:limit]
+        return str(result)[:limit]
+
+    def ask(self, question, max_rounds=6, on_event=None, conversation_id=None, cancel=None):
+        """Answer a question about the video with tool calls.
+
+        conversation_id keeps one history per chat; without it the call is stateless.
+        With on_event the LLM output is streamed as events: round_start, reasoning_delta,
+        content_delta, tool_call, tool_result, finalizing, answer. Without it the call is blocking.
+        """
         if not DEEPSEEK_API_KEY:
             return self._ask_legacy(question)
 
-        if not hasattr(self, "_messages") or not self._messages:
-            self.reset_conversation()
+        emit = on_event or (lambda event: None)
+        conv = self._conversation(conversation_id)
+        with conv.lock:  # 同一对话的问题排队处理；不同对话互不阻塞
+            conv.begin_turn(question)
+            messages = conv.messages
 
-        self._messages.append({"role": "user", "content": question})
+            def on_delta(kind, text):
+                emit({"type": "reasoning_delta" if kind == "reasoning" else "content_delta", "text": text})
 
-        for round_i in range(max_rounds):
-            resp = call_deepseek_tools(self._messages, _TOOL_DEFS, max_tokens=4096)
-            if not resp or "choices" not in resp:
-                break
+            def llm(tools):
+                if on_event is None:
+                    return call_deepseek_tools(messages, tools, max_tokens=8192, model=ask_model_name())
+                return call_deepseek_tools_stream(messages, tools, max_tokens=8192, on_delta=on_delta, cancel=cancel)
 
-            choice = resp["choices"][0]
-            assistant_msg = dict(choice["message"])
-            finish_reason = choice.get("finish_reason", "")
+            for round_i in range(max_rounds):
+                if cancel is not None and cancel.is_set():
+                    return ""
+                emit({"type": "round_start", "round": round_i + 1})
+                resp = llm(_TOOL_DEFS)
+                if not resp or "choices" not in resp:
+                    break
 
-            if assistant_msg.get("tool_calls") and assistant_msg.get("content") is None:
-                assistant_msg["content"] = ""
-            if isinstance(assistant_msg.get("content"), list):
-                assistant_msg["content"] = ""
+                choice = resp["choices"][0]
+                assistant_msg = dict(choice["message"])
+                finish_reason = choice.get("finish_reason", "")
+                if assistant_msg.get("tool_calls") and assistant_msg.get("content") is None:
+                    assistant_msg["content"] = ""
+                if isinstance(assistant_msg.get("content"), list):
+                    assistant_msg["content"] = ""
+                messages.append(assistant_msg)
 
-            self._messages.append(assistant_msg)
+                if finish_reason == "length":
+                    print(f"  [warn] hit max_tokens on tool-call round {round_i+1}, continuing")
 
-            if finish_reason == "length":
-                print(f"  [warn] DeepSeek hit max_tokens=4096 on tool-call round {round_i+1}, continuing")
+                tool_calls = assistant_msg.get("tool_calls", [])
+                content = (assistant_msg.get("content") or "").strip()
 
-            tool_calls = assistant_msg.get("tool_calls", [])
-            content = (assistant_msg.get("content") or "").strip()
+                if not tool_calls and content and len(content) > 30 and finish_reason != "length":
+                    emit({"type": "answer", "content": content})
+                    return content
 
-            if not tool_calls and content and len(content) > 30 and finish_reason != "length":
-                if on_event:
-                    on_event({"type": "answer", "content": content})
-                return content
+                if not tool_calls:
+                    if content:
+                        print(f"  [warn] transitional content, length={len(content)}: {content[:80]!r}")
+                    break
 
-            if not tool_calls:
-                if content:
-                    print(f"  [warn] transitional content, length={len(content)}: {content[:80]!r}")
-                break
+                for tc in tool_calls:
+                    fn_name = tc["function"]["name"]
+                    tc_id = tc["id"]
+                    fn_args, parse_error = self._parse_tool_arguments(tc)
+                    if parse_error:
+                        result_str = _json.dumps(parse_error, ensure_ascii=False)
+                        print(f"  [warn] malformed tool args for {fn_name}: {result_str[:300]}")
+                        emit({"type": "tool_call", "id": tc_id, "name": fn_name, "args": {}})
+                        emit({"type": "tool_result", "id": tc_id, "name": fn_name, "ok": False,
+                              "summary": parse_error["error"], "elapsed_ms": 0})
+                        messages.append({"role": "tool", "tool_call_id": tc_id, "content": result_str})
+                        continue
 
-            for tc in tool_calls:
-                fn_name = tc["function"]["name"]
-                tc_id = tc["id"]
-                fn_args, parse_error = self._parse_tool_arguments(tc)
-                if parse_error:
-                    result_str = _json.dumps(parse_error, ensure_ascii=False)
-                    print(f"  [warn] malformed tool args for {fn_name}: {result_str[:300]}")
-                    if on_event:
-                        on_event({"type": "tool_result", "name": fn_name, "summary": parse_error["error"]})
-                    self._messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "content": result_str,
-                    })
-                    continue
+                    emit({"type": "tool_call", "id": tc_id, "name": fn_name, "args": fn_args})
+                    print(f"  [tool] {fn_name}({fn_args})")
+                    started = _time.time()
+                    try:
+                        if fn_name in self._LOCK_FREE_TOOLS:
+                            result = self._execute_tool(fn_name, fn_args)
+                        else:
+                            with self._tool_lock:
+                                result = self._execute_tool(fn_name, fn_args)
+                    except Exception as exc:
+                        result = {"_source": fn_name, "error": f"{type(exc).__name__}: {exc}"}
+                    ok = not (isinstance(result, dict) and result.get("error"))
+                    result_str = _json.dumps(result, ensure_ascii=False)[:4000]
+                    print(f"  [tool_result] {result_str[:200]}...")
+                    emit({"type": "tool_result", "id": tc_id, "name": fn_name, "ok": ok,
+                          "summary": self._tool_result_preview(result),
+                          "elapsed_ms": int((_time.time() - started) * 1000)})
+                    messages.append({"role": "tool", "tool_call_id": tc_id, "content": result_str})
 
-                if on_event:
-                    on_event({"type": "tool_call", "name": fn_name, "args": fn_args})
-
-                print(f"  [tool] {fn_name}({fn_args})")
-                result = self._execute_tool(fn_name, fn_args)
-                result_str = _json.dumps(result, ensure_ascii=False)[:4000]
-                print(f"  [tool_result] {result_str[:200]}...")
-
-                if on_event:
-                    summary = result_str[:80] if isinstance(result_str, str) else str(result)[:80]
-                    on_event({"type": "tool_result", "name": fn_name, "summary": summary})
-
-                self._messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "content": result_str,
-                })
-
-        if on_event:
-            on_event({"type": "thinking"})
-
-        self._messages.append({
-            "role": "user",
-            "content": "请根据以上所有工具调用的结果，直接给出最终答案。不要再调用任何工具。",
-        })
-        final_resp = call_deepseek_tools(self._messages, [], max_tokens=4096)
-        if final_resp and "choices" in final_resp:
-            answer = final_resp["choices"][0]["message"].get("content", "信息不足，无法回答。")
-            self._messages.append({"role": "assistant", "content": answer})
-            if on_event:
-                on_event({"type": "answer", "content": answer})
+            if cancel is not None and cancel.is_set():
+                return ""
+            emit({"type": "finalizing"})
+            messages.append({
+                "role": "user",
+                "content": "请根据以上所有工具调用的结果，直接给出最终答案。不要再调用任何工具。",
+            })
+            final_resp = llm([])
+            answer = "信息不足，无法回答。"
+            if final_resp and "choices" in final_resp:
+                answer = final_resp["choices"][0]["message"].get("content") or answer
+                messages.append({"role": "assistant", "content": answer})
+            emit({"type": "answer", "content": answer})
             return answer
-        answer = "信息不足，无法回答。"
-        if on_event:
-            on_event({"type": "answer", "content": answer})
-        return answer
 
     def _run_glm_ocr(self, image, prompt="Text Recognition:") -> str:
         self._unload_minicpmv_before_ocr()

@@ -1,5 +1,5 @@
 import io
-import json, time, os, re, threading, logging
+import json, time, os, re, threading, logging, queue
 import zipfile
 from typing import Any, cast
 from django.views import View
@@ -14,49 +14,66 @@ logger = logging.getLogger("video.summary")
 _agent_cache = {}
 _agent_cache_order = []
 _agent_cache_max = 2
+_agent_busy = {}  # db_path -> 正在使用这个 agent 的请求数
+_agent_lock = threading.RLock()
 _unload_timer = None
+_IDLE_UNLOAD_SECS = 300
 
 
-def _unload_oldest_agent():
-    if not _agent_cache_order:
-        return
-    oldest_key = _agent_cache_order.pop(0)
-    agent = _agent_cache.pop(oldest_key, None)
+def _unload_agent_locked(key):
+    agent = _agent_cache.pop(key, None)
+    if key in _agent_cache_order:
+        _agent_cache_order.remove(key)
     if agent and hasattr(agent, "unload_models"):
         agent.unload_models()
-        logger.info("Unloaded oldest agent: %s", oldest_key)
+        logger.info("Unloaded agent: %s", key)
 
 
-def _unload_all_agents():
+def _unload_idle_agents():
+    """Timer callback: release agents nobody is using; busy ones are checked again later."""
     global _unload_timer
-    _unload_timer = None
-    for key, agent in list(_agent_cache.items()):
-        if hasattr(agent, "unload_models"):
-            agent.unload_models()
-            logger.info("Timer unload agent: %s", key)
-    _agent_cache.clear()
-    _agent_cache_order.clear()
+    with _agent_lock:
+        _unload_timer = None
+        for key in list(_agent_cache_order):
+            if not _agent_busy.get(key):
+                _unload_agent_locked(key)
+        if _agent_cache:
+            _reset_unload_timer_locked()
 
 
-def _reset_unload_timer():
+def _reset_unload_timer_locked():
     global _unload_timer
     if _unload_timer is not None:
         _unload_timer.cancel()
-    _unload_timer = threading.Timer(300, _unload_all_agents)
+    _unload_timer = threading.Timer(_IDLE_UNLOAD_SECS, _unload_idle_agents)
     _unload_timer.daemon = True
     _unload_timer.start()
 
 
-def _get_or_create_agent(filename):
+def _release_agent(key):
+    if not key:
+        return
+    with _agent_lock:
+        _agent_busy[key] = max(0, _agent_busy.get(key, 0) - 1)
+        _reset_unload_timer_locked()
+
+
+def _conversation_id(payload):
+    value = str(payload.get("conversation_id") or "").strip()
+    return value[:64] or None
+
+
+def _acquire_agent(filename):
+    """Return (agent, video, error, key). Callers must pass key to _release_agent when done."""
     stem = os.path.splitext(filename)[0]
     from ..models import Video
     video = Video.objects.filter(url__contains=stem).first()
 
     db_dir = os.path.join(settings.MEDIA_ROOT, "vidunder", "db")
     if not os.path.isdir(db_dir):
-        return None, video, "No vidunder DB found. Run summary first."
+        return None, video, "No vidunder DB found. Run summary first.", None
     if not video or not video.srt_path:
-        return None, video, "Video has no subtitle. Generate subtitles first."
+        return None, video, "Video has no subtitle. Generate subtitles first.", None
 
     db_path = None
     if video:
@@ -74,37 +91,43 @@ def _get_or_create_agent(filename):
                 db_path = os.path.join(db_dir, f)
                 break
     if not db_path or not os.path.exists(db_path):
-        return None, video, f"No vidunder DB found for {filename}"
+        return None, video, f"No vidunder DB found for {filename}", None
 
     srt_path = os.path.join(settings.MEDIA_ROOT, "saved_srt", video.srt_path)
     if not os.path.exists(srt_path):
-        return None, video, f"SRT file not found: {srt_path}"
+        return None, video, f"SRT file not found: {srt_path}", None
 
-    agent = _agent_cache.get(db_path)
-    if agent is None:
-        import sys as _sys
-        vid_under_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vid_under")
-        if vid_under_dir not in _sys.path:
-            _sys.path.insert(0, vid_under_dir)
-        from ..tasks import _inject_vidunder_config
-        _inject_vidunder_config()
-        from agent import VideoAgent
-        from srt_utils import parse_srt
-        with open(db_path, encoding="utf-8") as f:
-            db = json.load(f)
-        srt = parse_srt(srt_path)
-        agent = VideoAgent(db, srt)
-        _agent_cache[db_path] = agent
-        _agent_cache_order.append(db_path)
-        logger.info("Created agent for %s, cache size: %d", db_path, len(_agent_cache))
-        while len(_agent_cache) > _agent_cache_max:
-            _unload_oldest_agent()
-    else:
-        if db_path in _agent_cache_order:
-            _agent_cache_order.remove(db_path)
-        _agent_cache_order.append(db_path)
-    _reset_unload_timer()
-    return agent, video, None
+    with _agent_lock:
+        agent = _agent_cache.get(db_path)
+        if agent is None:
+            import sys as _sys
+            vid_under_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "vid_under")
+            if vid_under_dir not in _sys.path:
+                _sys.path.insert(0, vid_under_dir)
+            from ..tasks import _inject_vidunder_config
+            _inject_vidunder_config()
+            from agent import VideoAgent
+            from srt_utils import parse_srt
+            with open(db_path, encoding="utf-8") as f:
+                db = json.load(f)
+            srt = parse_srt(srt_path)
+            agent = VideoAgent(db, srt)
+            _agent_cache[db_path] = agent
+            _agent_cache_order.append(db_path)
+            logger.info("Created agent for %s, cache size: %d", db_path, len(_agent_cache))
+            # 超出上限时只淘汰没人在用的 agent；都在用就暂时超出
+            for old in list(_agent_cache_order):
+                if len(_agent_cache) <= _agent_cache_max:
+                    break
+                if old != db_path and not _agent_busy.get(old):
+                    _unload_agent_locked(old)
+        else:
+            if db_path in _agent_cache_order:
+                _agent_cache_order.remove(db_path)
+            _agent_cache_order.append(db_path)
+        _agent_busy[db_path] = _agent_busy.get(db_path, 0) + 1
+        _reset_unload_timer_locked()
+    return agent, video, None, db_path
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -492,7 +515,7 @@ class VideoSummaryExportView(View):
 
 @method_decorator(csrf_exempt, name='dispatch')
 class VideoAskView(View):
-    """POST /api/video-ask/<filename>  {question: "..."} → {answer: "..."}"""
+    """POST /api/video-ask/<filename>  {question, conversation_id?} → {answer}"""
 
     def post(self, request, filename):
         try:
@@ -504,16 +527,22 @@ class VideoAskView(View):
         if not question:
             return JsonResponse({"error": "Missing question"}, status=400)
 
-        agent, _, error = _get_or_create_agent(filename)
+        agent, _, error, key = _acquire_agent(filename)
         if error:
             return JsonResponse({"error": error}, status=404 if "not found" in error.lower() else 400)
-
-        result = agent.ask(question)
+        try:
+            result = agent.ask(question, conversation_id=_conversation_id(payload))
+        finally:
+            _release_agent(key)
         return JsonResponse({"answer": result})
 
 
 @method_decorator(csrf_exempt, name='dispatch')
 class VideoAskStreamView(View):
+    """POST /api/video-ask-stream/<filename>  {question, conversation_id?} → text/event-stream
+
+    Events: round_start, reasoning_delta, content_delta, tool_call, tool_result, finalizing, answer, error.
+    """
 
     def post(self, request, filename):
         try:
@@ -525,40 +554,41 @@ class VideoAskStreamView(View):
         if not question:
             return JsonResponse({"error": "Missing question"}, status=400)
 
-        agent, _, error = _get_or_create_agent(filename)
+        agent, _, error, key = _acquire_agent(filename)
         if error:
             return JsonResponse({"error": error}, status=404 if "not found" in error.lower() else 400)
 
+        conversation_id = _conversation_id(payload)
+        events = queue.Queue()
+        cancel = threading.Event()
+
+        def run_ask():
+            try:
+                agent.ask(question, on_event=events.put, conversation_id=conversation_id, cancel=cancel)
+            except Exception as exc:
+                logger.exception("video ask failed for %s", filename)
+                events.put({"type": "error", "content": str(exc)})
+            finally:
+                events.put(None)
+                _release_agent(key)
+
+        threading.Thread(target=run_ask, daemon=True).start()
+
         def event_stream():
-            import queue
-            event_queue = queue.Queue()
+            try:
+                while True:
+                    try:
+                        event = events.get(timeout=15)
+                    except queue.Empty:
+                        yield ": keep-alive\n\n"
+                        continue
+                    if event is None:
+                        break
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            finally:
+                cancel.set()  # 客户端断开或正常结束：让后台线程尽早停下
 
-            def on_event(event):
-                event_queue.put(event)
-
-            import threading
-            def run_ask():
-                try:
-                    agent.ask(question, on_event=on_event)
-                except Exception as exc:
-                    event_queue.put({"type": "error", "content": str(exc)})
-                finally:
-                    event_queue.put(None)
-
-            t = threading.Thread(target=run_ask, daemon=True)
-            t.start()
-
-            while True:
-                event = event_queue.get()
-                if event is None:
-                    break
-                data = json.dumps(event, ensure_ascii=False)
-                yield f"data: {data}\n\n"
-
-        response = StreamingHttpResponse(
-            event_stream(),
-            content_type="text/event-stream",
-        )
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response
