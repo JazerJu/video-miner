@@ -289,20 +289,18 @@
           <div>
             <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">{{ t('fontFamily') }}</label>
             <select
-              :value="currentSubtitleSettings.fontFamily"
-              @input="
-                updateCurrentSubtitleSettings(
-                  'fontFamily',
-                  ($event.target as HTMLSelectElement).value,
-                )
-              "
+              :value="fontFamilyChoice"
+              @change="onFontFamilySelect(($event.target as HTMLSelectElement).value)"
               class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+              data-font-family-select
             >
-              <option value="宋体">宋体</option>
-              <option value="微软雅黑">微软雅黑</option>
-              <option value="Arial">Arial</option>
-              <option value="Times New Roman">Times New Roman</option>
-              <option value="Helvetica">Helvetica</option>
+              <optgroup :label="t('fontPresetGroup')">
+                <option v-for="family in PRESET_FONT_FAMILIES" :key="family" :value="family">{{ family }}</option>
+              </optgroup>
+              <optgroup v-if="uploadedFontFamilies.length" :label="t('fontUploadedGroup')">
+                <option v-for="family in uploadedFontFamilies" :key="family" :value="family">{{ family }}</option>
+              </optgroup>
+              <option :value="LOCAL_FONT_OPTION">{{ t('fontLocalOption') }}</option>
             </select>
           </div>
           <div>
@@ -322,6 +320,83 @@
               max="48"
               class="w-full"
             />
+          </div>
+          <!-- 本机字体名、上传字体、已上传字体列表 -->
+          <div class="col-span-2 -mt-2 space-y-3">
+            <div
+              v-if="showLocalFontInput"
+              class="rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-gray-800/40"
+              data-local-font
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <input
+                  :value="currentSubtitleSettings.fontFamily"
+                  @input="updateCurrentSubtitleSettings('fontFamily', ($event.target as HTMLInputElement).value)"
+                  list="vidgo-local-font-families"
+                  :placeholder="t('fontLocalPlaceholder')"
+                  spellcheck="false"
+                  autocomplete="off"
+                  class="min-w-0 flex-1 p-2 bg-white border border-slate-300 rounded-md text-sm text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
+                  data-local-font-input
+                />
+                <button
+                  v-if="localFontListSupported"
+                  type="button"
+                  :disabled="localFontsLoading"
+                  @click="loadLocalFontList"
+                  class="px-3 py-2 text-sm rounded-md border border-slate-300 text-slate-700 hover:bg-white disabled:opacity-50 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/10"
+                >
+                  {{ t('fontQueryLocal') }}
+                </button>
+              </div>
+              <datalist id="vidgo-local-font-families">
+                <option v-for="family in localFontFamilies" :key="family" :value="family" />
+              </datalist>
+              <p
+                class="mt-2 text-xs"
+                :class="localFontRenderable ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'"
+                data-local-font-status
+              >
+                {{ localFontRenderable ? t('fontLocalAvailable') : t('fontLocalMissing') }}
+              </p>
+              <p class="mt-1 text-xs text-slate-500 dark:text-gray-400">{{ t('fontLocalOnlyHere') }}</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                :disabled="fontUploading"
+                @click="fontFileInput?.click()"
+                class="px-3 py-1.5 text-sm rounded-md border border-teal-500/40 text-teal-700 hover:bg-teal-50 disabled:opacity-50 dark:text-teal-300 dark:hover:bg-teal-400/10"
+                data-font-upload
+              >
+                {{ fontUploading ? t('fontUploading') : t('fontUpload') }}
+              </button>
+              <span class="text-xs text-slate-500 dark:text-gray-400">{{ t('fontUploadHint') }}</span>
+              <input ref="fontFileInput" type="file" accept=".ttf,.otf,.woff,.woff2" class="hidden" @change="onFontFileChosen" data-font-file />
+            </div>
+
+            <div v-if="uploadedFonts.length" class="flex flex-wrap gap-2" data-uploaded-fonts>
+              <span
+                v-for="font in uploadedFonts"
+                :key="font.file"
+                :title="font.file"
+                class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-1 pl-3 pr-1 text-xs text-slate-700 dark:border-white/10 dark:bg-gray-800/60 dark:text-gray-200"
+                data-uploaded-font
+              >
+                <span :style="{ fontFamily: fontFamilyCSS(font.family), fontWeight: font.weight.includes(' ') ? '400' : font.weight, fontStyle: font.style }">{{ font.family }}</span>
+                <span class="text-slate-400">{{ font.weight }} · {{ formatBytes(font.size) }}</span>
+                <button
+                  type="button"
+                  @click="removeUploadedFont(font)"
+                  :aria-label="t('fontDelete')"
+                  class="rounded-full px-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-400/10"
+                  data-font-delete
+                >
+                  ×
+                </button>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -585,7 +660,7 @@
             <div
               class="p-4 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 text-center dark:border-white/20 dark:bg-gray-800/70"
               :style="{
-                fontFamily: currentSubtitleSettings.fontFamily,
+                fontFamily: fontFamilyCSS(currentSubtitleSettings.fontFamily),
                 fontSize: currentSubtitleSettings.fontSize + 'px',
                 color: currentSubtitleSettings.fontColor,
                 fontWeight: currentSubtitleSettings.fontWeight,
@@ -1911,6 +1986,7 @@ import { ElMessage } from '@/composables/useNotification'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import { Folder } from 'lucide-vue-next'
 import { useSubtitleStyle } from '@/composables/SubtitleStyle'
+import { PRESET_FONT_FAMILIES, fontFamilyCSS, useSubtitleFonts, type UploadedFont } from '@/composables/SubtitleFonts'
 import {
   loadTags,
   createTag,
@@ -2304,6 +2380,99 @@ const updateCurrentSubtitleSettings = (key: string, value: any) => {
     ;(settings as any)[key] = value
   } else {
     ;(settings as any)[`foreign${key.charAt(0).toUpperCase()}${key.slice(1)}`] = value
+  }
+}
+
+// ── 字幕字体：常用字体、已上传的字体、本机已安装的字体 ──
+const {
+  uploadedFonts,
+  uploadedFontFamilies,
+  loadUploadedFonts,
+  uploadSubtitleFont,
+  deleteSubtitleFont,
+  canListLocalFonts,
+  listLocalFontFamilies,
+  isFontRenderable,
+} = useSubtitleFonts()
+const LOCAL_FONT_OPTION = '__local_font__'
+// 在下拉框里选了「本机字体…」：当前字体即使是常用字体也显示输入框
+const localFontMode = ref(false)
+const localFontFamilies = ref<string[]>([])
+const localFontsLoading = ref(false)
+const localFontListSupported = canListLocalFonts()
+const fontUploading = ref(false)
+const fontFileInput = ref<HTMLInputElement | null>(null)
+
+const fontFamilyChoice = computed(() => {
+  const family = currentSubtitleSettings.value.fontFamily
+  if (localFontMode.value) return LOCAL_FONT_OPTION
+  if (PRESET_FONT_FAMILIES.includes(family) || uploadedFontFamilies.value.includes(family)) return family
+  return LOCAL_FONT_OPTION
+})
+const showLocalFontInput = computed(() => fontFamilyChoice.value === LOCAL_FONT_OPTION)
+const localFontRenderable = computed(() => {
+  const family = currentSubtitleSettings.value.fontFamily
+  return uploadedFontFamilies.value.includes(family) || isFontRenderable(family)
+})
+
+watch(subtitleType, () => {
+  localFontMode.value = false
+})
+
+function onFontFamilySelect(value: string) {
+  if (value === LOCAL_FONT_OPTION) {
+    localFontMode.value = true
+    return
+  }
+  localFontMode.value = false
+  updateCurrentSubtitleSettings('fontFamily', value)
+}
+
+async function loadLocalFontList() {
+  localFontsLoading.value = true
+  try {
+    localFontFamilies.value = await listLocalFontFamilies()
+    ElMessage.success(t('fontQueryLocalLoaded', { count: localFontFamilies.value.length }))
+  } catch (error: any) {
+    ElMessage.error(t('fontQueryLocalFailed', { error: error?.message || error }))
+  } finally {
+    localFontsLoading.value = false
+  }
+}
+
+async function onFontFileChosen(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  fontUploading.value = true
+  try {
+    const font = await uploadSubtitleFont(file)
+    localFontMode.value = false
+    updateCurrentSubtitleSettings('fontFamily', font.family)
+    ElMessage.success(t('fontUploaded', { name: font.family }))
+  } catch (error: any) {
+    ElMessage.error(t('fontUploadFailed', { error: error?.message || error }))
+  } finally {
+    fontUploading.value = false
+  }
+}
+
+async function removeUploadedFont(font: UploadedFont) {
+  try {
+    await ElMessageBox.confirm(t('fontDeleteConfirm', { name: font.family }), t('fontDelete'), {
+      confirmButtonText: t('confirm'),
+      cancelButtonText: t('cancel'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  try {
+    await deleteSubtitleFont(font.file)
+    ElMessage.success(t('fontDeleted'))
+  } catch (error: any) {
+    ElMessage.error(t('fontDeleteFailed', { error: error?.message || error }))
   }
 }
 
@@ -3459,6 +3628,7 @@ const copyToClipboard = async (text: string) => {
 
 onMounted(() => {
   loadSettings()
+  loadUploadedFonts()
   loadFolders()
   loadTagsList()
   loadYtDlpStatus()

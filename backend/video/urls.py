@@ -35,6 +35,7 @@ from .views.media_optimized import OptimizedMediaView
 from .views.subtitles import SubtitleActionView
 from .views.hardsub import (HardsubAddView, HardsubStatusView,
                             HardsubTaskActionView, VideoFrameView)
+from .views.subtitle_fonts import SubtitleFontDetailView, SubtitleFontFileView, SubtitleFontListView
 from .views.waveform import WaveformAPIView, WaveformListView
 from .views.external_transcription import (
     ExternalTranscriptionSubmitView,
@@ -434,6 +435,10 @@ urlpatterns = [
     ),
     # 🆕 智能内容提取（待办事项和关键要点）
     path("api/extract_insights", extract_insights, name="extract_insights"),
+    # 字幕字体：首页「字幕样式」上传的字体文件
+    path("api/subtitle-fonts/", SubtitleFontListView.as_view(), name="subtitle_fonts"),
+    path("api/subtitle-fonts/file/<str:filename>", SubtitleFontFileView.as_view(), name="subtitle_font_file"),
+    path("api/subtitle-fonts/<str:filename>", SubtitleFontDetailView.as_view(), name="subtitle_font_detail"),
     # vidUnder Summary
     path("api/summary/add", SummaryAddView.as_view(), name="summary_add"),
     path("api/summary/<str:task_id>/status", SummaryStatusView.as_view(), name="summary_status"),
