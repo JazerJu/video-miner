@@ -248,14 +248,9 @@ export interface ConfigData {
     vu_summary_base_url: string
     vu_summary_model: string
     vu_summary_slides_per_chapter: string
-    vu_knowledge_provider: string
-    vu_knowledge_api_key: string
-    vu_knowledge_base_url: string
-    vu_knowledge_model: string
     vu_corner_use_proxy: string
     vu_corner_coverage: string
     vu_summary_use_proxy: string
-    vu_knowledge_use_proxy: string
     vu_download_use_proxy: string
   }
 }
@@ -391,14 +386,9 @@ export interface FrontendSettings {
   vuSummaryBaseUrl: string
   vuSummaryModel: string
   vuSummarySlidesPerChapter: number
-  vuKnowledgeProvider: string
-  vuKnowledgeApiKey: string
-  vuKnowledgeBaseUrl: string
-  vuKnowledgeModel: string
   vuCornerUseProxy: boolean
   vuCornerCoverage: number
   vuSummaryUseProxy: boolean
-  vuKnowledgeUseProxy: boolean
   vuDownloadUseProxy: boolean
 }
 
@@ -657,16 +647,11 @@ export async function loadConfig(): Promise<FrontendSettings> {
       vuSummaryApiKey: data['Video Understanding']?.vu_summary_api_key || '',
       vuSummaryBaseUrl:
         data['Video Understanding']?.vu_summary_base_url || 'https://api.deepseek.com',
-      vuSummaryModel: data['Video Understanding']?.vu_summary_model || 'deepseek-chat',
+      vuSummaryModel: data['Video Understanding']?.vu_summary_model || 'deepseek-flash',
       vuSummarySlidesPerChapter: Math.min(10, Math.max(1, parseInt(data['Video Understanding']?.vu_summary_slides_per_chapter || '3', 10) || 3)),
-      vuKnowledgeProvider: data['Video Understanding']?.vu_knowledge_provider || 'doubao',
-      vuKnowledgeApiKey: data['Video Understanding']?.vu_knowledge_api_key || '',
-      vuKnowledgeBaseUrl: data['Video Understanding']?.vu_knowledge_base_url || '',
-      vuKnowledgeModel: data['Video Understanding']?.vu_knowledge_model || '',
       vuCornerUseProxy: data['Video Understanding']?.vu_corner_use_proxy === 'true',
       vuCornerCoverage: parseFloat(data['Video Understanding']?.vu_corner_coverage || '0.6'),
       vuSummaryUseProxy: data['Video Understanding']?.vu_summary_use_proxy === 'true',
-      vuKnowledgeUseProxy: data['Video Understanding']?.vu_knowledge_use_proxy === 'true',
       vuDownloadUseProxy: data['Video Understanding']?.vu_download_use_proxy === 'true',
     }
   } catch (error) {
@@ -818,14 +803,9 @@ split_use_proxy: settings.splitUseProxy.toString(),
         vu_summary_base_url: settings.vuSummaryBaseUrl,
         vu_summary_model: settings.vuSummaryModel,
         vu_summary_slides_per_chapter: Math.min(10, Math.max(1, Math.round(settings.vuSummarySlidesPerChapter || 3))).toString(),
-        vu_knowledge_provider: settings.vuKnowledgeProvider,
-        vu_knowledge_api_key: settings.vuKnowledgeApiKey,
-        vu_knowledge_base_url: settings.vuKnowledgeBaseUrl,
-        vu_knowledge_model: settings.vuKnowledgeModel,
         vu_corner_use_proxy: settings.vuCornerUseProxy.toString(),
         vu_corner_coverage: settings.vuCornerCoverage.toString(),
         vu_summary_use_proxy: settings.vuSummaryUseProxy.toString(),
-        vu_knowledge_use_proxy: settings.vuKnowledgeUseProxy.toString(),
         vu_download_use_proxy: settings.vuDownloadUseProxy.toString(),
       },
     }

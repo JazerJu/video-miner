@@ -1428,11 +1428,12 @@
           </div>
         </div>
 
-        <!-- Section 3: Summary Orchestration -->
+        <!-- Section 3: Summary and Q&A LLM -->
         <div class="bg-slate-50 rounded-lg p-4 border border-slate-200 dark:bg-gray-800/50 dark:border-white/10">
-          <h4 class="text-sm font-medium text-slate-600 mb-4 dark:text-gray-300">
-            {{ t('vuSummaryOrchestration') }}
+          <h4 class="text-sm font-medium text-slate-600 mb-1 dark:text-gray-300">
+            {{ t('vuSummaryLLM') }}
           </h4>
+          <p class="text-xs text-slate-400 mb-4">{{ t('vuSummaryLLMDesc') }}</p>
           <div class="space-y-4">
             <div>
               <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
@@ -1505,69 +1506,6 @@
           </div>
         </div>
 
-        <!-- Section 4: Knowledge LLM -->
-        <div class="bg-slate-50 rounded-lg p-4 border border-slate-200 dark:bg-gray-800/50 dark:border-white/10">
-          <h4 class="text-sm font-medium text-slate-600 mb-1 dark:text-gray-300">
-            {{ t('vuKnowledgeLLM') }}
-          </h4>
-          <p class="text-xs text-slate-400 mb-4">{{ t('vuKnowledgeLLMDesc') }}</p>
-          <div class="space-y-3">
-            <div>
-              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
-                Provider
-              </label>
-              <select
-                v-model="settings.vuKnowledgeProvider"
-                class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
-              >
-                <option value="doubao">{{ t('doubao') }}</option>
-                <option value="step">StepFun</option>
-                <option value="openrouter">OpenRouter</option>
-                <option value="openai_compatible">OpenAI Compatible</option>
-              </select>
-            </div>
-            <div class="flex items-center">
-              <el-switch
-                v-model="settings.vuKnowledgeUseProxy"
-                :active-text="t('useProxy')"
-                :inactive-text="t('noProxy')"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
-                {{ t('apiKey') }}
-              </label>
-              <el-input
-                v-model="settings.vuKnowledgeApiKey"
-                type="password"
-                show-password
-                :placeholder="t('enterApiKey')"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
-                {{ t('baseUrl') }}
-              </label>
-              <input
-                v-model="settings.vuKnowledgeBaseUrl"
-                type="text"
-                :placeholder="knowledgeBaseUrlPlaceholder"
-                class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
-                Model
-              </label>
-              <input
-                v-model="settings.vuKnowledgeModel"
-                type="text"
-                :placeholder="knowledgeModelPlaceholder"
-                class="w-full p-2 bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-teal-400/70 focus:ring-2 focus:ring-teal-500/20 dark:bg-gray-800/70 dark:border-white/10 dark:text-gray-100"
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Folders Management -->
@@ -2135,25 +2073,7 @@ const summaryBaseUrlPlaceholder = computed(() => {
 
 const summaryModelPlaceholder = computed(() => {
   switch (settings.vuSummaryProvider) {
-    case 'deepseek': return 'deepseek-chat'
-    default: return ''
-  }
-})
-
-const knowledgeBaseUrlPlaceholder = computed(() => {
-  switch (settings.vuKnowledgeProvider) {
-    case 'doubao': return 'https://ark.cn-beijing.volces.com/api/v3'
-    case 'step': return 'https://api.stepfun.com/v1'
-    case 'openrouter': return 'https://openrouter.ai/api/v1'
-    default: return ''
-  }
-})
-
-const knowledgeModelPlaceholder = computed(() => {
-  switch (settings.vuKnowledgeProvider) {
-    case 'doubao': return 'doubao-seed-2-0-pro-260215'
-    case 'step': return 'step-3.7-flash'
-    case 'openrouter': return 'google/gemini-2.5-flash'
+    case 'deepseek': return 'deepseek-flash'
     default: return ''
   }
 })
@@ -2813,16 +2733,11 @@ const settings = reactive<FrontendSettings>({
   vuSummaryProvider: 'deepseek',
   vuSummaryApiKey: '',
   vuSummaryBaseUrl: 'https://api.deepseek.com',
-  vuSummaryModel: 'deepseek-chat',
+  vuSummaryModel: 'deepseek-flash',
   vuSummarySlidesPerChapter: 3,
-  vuKnowledgeProvider: 'doubao',
-  vuKnowledgeApiKey: '',
-  vuKnowledgeBaseUrl: '',
-  vuKnowledgeModel: '',
   vuCornerUseProxy: false,
   vuCornerCoverage: 0.6,
   vuSummaryUseProxy: false,
-  vuKnowledgeUseProxy: false,
   vuDownloadUseProxy: false,
 })
 

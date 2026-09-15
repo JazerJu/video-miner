@@ -162,20 +162,14 @@ def _ensure_ini():
             "vu_corner_openai_model": "",
             "vu_summary_api_key": "",
             "vu_summary_base_url": "https://api.deepseek.com",
-            "vu_summary_model": "deepseek-chat",
+            "vu_summary_model": "deepseek-flash",
             "vu_summary_slides_per_chapter": "3",
             "vu_corner_use_proxy": "false",
             "vu_summary_use_proxy": "false",
-            "vu_knowledge_use_proxy": "false",
             "vu_corner_use_proxy": "false",
             "vu_summary_use_proxy": "false",
-            "vu_knowledge_use_proxy": "false",
             "vu_download_use_proxy": "false",
             "vu_use_proxy": "false",
-            "vu_knowledge_provider": "doubao",
-            "vu_knowledge_api_key": "",
-            "vu_knowledge_base_url": "",
-            "vu_knowledge_model": "",
         }
         with open(SETTINGS_FILE, "w") as fp:
             cfg.write(fp)
@@ -277,12 +271,8 @@ def load_all_settings():
             "vu_corner_openai_model": "",
         "vu_summary_api_key": "",
         "vu_summary_base_url": "https://api.deepseek.com",
-        "vu_summary_model": "deepseek-chat",
+        "vu_summary_model": "deepseek-flash",
         "vu_summary_slides_per_chapter": "3",
-        "vu_knowledge_provider": "doubao",
-        "vu_knowledge_api_key": "",
-        "vu_knowledge_base_url": "",
-        "vu_knowledge_model": "",
         "vu_download_use_proxy": "false",
     }
     if not cfg.has_section("Video Understanding"):

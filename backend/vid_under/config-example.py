@@ -46,17 +46,13 @@ GLM_OCR_GGUF = str(PROJECT_DIR / "models" / "GLM-OCR-Q8_0.gguf")
 OPENROUTER_KEY = os.environ.get("VIDUNDER_OPENROUTER_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-DOUBAO_API_KEY = os.environ.get("VIDUNDER_DOUBAO_API_KEY", "")
-DOUBAO_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-DOUBAO_MODEL = "doubao-seed-2-0-pro-260215"
-
 STEP_API_KEY = os.environ.get("VIDUNDER_STEP_API_KEY", "")
 STEP_BASE_URL = "https://api.stepfun.com/v1"
 STEP_MODEL = "step-3.7-flash"
 
 DEEPSEEK_API_KEY = os.environ.get("VIDUNDER_DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = "deepseek-flash"
 
 MIMO_API_KEY = os.environ.get("VIDUNDER_MIMO_API_KEY", "")
 MIMO_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1"

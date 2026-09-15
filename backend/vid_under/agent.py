@@ -9,7 +9,7 @@ from PIL import Image as PILImage
 import json as _json
 from external_api import (
     call_gemini, extract_text, embed_texts, cosine_similarity,
-    call_deepseek, call_step, call_step_with_images, call_deepseek_tools, call_deepseek_tools_stream, ask_model_name,
+    call_deepseek, call_step, call_step_with_images, call_deepseek_tools, call_deepseek_tools_stream, llm_model_name,
     call_glm_ocr, _pil_to_base64,
 )
 from srt_utils import search_transcript, transcript_for_timerange
@@ -300,23 +300,6 @@ _TOOL_DEFS = [
                     },
                 },
                 "required": ["question", "start_seconds", "end_seconds"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ask_world_knowledge",
-            "description": "查询外部世界知识（通过云端大模型）。当视频内容涉及你不确定的概念、术语、技术细节、历史背景等超出视频本身的信息时使用。返回外部模型的回答。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {
-                        "type": "string",
-                        "description": "需要查询外部知识的问题",
-                    },
-                },
-                "required": ["question"],
             },
         },
     },
@@ -1058,7 +1041,7 @@ class VideoAgent:
             + (f"\n画面事件（OCR，时间为出现时刻）：\n{events}\n" if events else "")
         )
         raw = call_deepseek(prompt, system="你是视频结构分析助手，只输出合法 JSON。",
-                            max_tokens=8192, model="deepseek-flash", timeout=300)
+                            max_tokens=8192, timeout=300)
         match = re.search(r"\{[\s\S]*\}", raw or "")
         if not match:
             return {"_source": "detect_chapters_llm", "error": f"无 JSON 输出: {(raw or '')[:120]!r}"}
@@ -1070,7 +1053,7 @@ class VideoAgent:
         if len(chapters) < 2 and duration > 600:
             return {"_source": "detect_chapters_llm", "error": f"只得到 {len(chapters)} 章"}
         return {
-            "_source": "detect_chapters_llm (deepseek-flash)",
+            "_source": f"detect_chapters_llm ({llm_model_name()})",
             "overview": str(data.get("overview") or "").strip(),
             "total_chapters": len(chapters),
             "chapters": chapters,
@@ -1197,12 +1180,12 @@ class VideoAgent:
 
         # Batch-generate chapter titles in one call
         if chapters:
-            from external_api import call_doubao
+            from external_api import call_deepseek
             outlines = "\n".join(
                 f"{ch['chapter']}. ({ch['start_time']}-{ch['end_time']}) {ch.get('preview', '')[:200]}"
                 for ch in chapters
             )
-            title_resp = call_doubao(
+            title_resp = call_deepseek(
                 f"为以下视频章节各生成一个简短标题（5-15字，不要序号和标点）。\n每行输出格式：序号. 标题\n\n{outlines}",
                 max_tokens=500,
             )
@@ -1261,12 +1244,12 @@ class VideoAgent:
                 })
                 prev_time = end_time
             if chapters_fb:
-                from external_api import call_doubao
+                from external_api import call_deepseek
                 outlines = "\n".join(
                     f"{ch['chapter']}. ({ch['start_time']}-{ch['end_time']}) {ch.get('preview', '')[:200]}"
                     for ch in chapters_fb
                 )
-                title_resp = call_doubao(
+                title_resp = call_deepseek(
                     f"为以下视频分组各生成一个简短标题（5-15字，不要序号和标点）。\n每行输出格式：序号. 标题\n\n{outlines}",
                     max_tokens=500,
                 )
@@ -1447,12 +1430,13 @@ class VideoAgent:
             f"直接输出摘要内容，不要加任何开头语、寒暄或解释。"
         )
 
-        from external_api import call_deepseek, call_knowledge_llm
+        from external_api import call_deepseek
         chapter_secs = end_sec - start_sec
         max_tok = min(16384, max(4000, int(chapter_secs / 60 * 400)))
         summary = call_deepseek(prompt, max_tokens=max_tok)
         if not summary or len(summary) < 50:
-            summary = call_knowledge_llm(prompt, max_tokens=max_tok)
+            # 偶发空回复：同一个模型再试一次（总结和问答只用一个模型，不再有第二个 LLM 兜底）
+            summary = call_deepseek(prompt, max_tokens=max_tok)
 
         summary = self._strip_preamble(summary or "")
 
@@ -1625,7 +1609,7 @@ class VideoAgent:
 
             def llm(tools):
                 if on_event is None:
-                    return call_deepseek_tools(messages, tools, max_tokens=8192, model=ask_model_name())
+                    return call_deepseek_tools(messages, tools, max_tokens=8192)
                 return call_deepseek_tools_stream(messages, tools, max_tokens=8192, on_delta=on_delta, cancel=cancel)
 
             for round_i in range(max_rounds):
@@ -1972,15 +1956,6 @@ class VideoAgent:
                     return f"无法提取 [{self._fmt(s)}-{self._fmt(e)}] 的帧"
                 images_b64 = [_pil_to_base64(f) for f in extracted]
                 return call_step_with_images(args["question"], images_b64)
-
-        if name == "ask_world_knowledge":
-            from external_api import call_knowledge_llm
-            answer = call_knowledge_llm(args["question"])
-            return {
-                "_source": "ask_world_knowledge",
-                "_description": f"查询外部世界知识：{args['question'][:50]}",
-                "answer": answer or "外部模型未返回有效回答。",
-            }
 
         return {"error": f"unknown tool: {name}"}
 

@@ -17,7 +17,7 @@
 | [Transcription Engine](transcription/) | Audio transcription engine, hotwords, VAD backend, and ElevenLabs key. |
 | [Media Credentials](media/) | Bilibili SESSDATA, YouTube cookies.txt, network proxy, and yt-dlp management. |
 | [API Token Management](api-token/) | Token creation, listing, revocation, and API request usage for agents and CLI clients. |
-| [Video Understanding](video-understanding/) | Local model downloads, inference parameters, corner detection, summary orchestration, and Knowledge LLM. |
+| [Video Understanding](video-understanding/) | Local model downloads, inference parameters, corner detection, and the summary and Q&A LLM. |
 | [Tags Management](tags/) | Tag creation, colors, editing, deletion, and batch deletion. |
 
 > Values such as API keys, SESSDATA, cookies.txt, and tokens should be treated as passwords.

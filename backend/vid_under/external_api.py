@@ -10,7 +10,6 @@ from config import (GEMINI_API_URL, EMBED_MODEL_PATH, STEP_API_KEY, STEP_BASE_UR
                               STEP_MODEL, GEMINI_API_KEY,
                               DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
                               OPENROUTER_KEY, OPENROUTER_BASE_URL,
-                              DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
                               MIMO_API_KEY, MIMO_BASE_URL, MIMO_MODEL,
                               GLM_OCR_GGUF, GLM_OCR_N_GPU_LAYERS,
                               GLM_OCR_ONNX_DIR, GLM_OCR_ONNX_PROVIDER,
@@ -376,7 +375,7 @@ def extract_text(result: dict | None) -> str:
 
 def call_deepseek(prompt: str, system: str = "你是视频分析助手。", max_tokens: int = 1024,
                   model: str | None = None, timeout: int = 120) -> str:
-    return _call_openai_compat(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model or "deepseek-chat", prompt, system, max_tokens,
+    return _call_openai_compat(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model or llm_model_name(), prompt, system, max_tokens,
                                timeout=timeout)
 
 
@@ -423,22 +422,16 @@ def _call_gemini_vision(prompt: str, images: list, system: str, max_tokens: int)
 
 def call_deepseek_tools(messages: list[dict], tools: list[dict], max_tokens: int = 1024, model: str | None = None) -> dict:
     """Call DeepSeek with tool-calling support. Returns raw response dict."""
-    return _call_openai_compat_raw(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model or "deepseek-chat", messages, max_tokens, tools)
+    return _call_openai_compat_raw(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model or llm_model_name(), messages, max_tokens, tools)
 
 
-def ask_model_name() -> str:
-    """Model for the interactive video Q&A.
+def llm_model_name() -> str:
+    """The one model for chapter detection, chapter summaries and video Q&A.
 
-    On DeepSeek's official API the Q&A uses deepseek-flash, which streams reasoning tokens and
-    supports tool calls. Set VIDUNDER_ASK_MODEL to override.
+    It comes from the "Summary and Q&A LLM" setting (config.DEEPSEEK_MODEL, set by the Django task layer).
     """
-    override = os.environ.get("VIDUNDER_ASK_MODEL", "").strip()
-    if override:
-        return override
-    if "api.deepseek.com" in (DEEPSEEK_BASE_URL or ""):
-        return "deepseek-flash"
     import config as _cfg
-    return getattr(_cfg, "DEEPSEEK_MODEL", "") or "deepseek-chat"
+    return (getattr(_cfg, "DEEPSEEK_MODEL", "") or "deepseek-flash").strip()
 
 
 def _strip_reasoning(messages: list[dict]) -> list[dict]:
@@ -456,7 +449,7 @@ def call_deepseek_tools_stream(messages: list[dict], tools: list[dict], max_toke
     """
     if not DEEPSEEK_API_KEY:
         return {}
-    payload = {"model": model or ask_model_name(), "messages": messages,
+    payload = {"model": model or llm_model_name(), "messages": messages,
                "max_tokens": max_tokens, "stream": True}
     if tools:
         payload["tools"] = tools
@@ -764,60 +757,6 @@ def call_openrouter(prompt: str, model: str = "google/gemini-2.5-flash",
         return ""
 
 
-def call_doubao(prompt: str, system: str = "You are a helpful assistant.", max_tokens: int = 4096) -> str:
-    url = f"{DOUBAO_BASE_URL}/chat/completions"
-    payload = {
-        "model": DOUBAO_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.3,
-    }
-    data = json.dumps(payload, ensure_ascii=False).encode()
-    req = urllib.request.Request(url, data=data, headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {DOUBAO_API_KEY}",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode())
-            return result["choices"][0]["message"]["content"]
-    except Exception as e:
-        print(f"  Doubao API error: {e}", flush=True)
-        return ""
-
-
-def call_doubao_with_image(prompt: str, image_b64: str,
-                           system: str = "You are a helpful assistant.", max_tokens: int = 4096) -> str:
-    url = f"{DOUBAO_BASE_URL}/chat/completions"
-    payload = {
-        "model": DOUBAO_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
-                {"type": "text", "text": prompt},
-            ]},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.3,
-    }
-    data = json.dumps(payload, ensure_ascii=False).encode()
-    req = urllib.request.Request(url, data=data, headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {DOUBAO_API_KEY}",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode())
-            return result["choices"][0]["message"]["content"]
-    except Exception as e:
-        print(f"  Doubao vision API error: {e}", flush=True)
-        return ""
-
-
 def call_vision_for_corners(image_b64: str, img_width: int, img_height: int,
                             provider: str = "gemini") -> dict | None:
     """Ask a vision model to detect the 4 corner points of the main content area.
@@ -888,17 +827,6 @@ def call_vision_for_corners(image_b64: str, img_width: int, img_height: int,
         if not isinstance(corners[k], dict) or "x" not in corners[k] or "y" not in corners[k]:
             return None
     return corners
-
-
-def call_knowledge_llm(prompt: str, max_tokens: int = 4096) -> str:
-    """Try Doubao first, then OpenRouter/gemini as fallback for world knowledge."""
-    r = call_doubao(prompt, max_tokens=max_tokens)
-    if r and len(r) > 50:
-        return r
-    r = call_openrouter(prompt, model="google/gemini-2.5-flash", max_tokens=max_tokens)
-    if r and len(r) > 50:
-        return r
-    return ""
 
 
 def ocr_long_image(image, max_chunk_height: int = 1800, overlap: int = 50,

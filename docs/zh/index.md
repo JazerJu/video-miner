@@ -17,7 +17,7 @@
 | [转录引擎](transcription/) | 音频转录引擎、热词表、VAD 后端和 ElevenLabs 密钥。 |
 | [媒体凭据](media/) | B站 SESSDATA、YouTube cookies.txt、网络代理和 yt-dlp 管理。 |
 | [API 令牌](api-token/) | Agent 和 CLI 访问 Video-Miner API 的令牌创建、查看和吊销。 |
-| [视频理解](video-understanding/) | 本地模型下载、推理参数、角点检测、摘要编排和知识补充 LLM。 |
+| [视频理解](video-understanding/) | 本地模型下载、推理参数、角点检测、总结与问答 LLM。 |
 | [标签管理](tags/) | 标签创建、颜色、编辑、删除和批量删除。 |
 
 > 设置保存后会写入后端配置。涉及 API Key、SESSDATA、cookies.txt 和令牌的值都应按密码保管。

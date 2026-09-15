@@ -1,6 +1,6 @@
 # Video Understanding
 
-Video Understanding settings manage local models, clip analysis parameters, external vision corner detection, summary orchestration, and the Knowledge LLM. The current model download sources are HuggingFace and ModelScope.
+Video Understanding settings manage local models, clip analysis parameters, external vision corner detection, and the summary and Q&A LLM. The current model download sources are HuggingFace and ModelScope.
 
 ## Local Models
 
@@ -47,29 +47,17 @@ Video Understanding settings manage local models, clip analysis parameters, exte
 | MiMo | Empty | `mimo-v2.5` |
 | OpenAI Compatible | Empty | Empty |
 
-## Summary Orchestration
+## Summary and Q&A LLM
 
-> Summary orchestration is the core scheduler for video summarization. It uses Tool-Calling to coordinate local VLM (frame understanding), OCR (text extraction), and Embedding (semantic retrieval) tools, aggregating per-clip results into a structured video summary.
+> One model does all the text work of video understanding. It finds chapters from the transcript and on-screen text, writes each chapter summary, and answers questions about the video.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | Provider | Select | DeepSeek | Options are DeepSeek and OpenAI Compatible. |
-| Use Proxy | Switch | Off | Sends summary orchestration requests through the proxy. |
-| API Key | Password input | Empty | Key for the summary orchestration provider. |
-| Base URL | Text input | `https://api.deepseek.com` | Endpoint for summary orchestration. |
-| Model | Text input | `deepseek-chat` | Model used for summary orchestration. |
-
-## Knowledge LLM
-
-> The Knowledge LLM enriches the generated summary with background context, terminology explanations, and related information not directly mentioned in the video, making the final output more complete and easier to understand.
-
-| Setting | Type | Default | Description |
-| --- | --- | --- | --- |
-| Provider | Select | Doubao | Options are Doubao, StepFun, OpenRouter, and OpenAI Compatible. |
-| Use Proxy | Switch | Off | Sends Knowledge LLM requests through the proxy. |
-| API Key | Password input | Empty | Key for the Knowledge LLM provider. |
-| Base URL | Text input | Empty | Endpoint for the Knowledge LLM provider. |
-| Model | Text input | Empty | Model used by the Knowledge LLM provider. |
+| Use Proxy | Switch | Off | Sends summary and Q&A requests through the proxy. |
+| API Key | Password input | Empty | Key for the provider. With DeepSeek, an empty key uses the DeepSeek key from LLM Settings. |
+| Base URL | Text input | `https://api.deepseek.com` | Endpoint for the provider. |
+| Model | Text input | `deepseek-flash` | Model for chapter detection, chapter summaries, and video Q&A. |
 
 ## How to download local models
 

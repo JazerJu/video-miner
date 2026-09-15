@@ -1606,7 +1606,7 @@ def _inject_vidunder_config():
         if model:
             vu_config.OPENROUTER_MODEL = model
 
-    # Summary Orchestration
+    # Summary and Q&A LLM: chapter detection, chapter summaries and video Q&A all use this model
     summary_provider = g("vu_summary_provider", "deepseek")
     if summary_provider == "deepseek":
         summary_key = g("vu_summary_api_key") or g("deepseek_api_key")
@@ -1641,49 +1641,10 @@ def _inject_vidunder_config():
     vu_config.SUMMARY_SLIDES_PER_CHAPTER = slides_per_chapter
     os.environ["VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER"] = str(slides_per_chapter)
 
-    # Knowledge LLM
-    kn_provider = g("vu_knowledge_provider", "doubao")
-    if kn_provider == "doubao":
-        if g("vu_knowledge_api_key"):
-            vu_config.DOUBAO_API_KEY = g("vu_knowledge_api_key")
-        if g("vu_knowledge_base_url"):
-            vu_config.DOUBAO_BASE_URL = g("vu_knowledge_base_url")
-        if g("vu_knowledge_model"):
-            vu_config.DOUBAO_MODEL = g("vu_knowledge_model")
-    elif kn_provider == "step":
-        if g("vu_knowledge_api_key"):
-            vu_config.STEP_API_KEY = g("vu_knowledge_api_key")
-        if g("vu_knowledge_base_url"):
-            vu_config.STEP_BASE_URL = g("vu_knowledge_base_url")
-        if g("vu_knowledge_model"):
-            vu_config.STEP_MODEL = g("vu_knowledge_model")
-    elif kn_provider == "openrouter":
-        if g("vu_knowledge_api_key"):
-            vu_config.OPENROUTER_KEY = g("vu_knowledge_api_key")
-        if g("vu_knowledge_base_url"):
-            vu_config.OPENROUTER_BASE_URL = g("vu_knowledge_base_url")
-        if g("vu_knowledge_model"):
-            vu_config.OPENROUTER_MODEL = g("vu_knowledge_model")
-    elif kn_provider == "openai_compatible":
-        key = g("vu_knowledge_api_key")
-        base = g("vu_knowledge_base_url")
-        model = g("vu_knowledge_model")
-        if key:
-            vu_config.DOUBAO_API_KEY = key
-            vu_config.OPENROUTER_KEY = key
-        if base:
-            vu_config.DOUBAO_BASE_URL = base
-            vu_config.OPENROUTER_BASE_URL = base
-        if model:
-            vu_config.DOUBAO_MODEL = model
-
     # Sync to external_api module-level imports
     vu_ext.OPENROUTER_KEY = vu_config.OPENROUTER_KEY
     vu_ext.OPENROUTER_BASE_URL = vu_config.OPENROUTER_BASE_URL
     vu_ext.OPENROUTER_MODEL = vu_config.OPENROUTER_MODEL
-    vu_ext.DOUBAO_API_KEY = vu_config.DOUBAO_API_KEY
-    vu_ext.DOUBAO_BASE_URL = vu_config.DOUBAO_BASE_URL
-    vu_ext.DOUBAO_MODEL = vu_config.DOUBAO_MODEL
     vu_ext.DEEPSEEK_API_KEY = vu_config.DEEPSEEK_API_KEY
     vu_ext.DEEPSEEK_BASE_URL = vu_config.DEEPSEEK_BASE_URL
     vu_ext.STEP_API_KEY = vu_config.STEP_API_KEY
@@ -1697,7 +1658,6 @@ def _inject_vidunder_config():
     vu_use_proxy = (
         g("vu_corner_use_proxy", "false") == "true"
         or g("vu_summary_use_proxy", "false") == "true"
-        or g("vu_knowledge_use_proxy", "false") == "true"
     )
     if vu_use_proxy:
         from video.proxy import get_effective_proxy

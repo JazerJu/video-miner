@@ -1,6 +1,6 @@
 # 视频理解
 
-视频理解设置用于管理本地模型、视频片段分析参数、外部视觉角点检测、摘要编排和知识补充 LLM。当前设置面板中的模型下载来源支持 HuggingFace 和 ModelScope。
+视频理解设置用于管理本地模型、视频片段分析参数、外部视觉角点检测、总结与问答 LLM。当前设置面板中的模型下载来源支持 HuggingFace 和 ModelScope。
 
 ## 本地模型
 
@@ -48,29 +48,17 @@
 | MiMo | 空 | `mimo-v2.5` |
 | OpenAI Compatible | 空 | 空 |
 
-## 摘要编排 (Tool-Calling)
+## 总结与问答 LLM
 
-> 摘要编排是视频总结的核心调度器，通过 Tool-Calling 能力协调本地 VLM（帧理解）、OCR（文字提取）、Embedding（语义检索）等工具，按片段汇总并生成结构化的视频摘要。
+> 视频理解里所有读文字的工作都由这一个模型完成：根据字幕和屏幕文字划分章节、写每章总结、回答关于视频的问题。
 
 | 设置 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | Provider | 下拉框 | DeepSeek | 可选 DeepSeek 和 OpenAI Compatible。 |
-| 使用代理 | 开关 | 关闭 | 摘要编排请求使用代理。 |
-| API Key | 密码输入 | 空 | 摘要编排供应商密钥。 |
-| Base URL | 文本输入 | `https://api.deepseek.com` | 摘要编排接口地址。 |
-| Model | 文本输入 | `deepseek-chat` | 摘要编排模型名。 |
-
-## 知识补充 LLM (Knowledge LLM)
-
-> 知识补充 LLM 在摘要生成后对内容进行二次加工，补充视频中没有直接提及的背景知识、术语解释和关联信息，让最终摘要更完整易懂。
-
-| 设置 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| Provider | 下拉框 | Doubao | 可选 Doubao、StepFun、OpenRouter、OpenAI Compatible。 |
-| 使用代理 | 开关 | 关闭 | 知识补充请求使用代理。 |
-| API Key | 密码输入 | 空 | 知识补充供应商密钥。 |
-| Base URL | 文本输入 | 空 | 知识补充接口地址。 |
-| Model | 文本输入 | 空 | 知识补充模型名。 |
+| 使用代理 | 开关 | 关闭 | 总结和问答请求使用代理。 |
+| API Key | 密码输入 | 空 | 供应商密钥。选 DeepSeek 时留空则使用「LLM 设置」里的 DeepSeek 密钥。 |
+| Base URL | 文本输入 | `https://api.deepseek.com` | 接口地址。 |
+| Model | 文本输入 | `deepseek-flash` | 分章、章节总结和视频问答使用的模型。 |
 
 ## 如何下载本地模型
 
