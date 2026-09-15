@@ -180,21 +180,37 @@ def fetch(ydl, info: dict) -> dict | None:
     }
 
 
-def chapters_from_info(info: dict) -> list[dict]:
-    """yt-dlp chapters in the Video.chapters format used by the chapter panel."""
+def _chapter_nodes(points, id_prefix: str) -> list[dict]:
+    """(start, title) pairs in the Video.chapters format used by the chapter panel."""
     out = []
-    for i, ch in enumerate(info.get("chapters") or []):
+    for start, title in points:
         try:
-            start = float(ch.get("start_time"))
+            start = float(start)
         except (TypeError, ValueError):
             continue
+        n = len(out) + 1
         out.append({
-            "id": f"yt-{i + 1}",
-            "title": str(ch.get("title") or f"Chapter {i + 1}").strip(),
+            "id": f"{id_prefix}-{n}",
+            "title": str(title or f"Chapter {n}").strip(),
             "startTime": round(start, 3),
             "children": [],
         })
     return out
+
+
+def chapters_from_info(info: dict) -> list[dict]:
+    """yt-dlp chapters (YouTube author chapters) in the Video.chapters format."""
+    return _chapter_nodes(((ch.get("start_time"), ch.get("title")) for ch in info.get("chapters") or []), "yt")
+
+
+def chapters_from_view_points(view_points: list) -> list[dict]:
+    """Bilibili uploader chapters in the Video.chapters format.
+
+    They come from data.view_points of /x/player/wbi/v2 (docs/video/player.md in
+    bilibili-API-collect). Entries with type 2 are the chapters: {"from": s, "to": s, "content": title}.
+    """
+    points = [(p.get("from"), p.get("content")) for p in view_points or [] if isinstance(p, dict) and p.get("type") == 2]
+    return _chapter_nodes(points, "bili")
 
 
 def _path(media_root: str, video_id) -> str:

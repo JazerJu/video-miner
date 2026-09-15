@@ -111,6 +111,8 @@ def _acquire_agent(filename):
             with open(db_path, encoding="utf-8") as f:
                 db = json.load(f)
             srt = parse_srt(srt_path)
+            if video.chapters:
+                db["author_chapters"] = video.chapters
             agent = VideoAgent(db, srt)
             _agent_cache[db_path] = agent
             _agent_cache_order.append(db_path)

@@ -947,10 +947,18 @@ class VideoAgent:
     def _detect_chapters(self, min_chapter_secs: int = 120) -> dict:
         """Topic chapters covering the whole video.
 
-        An LLM reads the timestamped transcript plus on-screen OCR events and puts boundaries at real
-        topic changes. The embedding-similarity cut found 3 chapters in lfs-p3 (YouTube lists 6) and a
-        22-minute first chapter in lfs-p4; it stays as the fallback.
+        Chapters the uploader or the user gave (Video.chapters, passed in as db["author_chapters"])
+        come first: their boundaries are kept as they are. Otherwise an LLM reads the timestamped
+        transcript plus on-screen OCR events and puts boundaries at real topic changes. The
+        embedding-similarity cut found 3 chapters in lfs-p3 (YouTube lists 6) and a 22-minute first
+        chapter in lfs-p4; it stays as the last fallback.
         """
+        author = self._author_chapters()
+        if author:
+            try:
+                return self._chapters_from_author(author)
+            except Exception as exc:
+                print(f"  [chapters] author chapters failed: {exc}")
         try:
             result = self._detect_chapters_llm()
             if result.get("chapters"):
@@ -959,6 +967,134 @@ class VideoAgent:
         except Exception as exc:
             print(f"  [chapters] LLM segmentation failed: {exc}")
         return self._detect_chapters_embedding(min_chapter_secs)
+
+    @staticmethod
+    def _chapter_start_seconds(value):
+        """A chapter start as seconds: a number, "90", "1:30" or "0:01:30"."""
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip()
+        try:
+            return float(text)
+        except ValueError:
+            pass
+        parts = text.split(":")
+        if not 2 <= len(parts) <= 3:
+            return None
+        try:
+            nums = [float(p) for p in parts]
+        except ValueError:
+            return None
+        return nums[-1] + nums[-2] * 60 + (nums[-3] * 3600 if len(nums) == 3 else 0)
+
+    def _author_chapters(self) -> list:
+        """[[start_seconds, title], ...] from db["author_chapters"], or [] when they cannot be used.
+
+        Only top-level entries count. Starts outside the video are dropped, and at least two distinct
+        starts are needed (the chapter panel creates entries that all start at 0).
+        """
+        raw = self.db.get("author_chapters")
+        if isinstance(raw, str):
+            try:
+                raw = _json.loads(raw)
+            except ValueError:
+                return []
+        if not isinstance(raw, list):
+            return []
+        duration = self._video_duration()
+        points = []
+        for node in raw:
+            if not isinstance(node, dict):
+                continue
+            start = self._chapter_start_seconds(node.get("startTime", node.get("start_seconds")))
+            if start is None or start < 0 or (duration and start >= duration):
+                continue
+            points.append([start, str(node.get("title") or "").strip()])
+        points.sort(key=lambda p: p[0])
+        kept = []
+        for p in points:
+            if kept and p[0] - kept[-1][0] < 1:
+                continue
+            kept.append(p)
+        if len(kept) < 2:
+            return []
+        kept[0][0] = 0.0
+        return kept
+
+    def _chapters_from_author(self, author: list) -> dict:
+        """Chapters with the author's boundaries unchanged.
+
+        One LLM call writes titles in the summary language, a gist for each chapter and the video
+        overview, the same fields LLM chapter detection gives. If that call fails, the author's
+        titles are kept and gist and overview stay empty.
+        """
+        import re
+        duration = self._video_duration()
+        chapters = []
+        for i, (start, title) in enumerate(author):
+            end = author[i + 1][0] if i + 1 < len(author) else duration
+            chapters.append({
+                "chapter": i + 1,
+                "title": self._clean_chapter_title(title) or f"章节 {i + 1}",
+                "gist": "",
+                "start_seconds": round(start, 1),
+                "end_seconds": round(end, 1),
+                "start_time": self._fmt(start),
+                "end_time": self._fmt(end),
+                "duration": round(end - start),
+            })
+        result = {"_source": "author_chapters", "overview": "", "total_chapters": len(chapters), "chapters": chapters}
+        if not self.srt or len(self.srt) < 5:
+            return result
+
+        listing = "\n".join(
+            f"{c['chapter']}. [{c['start_time']}-{c['end_time']}] {author[i][1] or '（无标题）'}"
+            for i, c in enumerate(chapters)
+        )
+        events = self._screen_events_text()
+        prompt = (
+            f"下面是一段视频的带时间戳字幕{'，以及画面中识别到的幻灯片/代码/终端事件' if events else ''}。"
+            f"视频总时长 {self._fmt(duration)}（{int(duration)} 秒）。\n\n"
+            f"作者已经给视频分好了章节，章节边界不要改动：\n{listing}\n\n"
+            "请为每一章写：\n"
+            f"- title：4–16 个字，用{self._lang}写。作者标题已经是{self._lang}且说得清楚时原样保留，"
+            "否则参考作者标题和本章内容来写；不要写序号、时间或“章节”字样\n"
+            "- gist：一句话写这一章的具体内容\n"
+            "另写 overview：1–2 句话概括整个视频。\n\n"
+            "只输出 JSON，不要任何解释，index 对应上面的章节序号：\n"
+            '{"overview": "...", "chapters": [{"index": 1, "title": "...", "gist": "..."}]}\n\n'
+            f"字幕：\n{self._compact_transcript()}\n"
+            + (f"\n画面事件（OCR，时间为出现时刻）：\n{events}\n" if events else "")
+        )
+        try:
+            raw = call_deepseek(prompt, system="你是视频结构分析助手，只输出合法 JSON。",
+                                max_tokens=4096, timeout=300)
+            match = re.search(r"\{[\s\S]*\}", raw or "")
+            data = _json.loads(match.group(0)) if match else {}
+        except Exception as exc:
+            print(f"  [chapters] titles for author chapters failed, keeping author titles: {exc}")
+            return result
+        filled = 0
+        for item in data.get("chapters") or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                idx = int(item.get("index"))
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= idx <= len(chapters):
+                continue
+            title = self._clean_chapter_title(item.get("title", ""))
+            if title:
+                chapters[idx - 1]["title"] = title
+            chapters[idx - 1]["gist"] = str(item.get("gist") or "").strip()[:300]
+            filled += 1
+        result["overview"] = str(data.get("overview") or "").strip()
+        if filled:
+            result["_source"] = f"author_chapters + {llm_model_name()} titles"
+        return result
 
     def _video_duration(self) -> float:
         duration = float(self.db.get("duration") or 0)

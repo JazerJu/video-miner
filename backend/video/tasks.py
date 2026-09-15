@@ -1097,6 +1097,22 @@ def download_youtube_video(task_id: str):
             logger.error("Error cleaning up work directory: %s", e)
 
 
+def _apply_bilibili_chapters(video, bvid, cid, sessdata):
+    """Store the uploader chapters of this Bilibili part in Video.chapters. Failures only log."""
+    from utils.stream_downloader import native_subtitles
+    from utils.stream_downloader.bili_download import get_view_points
+
+    try:
+        chapters = native_subtitles.chapters_from_view_points(get_view_points(bvid, cid, sessdata))
+    except Exception as e:
+        logger.warning("Bilibili chapters for %s cid=%s failed: %s", bvid, cid, e)
+        return
+    if chapters:
+        video.chapters = chapters
+        video.save(update_fields=["chapters"])
+    logger.info("Bilibili chapters for video %s: %d", video.id, len(chapters))
+
+
 def download_bilibili_video(task_id: str):
     with download_status_lock:
         task = download_status[task_id]
@@ -1292,6 +1308,7 @@ def download_bilibili_video(task_id: str):
     from .utils import update_video_file_info
 
     update_video_file_info(video, save=True)
+    _apply_bilibili_chapters(video, bvid, cid, sessdata)
 
     logger.info(
         "Video created with thumbnail: %s, duration: %s", thumbnail_filename, formatted_duration
@@ -1886,6 +1903,10 @@ def generate_summary_for_video(task_id: str) -> None:
         with open(db_path, "w", encoding="utf-8") as f:
             _json.dump(db, f, ensure_ascii=False, indent=2)
         srt = parse_srt(srt_path)
+        # 作者或用户给的章节以数据库为准，只放进内存里的 db，不写回 db 文件
+        video_obj = Video.objects.filter(pk=task.get("video_id")).first()
+        if video_obj and video_obj.chapters:
+            db["author_chapters"] = video_obj.chapters
         agent = VideoAgent(db, srt, lang=task.get("language", "中文"))
 
         def _summarize_progress(done, total):

@@ -282,6 +282,34 @@ def save_json_to_file(json_string: str, file_path: str):
         f.write(json_string)
 
 
+def get_view_points(bvid: str, cid: int, sessdata: str = "") -> list:
+    """Uploader chapters of one part: data.view_points of the web player API.
+
+    See docs/video/player.md in bilibili-API-collect. Only entries with type 2 are chapters;
+    the list is empty when the uploader made none.
+    """
+    img_key, sub_key = getWbiKeys()
+    params = encWbi({"bvid": bvid, "cid": cid}, img_key, sub_key)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Referer": "https://www.bilibili.com/",
+    }
+    if sessdata:
+        headers["Cookie"] = f"SESSDATA={sessdata}"
+    resp = requests.get(
+        "https://api.bilibili.com/x/player/wbi/v2",
+        params=params,
+        headers=headers,
+        proxies=get_proxies(),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if payload.get("code") != 0:
+        return []
+    return [p for p in (payload.get("data") or {}).get("view_points") or [] if p.get("type") == 2]
+
+
 # 获取 1080p 视频原链接 JSON
 import http.client
 
