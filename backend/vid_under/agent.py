@@ -983,8 +983,12 @@ class VideoAgent:
         limit = max(80, budget_chars // max(1, len(blocks))) if total > budget_chars else None
         return "\n".join(f"[{self._fmt(s)}] {t[:limit] if limit else t}" for s, t in blocks)
 
-    def _screen_events_text(self, max_items: int = 160) -> str:
-        """Compact OCR events (slides / code / terminal) used as chapter hints."""
+    def _screen_events_text(self, max_items: int = 160, max_chars: int = 200) -> str:
+        """Compact OCR events (slides / code / terminal) used as chapter hints.
+
+        Each event keeps its first max_chars characters. At 80, a Kate window in 549 sent only its
+        80-character menu bar for 34 of 160 events, and the file names and code after it were cut.
+        """
         path = self._extract_json_path()
         if not path:
             return ""
@@ -999,7 +1003,7 @@ class VideoAgent:
             for item in structure.get(key, []):
                 text = " ".join(str(item.get(field) or "").split())
                 if text:
-                    events.append((float(item.get("time", 0)), label, text[:80]))
+                    events.append((float(item.get("time", 0)), label, text[:max_chars]))
         events.sort()
         if len(events) > max_items:
             step = len(events) / max_items
