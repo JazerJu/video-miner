@@ -3,6 +3,8 @@ import os
 import logging
 from typing import Dict, Optional, Any, Callable
 
+from utils.stream_downloader import native_subtitles
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,6 +19,8 @@ def _node_runtime():
 
 class YouTubeDownloader:
     def __init__(self):
+        # Set by download_video: the YouTube subtitle track to use instead of ASR, or None.
+        self.native_subtitles = None
         self.base_ydl_opts = {
             "writesubtitles": False,
             "writeautomaticsub": False,
@@ -156,6 +160,8 @@ class YouTubeDownloader:
                     "id": info_dict.get("id", ""),
                     "webpage_url": info_dict.get("webpage_url", ""),
                     "ext": info_dict.get("ext", "mp4"),
+                    "chapters": info_dict.get("chapters") or [],
+                    "language": info_dict.get("language"),
                 }
 
         if last_info is not None:
@@ -253,11 +259,31 @@ class YouTubeDownloader:
                 # Download the video
                 ydl.process_info(info_dict)
 
+                self.native_subtitles = self._fetch_native_subtitles(ydl, info_dict)
                 return output_filename
 
         except Exception as e:
             print(f"Error downloading video: {e}")
             return None
+
+    @staticmethod
+    def _fetch_native_subtitles(ydl, info_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The video's own subtitles (human-made first, else original-language automatic
+        captions) so that ASR can be skipped. A failure here never fails the download."""
+        try:
+            native = native_subtitles.fetch(ydl, info_dict)
+        except Exception as e:
+            logger.warning("Native subtitle fetch failed: %s", e)
+            return None
+        if native:
+            logger.info(
+                "Native subtitles: %s track %s (%s), %d cues, %d words",
+                native["kind"], native["tag"], native["lang"],
+                len(native["segments"]), len(native["words"]),
+            )
+        else:
+            logger.info("No usable native subtitles; subtitles will come from ASR")
+        return native
 
     def download_audio_only(
         self, url: str, output_path: str, filename_template: Optional[str] = None

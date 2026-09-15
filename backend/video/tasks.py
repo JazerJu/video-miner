@@ -443,10 +443,6 @@ def generate_subtitles_for_video(video_id: int) -> None:
     try:
         _update(video_id, "transcribe", "Running")
 
-        # 预处理音频文件：转换为单声道MP3格式
-        preprocessed_audio_path = preprocess_audio_for_transcription(video_id)
-        logger.info("Transcribing preprocessed audio file: %s", preprocessed_audio_path)
-
         # 使用统一的转录引擎接口
         from asr_utils.transcription_engine import (
             transcribe_with_engine,
@@ -462,22 +458,33 @@ def generate_subtitles_for_video(video_id: int) -> None:
         fallback_engine = transcription_settings.get("fallback_engine", "")
         enable_split = default_settings.get("enable_split", "true").lower() == "true"
 
-        logger.info("Using primary transcription engine: %s", primary_engine)
-        if fallback_engine and fallback_engine != primary_engine:
-            logger.info("Fallback engine configured: %s", fallback_engine)
+        # YouTube 自带字幕优先：下载时存下的人工字幕或原音轨自动字幕，语言一致就不跑 ASR
+        native = _native_transcript(video_id, src_lang, enable_split)
+        native_detail = None
+        if native:
+            srt_content, enable_split, native_detail = native
+            logger.info("Video %s: %s (enable_split=%s)", video_id, native_detail, enable_split)
+        else:
+            # 预处理音频文件：转换为单声道MP3格式
+            preprocessed_audio_path = preprocess_audio_for_transcription(video_id)
+            logger.info("Transcribing preprocessed audio file: %s", preprocessed_audio_path)
 
-        subtitle_mode = "word" if enable_split else "sentence"
-        logger.info("Subtitle mode: %s (enable_split=%s)", subtitle_mode, enable_split)
+            logger.info("Using primary transcription engine: %s", primary_engine)
+            if fallback_engine and fallback_engine != primary_engine:
+                logger.info("Fallback engine configured: %s", fallback_engine)
 
-        # 执行转录（包含自动fallback机制）
-        srt_content = transcribe_with_engine(
-            engine_type=primary_engine,
-            audio_file_path=preprocessed_audio_path,
-            progress_cb=transcribe_cb,
-            fallback_engine=fallback_engine,
-            language=src_lang,
-            subtitle_mode=subtitle_mode,
-        )
+            subtitle_mode = "word" if enable_split else "sentence"
+            logger.info("Subtitle mode: %s (enable_split=%s)", subtitle_mode, enable_split)
+
+            # 执行转录（包含自动fallback机制）
+            srt_content = transcribe_with_engine(
+                engine_type=primary_engine,
+                audio_file_path=preprocessed_audio_path,
+                progress_cb=transcribe_cb,
+                fallback_engine=fallback_engine,
+                language=src_lang,
+                subtitle_mode=subtitle_mode,
+            )
         timestamp = int(time.time() * 1000)
         os.makedirs("work_dir/temp", exist_ok=True)
         # Debug: Check SRT content encoding before writing
@@ -489,7 +496,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
         logger.info(
             "[tasks.py] SRT file saved to work_dir/temp/%s.srt with UTF-8 encoding", timestamp
         )
-        _update(video_id, "transcribe", "Completed")
+        _update(video_id, "transcribe", "Completed", progress=100, detail=native_detail)
         logger.info(
             "Transcription completed for video %s, SRT content length: %s", video_id, len(srt_content)
         )
@@ -919,6 +926,59 @@ def download_thumbnail(thumbnail_url: str, md5_value: str) -> str:
         return ""
 
 
+def _native_transcript(video_id, src_lang, enable_split):
+    """SRT text from the YouTube subtitles stored at download time, used instead of ASR.
+
+    Returns (srt_content, enable_split, detail) or None when the video has no stored track in
+    src_lang. Human-made subtitles are already sentences, so the LLM split is turned off for
+    them. Automatic captions give one word per cue when the split is on, which is the input
+    ASR gives the split in word mode.
+    """
+    from utils.stream_downloader import native_subtitles
+
+    native = native_subtitles.load(settings.MEDIA_ROOT, video_id, src_lang)
+    if not native:
+        return None
+    if native["kind"] == "auto" and enable_split and native.get("words"):
+        return native_subtitles.to_srt(native["words"]), True, "YouTube automatic captions, ASR skipped"
+    label = "subtitles" if native["kind"] == "manual" else "automatic captions"
+    return native_subtitles.to_srt(native["segments"]), False, f"YouTube {label}, ASR skipped"
+
+
+def _apply_youtube_metadata(video, video_info, native):
+    """Store the YouTube chapters and native subtitles of a newly downloaded video.
+
+    The native track becomes the video's subtitle right away and is kept in
+    MEDIA_ROOT/native_subtitles so a later subtitle task can reuse it. Failures only log.
+    """
+    from utils.stream_downloader import native_subtitles
+
+    fields = []
+    chapters = native_subtitles.chapters_from_info(video_info or {})
+    if chapters:
+        video.chapters = chapters
+        fields.append("chapters")
+    if native:
+        try:
+            native_subtitles.save(settings.MEDIA_ROOT, video.id, native)
+            srt_name = f"{video.id}_{native['lang']}.srt"
+            srt_dir = os.path.join(settings.MEDIA_ROOT, "saved_srt")
+            os.makedirs(srt_dir, exist_ok=True)
+            with open(os.path.join(srt_dir, srt_name), "w", encoding="utf-8") as f:
+                f.write(native_subtitles.to_srt(native["segments"]))
+            video.srt_path = srt_name
+            video.raw_lang = native["lang"]
+            fields += ["srt_path", "raw_lang"]
+        except Exception as e:
+            logger.warning("Saving native subtitles for video %s failed: %s", video.id, e)
+    if fields:
+        video.save(update_fields=fields)
+    logger.info(
+        "YouTube metadata for video %s: %d chapters, native subtitles %s",
+        video.id, len(chapters), f"{native['kind']} {native['lang']}" if native else "none",
+    )
+
+
 def download_youtube_video(task_id: str):
     """下载 YouTube 视频的完整流程"""
     with download_status_lock:
@@ -1015,6 +1075,7 @@ def download_youtube_video(task_id: str):
         from .utils import update_video_file_info
 
         update_video_file_info(video, save=True)
+        _apply_youtube_metadata(video, video_info, downloader.native_subtitles)
 
         logger.info(
             "YouTube video created with thumbnail: %s, duration: %s", thumbnail_filename, formatted_duration
