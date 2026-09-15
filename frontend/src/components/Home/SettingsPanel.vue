@@ -2865,9 +2865,9 @@ const VIDUNDER_MODELS: Array<Required<Pick<VidUnderModel, 'name' | 'label' | 'de
   },
   {
     name: 'wemm-embedding',
-    label: 'WeMM Embedding 4B (NF4)',
-    description: 'Video + text embedding for clip search (needs a torch environment)',
-    totalSize: 4763911544,
+    label: 'WeMM Embedding 4B (ONNX NF4)',
+    description: 'Video + text embedding for clip search (ONNX, no torch)',
+    totalSize: 3407786496,
   },
   {
     name: 'fun-asr',

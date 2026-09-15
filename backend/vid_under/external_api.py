@@ -58,17 +58,31 @@ def _embed_texts_bge(texts: list[str]) -> list[list[float]]:
 
 
 # ── WeMM 编码后端 ──────────────────────────────────────────────
-# 本环境没有 torch，WeMM 只能跑在独立的 wemm-venv 里，用常驻子进程通信。
+# WeMM 跑在常驻子进程里，用 stdin/stdout 通信。两个后端协议相同，用 VIDUNDER_WEMM_BACKEND 选：
+#   onnx（默认）：wemm_onnx_server.py，只需要 onnxruntime-gpu 1.30 以上（GatedDeltaNet 算子），不需要 torch。
+#                 权重是 NF4 副本的原样搬运，与 torch 版向量余弦约 0.999，torch 建的旧索引照常能查。
+#   torch：wemm_embed_server.py，sentence-transformers + bitsandbytes，跑在 wemm-venv 里。
 # 实测：字幕行粒度上 WeMM 比 bge 显著更好（549 语音 0.50->0.79，548 0.46->0.76，
 # 两个视频的置信区间都不跨 0）；caption 粒度收益跨 0，所以只在字幕行检索上启用。
-WEMM_PYTHON = os.environ.get("VIDUNDER_WEMM_PYTHON",
-                             "/media/jju/ExtraDisk/models/wemm-venv/bin/python")
+WEMM_BACKEND = os.environ.get("VIDUNDER_WEMM_BACKEND", "onnx").strip().lower()
+# 后端: (默认解释器, 服务脚本, MODEL_ROOT/wemm/ 下的模型目录, 判断模型已下载完整的文件)
+_WEMM_BACKENDS = {
+    "onnx": ("/media/jju/ExtraDisk/models/wemm-onnx-venv/bin/python", "wemm_onnx_server.py",
+             "WeMM-Embedding-4B-onnx-nf4", os.path.join("decoder", "model.onnx.data")),
+    "torch": ("/media/jju/ExtraDisk/models/wemm-venv/bin/python", "wemm_embed_server.py",
+              "WeMM-Embedding-4B-nf4", "model.safetensors"),
+}
+_wemm_python, _wemm_script, WEMM_MODEL_DIRNAME, _WEMM_MODEL_MARKER = _WEMM_BACKENDS.get(
+    WEMM_BACKEND, _WEMM_BACKENDS["onnx"])
+if WEMM_BACKEND != "torch" and not os.path.isfile(_wemm_python):
+    import sys as _sys
+    _wemm_python = _sys.executable               # Docker 镜像里 onnxruntime 就装在主环境
+WEMM_PYTHON = os.environ.get("VIDUNDER_WEMM_PYTHON", _wemm_python)
 WEMM_SERVER = os.environ.get("VIDUNDER_WEMM_SERVER",
-                             os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                          "wemm_embed_server.py"))
+                             os.path.join(os.path.dirname(os.path.abspath(__file__)), _wemm_script))
 WEMM_READY_TIMEOUT = float(os.environ.get("VIDUNDER_WEMM_READY_TIMEOUT", "600"))
 WEMM_CALL_TIMEOUT = float(os.environ.get("VIDUNDER_WEMM_CALL_TIMEOUT", "300"))
-# 实测常驻进程占 4.75 GB，留点余量按 5 GB 申请名额
+# 实测常驻进程占 4.75 GB（torch）/ 4.8 GB（ONNX），留点余量按 5 GB 申请名额
 WEMM_NEED_GB = float(os.environ.get("VIDUNDER_WEMM_NEED_GB", "5"))
 
 _wemm_proc = None
@@ -125,8 +139,8 @@ def _wemm_start():
         # 从设置页下载的模型放在 MODEL_ROOT/wemm/ 下；没下载的机器交给服务端用它自己的默认路径
         try:
             from config import MODEL_ROOT
-            downloaded = os.path.join(str(MODEL_ROOT), "wemm", "WeMM-Embedding-4B-nf4")
-            if os.path.isfile(os.path.join(downloaded, "model.safetensors")):
+            downloaded = os.path.join(str(MODEL_ROOT), "wemm", WEMM_MODEL_DIRNAME)
+            if os.path.isfile(os.path.join(downloaded, _WEMM_MODEL_MARKER)):
                 env["VIDUNDER_WEMM_MODEL"] = downloaded
         except Exception:
             pass
