@@ -51,3 +51,5 @@ frontend/.git/
 frontend/dist/
 *.log
 *.tmp
+# onnxruntime wheel for the carrier image (the main image gets it with COPY --from)
+docker/onnxruntime-wheel/*.whl

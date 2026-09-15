@@ -56,11 +56,20 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 WORKDIR /app
 COPY backend/requirements.txt .
 
+# onnxruntime-gpu 1.30.0, built against CUDA 12.8 with the GPU architecture list of the official CUDA 12.8 package.
+# WeMM's ONNX build needs com.microsoft.GatedDeltaNet, which first shipped in 1.30. Every PyPI GPU wheel since 1.28
+# targets CUDA 13. CUDA 13 does not match this CUDA 12.8 base or the llama.cpp libraries, which link cuBLAS 12.
+# The wheel comes from a carrier image. See docker/onnxruntime-wheel/ for the build steps.
+COPY --from=jaceju68/onnxruntime-gpu-wheel:1.30.0-cu128 /wheels/ /tmp/onnxruntime-wheel/
+
 # Install dependencies to system directory
 RUN set -eux; \
     python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt; \
     python3 -m pip install --break-system-packages --no-cache-dir "yt-dlp[default]"; \
-    python3 -c 'import onnxruntime as ort; print("onnxruntime", ort.__version__, ort.get_available_providers()); assert ort.__version__ == "1.26.0", ort.__version__'; \
+    echo "edda72628d87cf466bb26c35d4d7b8a6a22ef1de8ea0005e7de30bd83570846d  /tmp/onnxruntime-wheel/onnxruntime_gpu-1.30.0-cp312-cp312-linux_x86_64.whl" | sha256sum -c -; \
+    python3 -m pip install --break-system-packages --no-cache-dir --no-deps --force-reinstall /tmp/onnxruntime-wheel/onnxruntime_gpu-1.30.0-cp312-cp312-linux_x86_64.whl; \
+    rm -rf /tmp/onnxruntime-wheel; \
+    python3 -c 'import onnxruntime as ort; print("onnxruntime", ort.__version__, ort.get_available_providers()); assert ort.__version__ == "1.30.0", ort.__version__'; \
     python3 -m pip uninstall --break-system-packages -y sympy || true; \
     find /usr/local/lib/ -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true; \
     find /usr/local/lib/ -name "tests" -type d -exec rm -rf {} + 2>/dev/null || true; \
