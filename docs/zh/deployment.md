@@ -94,6 +94,41 @@ HTTPS_PROXY=http://host.docker.internal:7890
 `host.docker.internal` 已在 docker-compose.yml 中映射到宿主机。
 
 
+## WeMM 片段检索运行在 ONNX Runtime 上
+
+`find_clips` 用 WeMM-Embedding-4B 给每个 10 秒片段编码。镜像里这个模型运行在 ONNX Runtime 上，不需要 PyTorch。
+
+### 实测速度和检索效果
+
+测试环境：一张 RTX 5070 Ti（16 GB）。片段为 10 秒、2 fps、宽 640 px，每段约 2,300 个 token。
+
+| 每片段 | 视觉编码器 | 文本模型 | 合计 | 显存 |
+| --- | --- | --- | --- | --- |
+| PyTorch，NF4（之前） | 0.11 s | 0.26 s | 0.37 s | 约 5 GB |
+| ONNX，NF4，onnxruntime 1.26 | 0.12 s | 0.65 s | 0.77 s | 6.5 GB |
+| ONNX，NF4，onnxruntime 1.30（镜像内） | 0.13 s | 0.25–0.28 s | 0.39–0.42 s | 4.8 GB |
+
+一个 23 分钟的视频（137 个片段）建索引用时 93 秒（含切片），即每片段 0.68 秒；PyTorch 版是每片段 1.01 秒。
+
+在两个录屏长教程（共 437 个片段）上的检索效果（MRR）：
+
+| 题型 | 题数 | PyTorch | ONNX |
+| --- | --- | --- | --- |
+| 画面类 | 26 | 0.60 | 0.62 |
+| 试错类 | 14 | 0.72 | 0.72 |
+| 说话类 | 43 | 0.76 | 0.74 |
+
+对负样本（视频里没有的内容），两者的 AUC 都是 0.80。ONNX 与 PyTorch 的向量余弦相似度为 0.998–0.999，已有索引无需重建。
+
+### 为什么镜像要自行编译 onnxruntime 1.30
+
+- WeMM 的文本模型有 24 层 Gated DeltaNet（线性注意力）。
+- onnxruntime 1.26 的 `LinearAttention` CUDA 内核逐个 token 递推，2,300 个 token 时每层 12 ms，编码速度约为 PyTorch 的一半。
+- onnxruntime 1.30 新增 `GatedDeltaNet` 算子，带分块并行的预填充内核，每层约 1 ms。
+- PyPI 上 onnxruntime 从 1.28 起的 GPU 包都是 CUDA 13 的；镜像使用 CUDA 12.8，其中的 llama.cpp 库链接 cuBLAS 12。
+- 因此镜像安装的是按 CUDA 12.8 从源码编译的 onnxruntime 1.30.0，GPU 架构列表与官方 CUDA 12.8 包相同。编译步骤见 [docker/onnxruntime-wheel](../../docker/onnxruntime-wheel/)。
+- 镜像内其他 ONNX 模型（bge、GLM-OCR、MiniCPM-V、FunASR、silero VAD）在这个版本上的输出与 onnxruntime 1.26 一致。
+
 ---
 
 [返回中文文档首页](index.md) | [从零编译镜像](build-from-scratch.md)

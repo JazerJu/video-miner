@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/images/miner.png" width="100" />
+  <img src="docs/images/logo.svg" width="100" />
 </p>
 
 <h2 align="center">VideoMiner</h2>
 
 <p align="center">
-  A Cloud-Edge Synergy Video-parsing System<br>
-  一个本地-云端协同的视频解析框架
+  Local-first long-video understanding for AI agents.<br>
+  GPU transcription at 540x real time, chapter summaries with code and slides, and MCP tools to search and read.
 </p>
 
 <p align="center">
@@ -57,7 +57,7 @@ This is exactly the problem VideoMiner solves.
 
 ## Features
 
-VideoMiner's core idea is **cloud-edge synergy**: the local GPU handles the expensive audio/video decoding (ASR, OCR, VLM), while the cloud LLM only processes lightweight text-level tasks (summarization, translation, sentence splitting). This avoids the high cost and latency of sending raw video to a cloud LLM, while still leveraging its language understanding.
+VideoMiner is **local-first**. The local GPU does the expensive work on audio and frames: transcription, OCR, and embeddings. A cloud LLM only reads text, to find chapters, write summaries, translate, and answer questions. Hours-long videos stay cheap and fast to process, and AI agents get the results as text through MCP.
 
 ### Ultra-Fast Transcription Engine
 
@@ -73,14 +73,15 @@ Instead of sending video to a cloud LLM, the entire pipeline runs locally:
 2. **OCR Extraction**: GLM-OCR recognizes text in frames
 3. **Corner Detection**: A cloud VLM (Gemini / MiMo-V2.5, etc.) detects slide boundaries; cropped frames are sent back to OCR for improved accuracy on lecture videos
 4. **Semantic Retrieval**: BGE Embedding builds a frame vector index
-5. **Summary Orchestration**: Tool-Calling coordinates the above capabilities to generate a structured summary
-6. **Knowledge Enrichment**: An optional Knowledge LLM adds background context and terminology explanations
+5. **Chapter Summaries**: An LLM reads the transcript and on-screen text to find chapters, then writes a summary for each chapter with its slides and code
 
 ### Smart Subtitle System
 
 - **LLM Sentence Splitting**: Word-level ASR timestamps are re-segmented by an LLM for natural readability
 - **Multi-Language Translation**: Independently configurable translation LLM provider, with proxy support, concurrency control, and plain-translation mode
-- **Subtitle Editor**: Waveform visualization, real-time preview, dual-language subtitles, custom styling (font / color / shadow / stroke)
+- **Subtitle Editor**: Waveform visualization, real-time preview, dual-language subtitles, custom styling (font / color / shadow / stroke), and a fullscreen table to edit every line
+- **Burned-in Subtitle Extraction**: Draw a box over the subtitles in one frame. OCR reads that region through the whole video and writes a subtitle file
+- **Subtitle Fonts**: Upload TTF, OTF, WOFF, or WOFF2 fonts, or use a font that is installed on the device. Uploaded fonts work on every device
 - **Hardcoded Subtitle Export**: Burn subtitles directly into video files
 
 ### Video Management
@@ -88,11 +89,13 @@ Instead of sending video to a cloud LLM, the entire pipeline runs locally:
 - Download from Bilibili, YouTube, Apple Podcasts, and more
 - Hierarchical organization with Folders and Tags
 - Batch operations: move, delete, merge, bulk subtitle generation
-- Built-in player: chapter navigation, subtitle panel, dual-language toggle
+- Built-in player: chapter navigation, subtitle panel, dual-language toggle, loop count, infinite loop, and autoplay of the next video
 
 ### MCP Tool Integration
 
-Built-in MCP Server lets AI agents (OpenCode, Pi Agent, Claude Desktop) query the video library, search content, fetch summaries, and manage tags and folders directly.
+Built-in MCP Server lets AI agents (Claude Code, OpenCode, Pi Agent, Claude Desktop) work with the video library directly. Agents read subtitles and on-screen text for any time range, grab frames, open chapter outlines, fetch summaries, and manage tags and folders. Each result has a link that opens the video at that time.
+
+**Clip search**: `find_clips` returns the 10-second clips that match a description of what is said or shown. It uses WeMM-Embedding-4B, which encodes the subtitles, on-screen text, and frames of each clip into one vector. The encoder runs on ONNX Runtime and does not need PyTorch. Download the model in Settings (3.41 GB), then build the index with `submit_clip_index_task`. See [measured speed and retrieval quality](docs/en/deployment.md#wemm-clip-search-on-onnx-runtime).
 
 See [Using Video-Miner MCP in OpenCode](docs/en/api-token/index.md)
 
@@ -135,6 +138,22 @@ Waveform alignment, real-time preview, and style adjustment.
   <img src="docs/images/preview-subtitle-editor.en.png" width="600" />
 </p>
 
+### Burned-in Subtitle Extraction
+
+Drag a box over the subtitles, choose the sample rate, and start the extraction.
+
+<p align="center">
+  <img src="docs/images/hardsub-extract.en.png" width="600" />
+</p>
+
+### Subtitle Fonts
+
+Upload a font file in Subtitle Style, then choose it for the original or the translated subtitles.
+
+<p align="center">
+  <img src="docs/images/subtitle-font-upload.en.png" width="600" />
+</p>
+
 ### Settings Panel
 
 8 tabs covering models, transcription engine, subtitle styling, media credentials, video understanding, API tokens, tags, and folder management.
@@ -175,6 +194,8 @@ Open `http://localhost:8080` in your browser.
 > Full deployment guide (GPU parameters, port config, data persistence, proxy, MCP service): [Docker Deployment](docs/en/deployment.md).
 >
 > Need to build from source? See [Build from Scratch](docs/en/build-from-scratch.md).
+>
+> The image includes onnxruntime-gpu 1.30.0 built for CUDA 12.8, because PyPI only ships CUDA 13 builds of this version. To rebuild the wheel, see [docker/onnxruntime-wheel](docker/onnxruntime-wheel/).
 
 ---
 
@@ -192,3 +213,5 @@ My lab happens to have 8×910B and 8×310B Ascend clusters, so the next step is:
 1. [Fun-ASR-GGUF](https://github.com/HaujetZhao/Fun-ASR-GGUF) / [Fun-ASR](https://github.com/FunAudioLLM/Fun-ASR) — Fun-ASR model and ONNX + llama.cpp collaboration approach
 2. [GLM-ASR](https://github.com/zai-org/GLM-ASR) / [GLM-OCR](https://github.com/zai-org/GLM-OCR) — GLM-ASR and GLM-OCR models
 3. [MiniCPM-V](https://github.com/OpenBMB/MiniCPM-V) — Best high-FPS local video understanding model
+4. [WeMM-Embedding](https://huggingface.co/tencent/WeMM-Embedding-4B) — Video and text embedding model for clip search
+5. [ONNX Runtime](https://github.com/microsoft/onnxruntime) / [mobius](https://github.com/onnxruntime/mobius) — GatedDeltaNet operator and the ONNX export of WeMM

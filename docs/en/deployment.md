@@ -103,6 +103,41 @@ If MCP clients are not on localhost, set:
 VIDGO_MCP_PUBLIC_URL=http://<server-ip>:8787
 ```
 
+## WeMM Clip Search on ONNX Runtime
+
+`find_clips` encodes each 10-second clip with WeMM-Embedding-4B. The image runs this model on ONNX Runtime, so it does not need PyTorch.
+
+### Measured Speed and Retrieval Quality
+
+Test setup: one RTX 5070 Ti (16 GB). Clips are 10 seconds at 2 fps and 640 px wide, about 2,300 tokens each.
+
+| Per clip | Vision encoder | Text model | Total | VRAM |
+| --- | --- | --- | --- | --- |
+| PyTorch, NF4 (before) | 0.11 s | 0.26 s | 0.37 s | about 5 GB |
+| ONNX, NF4, onnxruntime 1.26 | 0.12 s | 0.65 s | 0.77 s | 6.5 GB |
+| ONNX, NF4, onnxruntime 1.30 (in the image) | 0.13 s | 0.25–0.28 s | 0.39–0.42 s | 4.8 GB |
+
+The index of a 23-minute video (137 clips) took 93 s to build, including clip cutting. That is 0.68 s per clip. The PyTorch server took 1.01 s per clip.
+
+Retrieval quality on two long screen-recorded tutorials (437 clips), measured as MRR:
+
+| Question type | Questions | PyTorch | ONNX |
+| --- | --- | --- | --- |
+| Visual | 26 | 0.60 | 0.62 |
+| Trial and error | 14 | 0.72 | 0.72 |
+| Speech | 43 | 0.76 | 0.74 |
+
+For negative queries (content that is not in the video), the AUC is 0.80 for both. The ONNX embeddings match the PyTorch embeddings at cosine 0.998–0.999, so existing indexes stay valid.
+
+### Why the Image Builds onnxruntime 1.30
+
+- The WeMM text model has 24 Gated DeltaNet (linear attention) layers.
+- In onnxruntime 1.26, the `LinearAttention` CUDA kernel runs the recurrence one token at a time. One layer takes 12 ms for 2,300 tokens, so encoding is about half as fast as PyTorch.
+- onnxruntime 1.30 adds the `GatedDeltaNet` operator with a chunked prefill kernel. One layer takes about 1 ms.
+- Every GPU wheel of onnxruntime on PyPI since 1.28 targets CUDA 13. The image uses CUDA 12.8, and its llama.cpp libraries link cuBLAS 12.
+- The image therefore installs onnxruntime 1.30.0 built from source against CUDA 12.8, with the GPU architecture list of the official CUDA 12.8 package. The build steps are in [docker/onnxruntime-wheel](../../docker/onnxruntime-wheel/).
+- The other ONNX models (bge, GLM-OCR, MiniCPM-V, FunASR, silero VAD) give the same outputs on this build as on onnxruntime 1.26.
+
 ---
 
 [Back to English docs](index.md) | [Build from Scratch](build-from-scratch.md)

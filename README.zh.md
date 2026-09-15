@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="docs/images/miner.png" width="100" />
+  <img src="docs/images/logo.svg" width="100" />
 </p>
 
 <h2 align="center">VideoMiner</h2>
 
 <p align="center">
-  A Cloud-Edge Synergy Video-parsing System<br>
-  一个本地-云端协同的视频解析框架
+  面向 AI Agent 的本地优先长视频理解。<br>
+  GPU 转录达 540 倍实时，按章节总结并保留代码和幻灯片，通过 MCP 工具检索和阅读视频。
 </p>
 
 <p align="center">
@@ -58,7 +58,7 @@
 
 ## 功能介绍
 
-VideoMiner 的核心思路是**本地-云端协同**：本地 GPU 负责昂贵的音频转录和视频理解（ASR、OCR、VLM），云端 LLM 只处理轻量的文本级任务（摘要、翻译、断句）。这样既绕开了大模型直接理解视频的高成本和低延迟，又保留了 LLM 的语言理解能力。
+VideoMiner **本地优先**：音频和画面上的重活——转录、OCR、向量——都在本地 GPU 上完成；云端 LLM 只读文字，用来分章、写总结、翻译和回答问题。几个小时的长视频也能又快又省地处理完，AI Agent 通过 MCP 以文字形式拿到结果。
 
 ### 极速转录引擎
 
@@ -74,14 +74,15 @@ VideoMiner 的核心思路是**本地-云端协同**：本地 GPU 负责昂贵�
 2. **OCR 提取**：GLM-OCR 识别帧中文字
 3. **角点检测**：云端 VLM（Gemini / MiMo-V2.5 等）检测幻灯片边界，裁切后再送 OCR，提升讲座类视频的识别准确率
 4. **语义检索**：BGE Embedding 建立帧向量索引
-5. **摘要编排**：通过 Tool-Calling 调度以上能力，生成结构化摘要
-6. **知识补充**：可选的知识 LLM 补充背景信息和术语解释
+5. **章节总结**：LLM 读字幕和屏幕文字划分章节，再为每章写总结，附上对应的幻灯片和代码
 
 ### 智能字幕系统
 
 - **LLM 断句**：ASR 输出的字级时间戳经 LLM 重新断句，阅读更自然
 - **多语言翻译**：独立配置翻译 LLM 供应商，支持代理、并发控制、直译模式
-- **字幕编辑器**：波形可视化、实时预览、双语字幕、样式自定义（字体 / 颜色 / 阴影 / 描边）
+- **字幕编辑器**：波形可视化、实时预览、双语字幕、样式自定义（字体 / 颜色 / 阴影 / 描边），以及可逐行修改的全屏字幕表
+- **硬字幕提取**：在一帧画面上框出字幕位置，OCR 按这个区域读完整个视频，生成字幕文件
+- **字幕字体**：可上传 TTF、OTF、WOFF、WOFF2 字体，也可使用设备上已安装的字体；上传的字体在所有设备上都能用
 - **字幕嵌入导出**：支持将字幕烧录到视频中导出
 
 ### 视频管理
@@ -89,11 +90,13 @@ VideoMiner 的核心思路是**本地-云端协同**：本地 GPU 负责昂贵�
 - 支持 Bilibili、YouTube、Apple Podcasts 等平台的视频下载
 - 分类（Folders）、标签（Tags）分级管理
 - 批量操作：移动、删除、合并、批量生成字幕
-- 在线播放器：章节导航、字幕面板、双语切换
+- 在线播放器：章节导航、字幕面板、双语切换、循环次数、无限循环、自动连播下一个视频
 
 ### MCP 工具集成
 
-内置 MCP Server，AI Agent（如 OpenCode、Pi Agent、Claude Desktop）可以直接查询视频库、搜索内容、获取摘要、管理标签和分类。
+内置 MCP Server，AI Agent（如 Claude Code、OpenCode、Pi Agent、Claude Desktop）可以直接使用视频库：读取任意时间段的字幕和屏幕文字、截取画面、查看章节大纲、获取摘要、管理标签和分类。每条结果都带一个链接，打开即跳到视频对应时间。
+
+**片段检索**：`find_clips` 根据一段描述（说了什么或画面上有什么），返回匹配的 10 秒片段。它使用 WeMM-Embedding-4B，把每个片段的字幕、屏幕文字和画面编码成一个向量。编码器运行在 ONNX Runtime 上，不需要 PyTorch。在设置页下载模型（3.41 GB），再用 `submit_clip_index_task` 建立索引。实测速度和检索效果见 [Docker 部署](docs/zh/deployment.md#wemm-片段检索运行在-onnx-runtime-上)。
 
 详见 [在 OpenCode 中使用 Video-Miner MCP](docs/zh/api-token/index.md#在opencode中使用-video-miner-mcp)
 
@@ -136,6 +139,22 @@ VideoMiner 的核心思路是**本地-云端协同**：本地 GPU 负责昂贵�
   <img src="docs/images/preview-subtitle-editor.png" width="600" />
 </p>
 
+### 硬字幕提取
+
+在画面上框出字幕，选择采样率，开始提取。
+
+<p align="center">
+  <img src="docs/images/hardsub-extract.en.png" width="600" />
+</p>
+
+### 字幕字体
+
+在字幕样式中上传字体文件，再为原文或译文字幕选用。
+
+<p align="center">
+  <img src="docs/images/subtitle-font-upload.en.png" width="600" />
+</p>
+
 ### 设置面板
 
 8 个标签页覆盖模型、转录引擎、字幕样式、媒体凭据、视频理解、API 令牌、标签和分类管理。
@@ -176,6 +195,8 @@ docker compose up -d
 > 完整部署文档（GPU 参数、端口配置、数据持久化、网络代理、MCP 服务）见 [Docker 部署](docs/zh/deployment.md)。
 >
 > 需要从源码编译镜像？见 [从零编译镜像](docs/zh/build-from-scratch.md)。
+>
+> 镜像内的 onnxruntime-gpu 1.30.0 是按 CUDA 12.8 自行编译的，因为 PyPI 上这个版本只有 CUDA 13 的包。重新编译 wheel 的步骤见 [docker/onnxruntime-wheel](docker/onnxruntime-wheel/)。
 
 ---
 
@@ -193,3 +214,5 @@ docker compose up -d
 1. [Fun-ASR-GGUF](https://github.com/HaujetZhao/Fun-ASR-GGUF) / [Fun-ASR](https://github.com/FunAudioLLM/Fun-ASR) — Fun-ASR 模型及 ONNX + llama.cpp 协作方案
 2. [GLM-ASR](https://github.com/zai-org/GLM-ASR) / [GLM-OCR](https://github.com/zai-org/GLM-OCR) — GLM-ASR 与 GLM-OCR 模型
 3. [MiniCPM-V](https://github.com/OpenBMB/MiniCPM-V) — 最佳高 FPS 本地视频理解模型
+4. [WeMM-Embedding](https://huggingface.co/tencent/WeMM-Embedding-4B) — 片段检索所用的视频与文本向量模型
+5. [ONNX Runtime](https://github.com/microsoft/onnxruntime) / [mobius](https://github.com/onnxruntime/mobius) — GatedDeltaNet 算子和 WeMM 的 ONNX 导出
