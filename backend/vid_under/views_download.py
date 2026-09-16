@@ -5,6 +5,7 @@ Downloads run in background threads and expose polling-friendly byte progress,
 matching the Whisper model API style without reusing its subprocess downloader.
 """
 
+import hashlib
 import json
 import os
 import threading
@@ -38,10 +39,14 @@ MODELSCOPE_REPO_ALIASES = {
 DownloadSource = Literal["hf", "ms", "modelscope"]
 
 
-class ModelFile(TypedDict):
+class ModelFile(TypedDict, total=False):
     repo_path: str
     local_path: str
     size: int
+    dest: str          # "vid_under" (default), "asr" or "third_party"
+    repo: str          # non-default source repository
+    sha256: str        # checked after download when present
+    executable: bool   # chmod 755 after download
 
 
 class ModelGroup(TypedDict):
@@ -186,6 +191,20 @@ MODEL_GROUPS: dict[str, ModelGroup] = {
                 "repo_path": "embedding/bge-small-zh-v1.5-onnx/vocab.txt",
                 "local_path": "embedding/bge-small-zh-v1.5/vocab.txt",
                 "size": 109540,
+            },
+        ],
+    },
+    "videosubfinder": {
+        "label": "VideoSubFinder (hard-subtitle timing)",
+        "description": "Finds where burned-in subtitles appear and change, for hard-subtitle extraction. The Docker image already has it.",
+        "files": [
+            {
+                "repo_path": "videosubfinder/linux/VideoSubFinderCli",
+                "local_path": "videosubfinder/linux/VideoSubFinderCli",
+                "dest": "third_party",
+                "size": 47121988,
+                "sha256": "2d9e4bc170408eee05326094b4fc89f0c79b017d7a3ba2e767801c8adb2e85fa",
+                "executable": True,
             },
         ],
     },
@@ -416,6 +435,9 @@ def _model_files(group: ModelGroup) -> list[ModelFile]:
 
 def _file_path(file_info: ModelFile) -> Path:
     dest = file_info.get("dest", "vid_under")
+    if dest == "third_party":
+        # 和 Docker 镜像里的位置一致，程序旁边就是它要读的 settings/general.cfg
+        return PROJECT_DIR.parent / "third_party" / file_info["local_path"]
     if dest == "asr":
         base = Path(os.environ.get(
             "VIDUNDER_ASR_MODELS_ROOT",
@@ -425,6 +447,16 @@ def _file_path(file_info: ModelFile) -> Path:
         from vid_under.config import MODEL_ROOT
         base = MODEL_ROOT
     return base / file_info["local_path"]
+
+
+def _apply_file_mode(file_info: ModelFile, path: Path) -> None:
+    """Programs need the exec bit; the download itself never sets it."""
+    if not file_info.get("executable"):
+        return
+    try:
+        path.chmod(0o755)
+    except OSError:
+        pass
 
 
 def _file_size(file_info: ModelFile) -> int:
@@ -648,6 +680,7 @@ def _download_file(
     expected_size = file_info["size"]
 
     if not force and _is_file_complete(file_info):
+        _apply_file_mode(file_info, local_path)
         _set_file_progress(
             model_name,
             progress_key,
@@ -689,6 +722,7 @@ def _download_file(
         response.raise_for_status()
 
         downloaded = 0
+        digest = hashlib.sha256() if file_info.get("sha256") else None
         with open(part_path, "wb") as output:
             for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
                 _raise_if_cancelled(model_name)
@@ -696,6 +730,8 @@ def _download_file(
                     continue
 
                 _ = output.write(chunk)
+                if digest is not None:
+                    digest.update(chunk)
                 downloaded += len(chunk)
                 file_percent = _progress_percent(downloaded, expected_size)
                 total_current = base_current + downloaded
@@ -719,8 +755,14 @@ def _download_file(
             raise ValueError(
                 f"Size mismatch for {repo_path}: expected {expected_size}, got {actual_size}"
             )
+        if digest is not None and digest.hexdigest() != file_info["sha256"]:
+            raise ValueError(
+                f"sha256 mismatch for {repo_path}: expected {file_info['sha256']}, "
+                f"got {digest.hexdigest()}"
+            )
 
         part_path.replace(local_path)
+        _apply_file_mode(file_info, local_path)
         _set_file_progress(
             model_name,
             progress_key,

@@ -35,13 +35,17 @@ def find_intervals(video, box, frame_size, on_progress=None, threads=None):
     x0, y0, x1, y1 = box
     W, H = frame_size
     run = os.path.join(VSF_DIR, "VideoSubFinderCli.run")
-    if not os.path.exists(run):
-        raise FileNotFoundError("找不到 VideoSubFinder: " + run)
+    if not os.path.exists(os.path.join(VSF_DIR, "VideoSubFinderCli")):
+        raise FileNotFoundError(
+            "找不到 VideoSubFinder（%s）。它有 45 MB，不在仓库里：Docker 镜像自带，"
+            "源码安装请在设置页下载模型组「videosubfinder」。" % VSF_DIR
+        )
     threads = threads or max(multiprocessing.cpu_count() - 2, 1)
     tmp = tempfile.mkdtemp(prefix="vsf_")
     raw = os.path.join(tmp, "raw_vsf.srt")
     # 启动脚本会先 cd 到自己的目录，路径一律用绝对路径
-    cmd = [run, "-c", "-r", "-i", os.path.abspath(video), "-o", tmp, "-ces", raw,
+    # 用 sh 调启动脚本：下载下来的 .run 不一定有执行位，脚本自己会给二进制 chmod
+    cmd = ["/bin/sh", run, "-c", "-r", "-i", os.path.abspath(video), "-o", tmp, "-ces", raw,
            "-te", str(1 - y0 / H), "-be", str(1 - y1 / H), "-le", str(x0 / W), "-re", str(x1 / W),
            "-nthr", str(threads), "-dsi", "--open_video_opencv"]
     try:

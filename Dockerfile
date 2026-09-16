@@ -159,6 +159,15 @@ RUN set -eux; \
           "$funasr_bin"/; \
     chown -R vidgo:vidgo "$funasr_bin"
 
+# VideoSubFinder finds the time spans of burned-in subtitles. The binary is 45 MB and static, so it
+# is not in git; it comes from a carrier image. See docker/videosubfinder/ for the build steps.
+# A source install downloads the same file with the model downloader (group "videosubfinder").
+COPY --from=jaceju68/videosubfinder:vse-2.2.0 /videosubfinder/VideoSubFinderCli /app/third_party/videosubfinder/linux/VideoSubFinderCli
+RUN set -eux; \
+    echo "2d9e4bc170408eee05326094b4fc89f0c79b017d7a3ba2e767801c8adb2e85fa  /app/third_party/videosubfinder/linux/VideoSubFinderCli" | sha256sum -c -; \
+    chmod 755 /app/third_party/videosubfinder/linux/VideoSubFinderCli; \
+    chown -R vidgo:vidgo /app/third_party/videosubfinder
+
 # 复制启动脚本
 COPY --chown=vidgo:vidgo docker/entrypoint.sh /app/entrypoint.sh
 
