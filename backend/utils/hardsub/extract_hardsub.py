@@ -1,27 +1,30 @@
 # -*- coding: utf-8 -*-
-"""硬字幕提取 —— 由用户手动框选字幕区域。
+"""硬字幕提取（v12）—— 由用户手动框选字幕区域。
 
-和 utils/subtitle_lexicon/hardsub/hardsub_bi.py 的关系：管线相同，但区域来自人工框选，
-因此去掉了候选带扫描和黑边检测（交接文档里的坑 1 和坑 3 都是「位置推错」造成的，
-人工框选从源头消掉了这两类失效）。其余经验值原样保留：
+流程：
+  1. VideoSubFinder 切区间     逐帧看字幕区域的 Sobel 边缘，找字幕出现、换句、消失（utils/hardsub/vsf.py）
+  2. 固定区域识别              每个区间取起点一帧，裁出框选区域、四周补黑边，送 GLM-OCR
+  3. 删画面固定文字            同一行在 ≥3 段不相邻区间、且 ≥10% 的区间里出现，就是标签、台标、叠加条
+  4. 合并相邻同句              文字相似度 ≥0.8、间隔 ≤1 s 合成一条
 
-  极性自适应      两种极性各算掩膜占比，取落在 [0.004, 0.15] 且更小的那个。
-                  写死阈值会让整张幻灯片进掩膜（黑字白底），分段退化成一整段。
-  阈值 60 / 245   文字在带内只占百分之几，暗区/亮底动辄几十个百分点。
-  IoU < 0.55      相邻帧掩膜交并比低于此值判为换了一句。帧差对锯齿太敏感。
-  MX/MY 24/16     包围盒余量，12/8 会丢字。
-  顺序解码        ffmpeg 只解字幕带走管道，不逐帧 seek。
-  保留换行        GLM-OCR 在中英两行间吐 \n，整行判 CJK 分轨，绝不逐字符删中文。
-  视觉塔 fp16     int4 会把「框架」读成「栀驾」，正确率只有 25%。
+替换掉的旧做法（v0–v10）：按亮度阈值做掩膜、判极性、相邻帧 IoU 分段、再用 deslide 按出现次数删行。
+在 7 个对照视频上，旧做法把同一句切成很多段，deslide 又把重复出现的真字幕删掉（598 覆盖 97% → 30%）；
+v12 覆盖 96–99%，GLM-ASR 转写对照的召回/查准不低于 video-subtitle-extractor + GLM-OCR。
+
+经验值：
+  补黑边 16/24     贴边裁剪会丢首字（598：6 条里 3 条丢首字，补边后全对）
+  视觉塔 fp16      int4 会把「框架」读成「栀驾」
+  模糊匹配限长度   只比长度相近的行：不限长度时「它搬运也是它有TILE_LENGTH=128，」被当成标注「TILE_LENGTH = 128」整句删掉
+  双语分轨         同一区间既有中文行又有纯英文行时，英文行算翻译轨；只有英文行时算中文字幕里的英文（如「JetBrains」「CopyIn」）
 
 用法:
   extract_hardsub.py --video a.mp4 --out zh.srt --region 0.0,0.84,1.0,0.13 [--en-out en.srt]
   --region 是 x,y,w,h，取值 0-1，相对整帧。
 """
-import argparse, json, os, re, subprocess, sys, time
+import argparse, collections, json, os, re, subprocess, sys, time
+from difflib import SequenceMatcher
 
 import cv2
-import numpy as np
 from PIL import Image
 
 OCR_RUNTIME = os.environ.get(
@@ -32,14 +35,19 @@ OCR_ONNX_DIR = os.environ.get(
 )
 OCR_GGUF = os.environ.get("VIDGO_GLM_OCR_GGUF", "/data/其他模型/ocr/GLM-OCR-Q8_0.gguf")
 sys.path.insert(0, OCR_RUNTIME)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("GLM_OCR_PRECISION", "fp16")
 
 CJK = re.compile(r"[一-鿿]")
-MX, MY = 24, 16
-MIN_SEG_SECONDS = 0.4
-MIN_INK_PIXELS = 50
-IOU_SPLIT = 0.55
-BLANK_MASK_RATIO = 0.004
+PROMPT = "请识别图中的所有文字，只输出文字本身"
+PAD_Y, PAD_X = 16, 24
+STATIC_RUNS, STATIC_FRAC, STATIC_SIM = 3, 0.10, 0.75
+MERGE_SIM, MERGE_GAP = 0.80, 1.0
+VSF_SHARE = 50          # 进度条里 VideoSubFinder 占前一半，识别占后一半
+
+
+def norm(s):
+    return re.sub(r"[^一-鿿A-Za-z0-9]", "", s or "").lower()
 
 
 def emit(kind, **fields):
@@ -59,37 +67,10 @@ def probe(video):
     return w, h, dur
 
 
-def pick_polarity(video, dur, x0, y0, bw, bh):
-    """采样 12 帧定极性。文字占比小，暗区/亮底占比大，据此区分。"""
-    cap = cv2.VideoCapture(video)
-    grays = []
-    for f in np.linspace(0.08, 0.92, 12):
-        cap.set(cv2.CAP_PROP_POS_MSEC, dur * f * 1000)
-        ok, fr = cap.read()
-        if ok:
-            grays.append(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY))
-    cap.release()
-    if not grays:
-        raise SystemExit("读不出帧，无法判定极性")
-    lo, hi = 0.004, 0.15
-    fr_hi = float(np.mean([(g[y0:y0 + bh, x0:x0 + bw] > 245).mean() for g in grays]))
-    fr_lo = float(np.mean([(g[y0:y0 + bh, x0:x0 + bw] < 60).mean() for g in grays]))
-    ok_hi, ok_lo = lo <= fr_hi <= hi, lo <= fr_lo <= hi
-    if ok_hi and ok_lo:
-        dark = fr_lo < fr_hi
-    elif ok_hi:
-        dark = False
-    elif ok_lo:
-        dark = True
-    else:
-        dark = fr_lo < fr_hi
-    return dark, fr_hi, fr_lo
-
-
 def srt_ts(t):
     h, r = divmod(t, 3600)
     m, s = divmod(r, 60)
-    return "%02d:%02d:%02d,%03d" % (h, m, int(s), round((s - int(s)) * 1000))
+    return "%02d:%02d:%02d,%03d" % (h, m, int(s), round((s - int(s)) * 1000) % 1000)
 
 
 def write_srt(path, segs):
@@ -98,13 +79,64 @@ def write_srt(path, segs):
             f.write("%d\n%s --> %s\n%s\n\n" % (i, srt_ts(a), srt_ts(b), txt))
 
 
+def static_filter(lines):
+    """返回判断「画面固定文字」的函数。lines：每个区间识别出的行列表。"""
+    occ = collections.defaultdict(set)
+    for k, ls in enumerate(lines):
+        for n in set(map(norm, ls)):
+            if len(n) >= 3:
+                occ[n].add(k)
+
+    def runs(ks):
+        ks = sorted(ks)
+        return sum(1 for i, k in enumerate(ks) if i == 0 or k != ks[i - 1] + 1)
+
+    static = {n for n, ks in occ.items() if runs(ks) >= STATIC_RUNS and len(ks) >= STATIC_FRAC * len(lines)}
+
+    def is_static(line):
+        n = norm(line)
+        return n in static or (len(n) >= 3 and any(
+            0.7 <= len(n) / len(s) <= 1.4 and SequenceMatcher(None, n, s).ratio() >= STATIC_SIM for s in static))
+
+    return is_static, static
+
+
+def merge_cues(cues):
+    out = []
+    for a, b, t in cues:
+        if out and a - out[-1][1] <= MERGE_GAP and SequenceMatcher(None, norm(t), norm(out[-1][2])).ratio() >= MERGE_SIM:
+            out[-1][1] = b
+            if len(norm(t)) > len(norm(out[-1][2])):
+                out[-1][2] = t
+        else:
+            out.append([a, b, t])
+    return out
+
+
+def postprocess(intervals, lines):
+    """删固定文字、分中英轨、合并同句。返回 (zh_cues, en_cues, 固定文字集合)。"""
+    is_static, static = static_filter(lines)
+    zh, en = [], []
+    for (a, b), ls in zip(intervals, lines):
+        keep = [l for l in ls if not is_static(l)]
+        cjk = [l for l in keep if CJK.search(l)]
+        if cjk:
+            latin = [l for l in keep if not CJK.search(l)]
+            if latin:
+                en.append([a, b, " ".join(latin)])
+            zh.append([a, b, " ".join(cjk)])
+        elif keep:
+            zh.append([a, b, " ".join(keep)])
+    return merge_cues(zh), merge_cues(en), static
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", required=True)
     ap.add_argument("--out", required=True, help="中文轨 SRT")
-    ap.add_argument("--en-out", default="", help="英文轨 SRT，留空则丢弃英文行")
+    ap.add_argument("--en-out", default="", help="英文轨 SRT，留空则丢弃翻译行")
     ap.add_argument("--region", required=True, help="x,y,w,h，0-1，相对整帧")
-    ap.add_argument("--fps", type=float, default=4.0, help="4 或 8；8 把分句量化误差减半，耗时约 +20%%")
+    ap.add_argument("--fps", type=float, default=4.0, help="v12 不再按帧率抽帧，保留参数只为兼容旧调用")
     args = ap.parse_args()
 
     try:
@@ -114,90 +146,54 @@ def main():
     if not (0 <= rx < 1 and 0 <= ry < 1 and 0 < rw <= 1 and 0 < rh <= 1):
         raise SystemExit("--region 的取值要在 0-1 之间")
 
-    W, H, dur = probe(args.video)
-    x0, y0 = int(W * rx), int(H * ry)
-    bw, bh = max(2, int(W * rw)), max(2, int(H * rh))
-    x0, y0 = min(x0, W - 2), min(y0, H - 2)
-    bw, bh = min(bw, W - x0), min(bh, H - y0)
-    bw -= bw % 2
-    bh -= bh % 2
-
-    dark, fr_hi, fr_lo = pick_polarity(args.video, dur, x0, y0, bw, bh)
-    thr = 60 if dark else 245
-    emit("setup", width=W, height=H, duration=round(dur, 2),
-         region=[x0, y0, bw, bh], polarity="dark_text" if dark else "light_text",
-         threshold=thr, bright_ratio=round(fr_hi, 4), dark_ratio=round(fr_lo, 4))
-
+    # 导入 llama.cpp 绑定时可能用 LD_PRELOAD 重启解释器（os.execv），必须放在任何耗时步骤之前
     from glm_ocr_llama import GlmOcrLlama
-    eng = GlmOcrLlama(gguf_path=OCR_GGUF, onnx_dir=OCR_ONNX_DIR)
+    from vsf import find_intervals
 
-    op = cv2.THRESH_BINARY_INV if dark else cv2.THRESH_BINARY
-    ker = np.ones((5, 25), np.uint8)
-    proc = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-i", args.video,
-         "-vf", "crop=%d:%d:%d:%d,fps=%g" % (bw, bh, x0, y0, args.fps),
-         "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
-        stdout=subprocess.PIPE, bufsize=bw * bh * 3 * 4)
+    W, H, dur = probe(args.video)
+    x0, y0 = min(int(W * rx), W - 2), min(int(H * ry), H - 2)
+    bw, bh = min(max(2, int(W * rw)), W - x0), min(max(2, int(H * rh)), H - y0)
+    emit("setup", width=W, height=H, duration=round(dur, 2), region=[x0, y0, bw, bh], engine="v12")
 
-    fsz = bw * bh * 3
-    zh_segs, en_segs = [], []
-    idx, t0 = 0, time.time()
-    cur_mask = cur_start = cur_frame = None
+    t0 = time.time()
+    last = [0.0]
 
-    def flush(end_t):
-        nonlocal cur_mask, cur_start, cur_frame
-        if cur_start is not None and end_t - cur_start >= MIN_SEG_SECONDS:
-            closed = cv2.morphologyEx(cur_mask.astype(np.uint8) * 255, cv2.MORPH_CLOSE, ker)
-            ys, xs = np.where(closed > 0)
-            if len(xs) >= MIN_INK_PIXELS:
-                crop = cur_frame[max(0, ys.min() - MY):min(bh, ys.max() + MY),
-                                 max(0, xs.min() - MX):min(bw, xs.max() + MX)]
-                raw = eng.ocr(Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)),
-                              prompt="请识别图中的所有文字，只输出文字本身")
-                zh, en = [], []
-                for line in raw.splitlines():
-                    line = " ".join(line.split())
-                    if not line:
-                        continue
-                    (zh if CJK.search(line) else en).append(line)
-                if zh:
-                    zh_segs.append((cur_start, end_t, " ".join(zh)))
-                if en:
-                    en_segs.append((cur_start, end_t, " ".join(en)))
-        cur_mask = cur_start = cur_frame = None
+    def vsf_progress(sec):
+        if time.time() - last[0] >= 2:
+            last[0] = time.time()
+            emit("progress", stage="vsf", percent=round(VSF_SHARE * min(sec, dur) / max(dur, 1e-6), 1),
+                 seconds=round(sec, 1), duration=round(dur, 1), segments=0)
 
-    while True:
-        buf = proc.stdout.read(fsz)
-        if len(buf) < fsz:
-            break
-        fr = np.frombuffer(buf, np.uint8).reshape(bh, bw, 3)
-        t = idx / args.fps
-        idx += 1
-        m = cv2.threshold(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY), thr, 255, op)[1] > 0
-        if m.mean() <= BLANK_MASK_RATIO:
-            flush(t)
-            continue
-        if cur_mask is None:
-            cur_mask, cur_start, cur_frame = m, t, fr.copy()
-            continue
-        inter = (cur_mask & m).sum()
-        union = (cur_mask | m).sum()
-        if (inter / union if union else 1.0) < IOU_SPLIT:
-            flush(t)
-            cur_mask, cur_start, cur_frame = m, t, fr.copy()
-        if idx % 2000 == 0:
-            emit("progress", seconds=round(t, 1), duration=round(dur, 1),
-                 segments=len(zh_segs), elapsed=round(time.time() - t0, 1))
-    flush(idx / args.fps)
-    proc.stdout.close()
-    proc.wait()
+    intervals = find_intervals(args.video, (x0, y0, x0 + bw, y0 + bh), (W, H), on_progress=vsf_progress)
+    emit("progress", stage="vsf", percent=VSF_SHARE, seconds=round(dur, 1), duration=round(dur, 1),
+         segments=0, intervals=len(intervals), elapsed=round(time.time() - t0, 1))
 
-    write_srt(args.out, zh_segs)
-    if args.en_out and en_segs:
-        write_srt(args.en_out, en_segs)
-    emit("done", segments=len(zh_segs), en_segments=len(en_segs),
-         elapsed=round(time.time() - t0, 1), out=args.out,
-         en_out=args.en_out if (args.en_out and en_segs) else "")
+    lines = []
+    if intervals:
+        eng = GlmOcrLlama(gguf_path=OCR_GGUF, onnx_dir=OCR_ONNX_DIR)
+        cap = cv2.VideoCapture(args.video)
+        for i, (a, b) in enumerate(intervals):
+            cap.set(cv2.CAP_PROP_POS_MSEC, a * 1000)
+            ok, fr = cap.read()
+            if not ok:
+                lines.append([])
+                continue
+            crop = cv2.copyMakeBorder(fr[y0:y0 + bh, x0:x0 + bw], PAD_Y, PAD_Y, PAD_X, PAD_X,
+                                      cv2.BORDER_CONSTANT, value=(0, 0, 0))
+            raw = eng.ocr(Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)), prompt=PROMPT)
+            lines.append([l.strip() for l in raw.split("\n") if norm(l)])
+            if i % 10 == 0 or i == len(intervals) - 1:
+                emit("progress", stage="ocr",
+                     percent=round(VSF_SHARE + (100 - VSF_SHARE) * (i + 1) / len(intervals), 1),
+                     seconds=round(a, 1), duration=round(dur, 1), segments=i + 1, intervals=len(intervals))
+        cap.release()
+
+    zh, en, static = postprocess(intervals, lines)
+    write_srt(args.out, zh)
+    if args.en_out and en:
+        write_srt(args.en_out, en)
+    emit("done", segments=len(zh), en_segments=len(en), intervals=len(intervals), static_lines=len(static),
+         elapsed=round(time.time() - t0, 1), out=args.out, en_out=args.en_out if (args.en_out and en) else "")
 
 
 if __name__ == "__main__":

@@ -150,3 +150,6 @@ frontend/brand-icons/**/*.ico
 
 # onnxruntime wheel for the carrier image: too large for git, published as jaceju68/onnxruntime-gpu-wheel
 docker/onnxruntime-wheel/*.whl
+
+# VideoSubFinder 运行时日志
+backend/third_party/videosubfinder/linux/report.log

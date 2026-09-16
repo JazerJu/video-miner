@@ -610,6 +610,8 @@ def generate_subtitles_for_video(video_id: int) -> None:
 
 # ===== 硬字幕提取 =====
 # 从画面里 OCR 烧录字幕。字幕区域由用户手动框选，所以不做候选带扫描和黑边检测。
+# v12：VideoSubFinder 切区间 + 固定区域 GLM-OCR，固定文字过滤和同句合并都在 extract_hardsub.py 里做完。
+# 「deslide」阶段保留在状态里只为兼容前端的列，不再运行 deslide.py：它按出现次数删行，会把重复出现的真字幕删掉。
 hardsub_task_status = defaultdict(
     lambda: {
         "filename": "",
@@ -663,7 +665,7 @@ def _hardsub_env():
 
 
 def run_hardsub_for_video(video_id: int) -> None:
-    """跑提取脚本，解析它吐的进度行，完成后跑 deslide 并落盘。"""
+    """跑提取脚本（v12），解析它吐的进度行，完成后落盘。"""
     task = hardsub_task_status.get(video_id)
     if task is None:
         return
@@ -713,13 +715,18 @@ def run_hardsub_for_video(video_id: int) -> None:
                 if evt.get("type") == "setup":
                     duration = evt.get("duration") or None
                     _hardsub_update(video_id, "extract", "Running", progress=2,
-                                    detail="极性 %s" % evt.get("polarity", ""))
+                                    detail="正在找字幕区间")
                 elif evt.get("type") == "progress" and duration:
-                    pct = int(min(99, evt.get("seconds", 0) / duration * 100))
-                    task["segments"] = evt.get("segments", 0)
-                    _hardsub_update(video_id, "extract", "Running", progress=pct,
-                                    detail="%d 段 / %.0f 分钟" % (evt.get("segments", 0),
-                                                                  evt.get("seconds", 0) / 60))
+                    if "percent" in evt:
+                        pct = int(min(99, evt["percent"]))
+                    else:
+                        pct = int(min(99, evt.get("seconds", 0) / duration * 100))
+                    if evt.get("stage") == "ocr":
+                        task["segments"] = evt.get("segments", 0)
+                        detail = "识别 %d / %d 个区间" % (evt.get("segments", 0), evt.get("intervals", 0))
+                    else:
+                        detail = "找字幕区间 %.0f / %.0f 分钟" % (evt.get("seconds", 0) / 60, duration / 60)
+                    _hardsub_update(video_id, "extract", "Running", progress=pct, detail=detail)
                 elif evt.get("type") == "done":
                     task["segments"] = evt.get("segments", 0)
             proc.wait()
@@ -735,16 +742,9 @@ def run_hardsub_for_video(video_id: int) -> None:
             return
     _hardsub_update(video_id, "extract", "Completed")
 
-    # deslide：按出现率剔掉渗进字幕带的幻灯片文字和常驻横幅
-    _hardsub_update(video_id, "deslide", "Running")
-    try:
-        deslide = os.path.join(settings.BASE_DIR, "utils", "hardsub", "deslide.py")
-        subprocess.run([sys.executable, deslide, raw_out, zh_path],
-                       check=True, capture_output=True, text=True, cwd=str(settings.BASE_DIR))
-    except Exception:
-        logger.warning("deslide 失败，保留未过滤的结果 video=%s", video_id)
-        shutil.copy2(raw_out, zh_path)
-    _hardsub_update(video_id, "deslide", "Completed")
+    # v12 的过滤与合并已在提取脚本里完成，这里直接落盘
+    shutil.copy2(raw_out, zh_path)
+    _hardsub_update(video_id, "deslide", "Completed", detail="v12 已在提取时完成过滤与合并")
 
     with transaction.atomic():
         video.srt_path = zh_name
