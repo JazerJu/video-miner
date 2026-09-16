@@ -523,7 +523,7 @@ class VideoAgent:
         r = call_gemini(payload, timeout=180)
         return extract_text(r) or ""
 
-    def _remote_ask(self, prompt, max_tokens=1024):
+    def _remote_ask(self, prompt, max_tokens=4096):
         """DeepSeek > Step > Gemini fallback chain."""
         if DEEPSEEK_API_KEY:
             r = call_deepseek(prompt, max_tokens=max_tokens)
@@ -1070,7 +1070,7 @@ class VideoAgent:
         )
         try:
             raw = call_deepseek(prompt, system="你是视频结构分析助手，只输出合法 JSON。",
-                                max_tokens=4096, timeout=300)
+                                max_tokens=8192, timeout=300)
             match = re.search(r"\{[\s\S]*\}", raw or "")
             data = _json.loads(match.group(0)) if match else {}
         except Exception as exc:
@@ -1327,7 +1327,7 @@ class VideoAgent:
             )
             title_resp = call_deepseek(
                 f"为以下视频章节各生成一个简短标题（5-15字，不要序号和标点）。\n每行输出格式：序号. 标题\n\n{outlines}",
-                max_tokens=500,
+                max_tokens=3000,
             )
             import re
             for line in title_resp.split("\n"):
@@ -1391,7 +1391,7 @@ class VideoAgent:
                 )
                 title_resp = call_deepseek(
                     f"为以下视频分组各生成一个简短标题（5-15字，不要序号和标点）。\n每行输出格式：序号. 标题\n\n{outlines}",
-                    max_tokens=500,
+                    max_tokens=3000,
                 )
                 for line in title_resp.split("\n"):
                     m2 = re.match(r'(\d+)[\.\)、]\s*(.+)', line.strip())
@@ -1572,11 +1572,13 @@ class VideoAgent:
 
         from external_api import call_deepseek
         chapter_secs = end_sec - start_sec
-        max_tok = min(16384, max(4000, int(chapter_secs / 60 * 400)))
+        # 正文额度按每分钟 400 token 估，再加 4000 给思考模型想。实测 deepseek-flash
+        # 写 273 个字的回答也用掉了 2084 个 reasoning token，额度不够时正文会是空的。
+        max_tok = min(16384, max(4000, int(chapter_secs / 60 * 400)) + 4000)
         summary = call_deepseek(prompt, max_tokens=max_tok)
         if not summary or len(summary) < 50:
-            # 偶发空回复：同一个模型再试一次（总结和问答只用一个模型，不再有第二个 LLM 兜底）
-            summary = call_deepseek(prompt, max_tokens=max_tok)
+            # 空回复多半是额度被思考吃光：翻倍再试一次
+            summary = call_deepseek(prompt, max_tokens=min(16384, max_tok * 2))
 
         summary = self._strip_preamble(summary or "")
 

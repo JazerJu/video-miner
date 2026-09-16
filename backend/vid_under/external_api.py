@@ -568,10 +568,16 @@ def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, sy
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             result = json.loads(resp.read().decode())
-            msg = result["choices"][0]["message"]
+            choice = result["choices"][0]
+            msg = choice["message"]
             content = msg.get("content") or ""
-            if not content and (msg.get("reasoning") or msg.get("reasoning_content")):
-                content = (msg.get("reasoning") or msg.get("reasoning_content", ""))[:max_tokens]
+            if not content:
+                # 思考模型先把 max_tokens 花在 reasoning 上，额度不够时正文就是空的。
+                # reasoning 是草稿：里面混着提示词原文和字幕摘抄，绝不能当正文返回
+                # （2026-09-15 换 deepseek-flash 后，4 份总结里 3 份的章节正文被它污染）。
+                thinking = msg.get("reasoning_content") or msg.get("reasoning") or ""
+                print(f"  API returned no content: finish_reason={choice.get('finish_reason')}, "
+                      f"max_tokens={max_tokens}, reasoning {len(thinking)} chars", flush=True)
             return content
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:500]
@@ -847,4 +853,4 @@ def ocr_long_image(image, max_chunk_height: int = 1800, overlap: int = 50,
     merge_prompt = "以下是对同一段内容的多段 OCR 识别结果，内容有重叠。请合并为一份完整、不重复的内容。\n\n"
     for i, r in enumerate(results, 1):
         merge_prompt += f"【第 {i} 段】\n{r}\n\n"
-    return call_deepseek(merge_prompt, max_tokens=4096)
+    return call_deepseek(merge_prompt, max_tokens=8192)
