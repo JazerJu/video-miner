@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { markdownToHtml, processMarkdownContent } from '@/composables/ConvertMarkdown'
 import { BACKEND } from '@/composables/ConfigAPI'
+import FloatingToc from '@/components/ui/FloatingToc.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -258,5 +259,13 @@ async function exportMarkdownZip() {
         v-html="renderedHtml"
       ></div>
     </div>
+
+    <!-- 悬浮目录：左侧留白处，鼠标移上去展开 -->
+    <FloatingToc
+      v-if="!loading && !error && !isEditing"
+      :container="containerRef"
+      :source="renderedHtml"
+      :offset="72"
+    />
   </div>
 </template>
