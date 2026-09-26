@@ -1,13 +1,14 @@
-"""YouTube native subtitles and chapters (utils/stream_downloader/native_subtitles.py)."""
+"""Native subtitles and chapters of YouTube and Bilibili downloads (utils/stream_downloader/native_subtitles.py)."""
 import json
 import os
 import tempfile
+from unittest import mock
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from utils.stream_downloader import native_subtitles as ns
 from video.models import Video
-from video.tasks import _apply_youtube_metadata, _native_transcript
+from video.tasks import _apply_bilibili_metadata, _apply_youtube_metadata, _native_transcript
 
 # First cues of the automatic captions of "Build a LinuxFromScratch System Part 3" (en-orig track),
 # as yt-dlp downloads them. Note the one-space line above the first words.
@@ -114,6 +115,82 @@ class ChaptersTests(SimpleTestCase):
         self.assertEqual(ns.chapters_from_info({}), [])
 
 
+# Subtitle list of /x/player/wbi/v2 for 白鸽归乡 (BV1aSei65EFe): uploader tracks, the AI track
+# of the spoken language, and the AI tracks translated out of it.
+BILI_SUBTITLE = {
+    "allow_submit": False,
+    "lan": "",
+    "subtitles": [
+        {"lan": "zh", "lan_doc": "中文", "type": 0, "ai_type": 0, "subtitle_url": "//aisubtitle.hdslb.com/zh.json"},
+        {"lan": "en", "lan_doc": "English", "type": 0, "ai_type": 0, "subtitle_url": "//aisubtitle.hdslb.com/en.json"},
+        {"lan": "ai-zh", "lan_doc": "中文", "type": 1, "ai_type": 0, "subtitle_url": "//aisubtitle.hdslb.com/aizh.json"},
+        {"lan": "ai-ja", "lan_doc": "日本語", "type": 1, "ai_type": 1, "subtitle_url": "//aisubtitle.hdslb.com/aija.json"},
+    ],
+}
+
+# First cues of the ai-zh track of 王道 p1 (BV1YE411D7nH), as the subtitle file returns them
+BILI_BODY = [
+    {"from": 0.34, "to": 4.06, "sid": 1, "location": 2, "content": "各位B站的同学们大家好", "music": 0.0},
+    {"from": 4.06, "to": 6.55, "sid": 2, "location": 2, "content": "欢迎大家来学习操作系统", "music": 0.0},
+    {"from": 6.55, "to": 8.89, "sid": 3, "location": 2, "content": "", "music": 0.0},
+]
+
+
+class BilibiliPickTrackTests(SimpleTestCase):
+    def test_uploader_chinese_wins(self):
+        self.assertEqual(ns.pick_bili_track(BILI_SUBTITLE)["lan"], "zh")
+
+    def test_ai_source_beats_ai_translation(self):
+        subtitle = {"subtitles": [t for t in BILI_SUBTITLE["subtitles"] if t["lan"].startswith("ai-")]
+                    + [{"lan": "ai-zh", "type": 1, "ai_type": 1, "subtitle_url": "//x/t.json"}]}
+        picked = ns.pick_bili_track(subtitle)
+        self.assertEqual((picked["lan"], picked["ai_type"]), ("ai-zh", 0))
+        self.assertEqual(ns._bili_kind(picked), "bili-ai")
+
+    def test_translated_chinese_is_taken_when_it_is_all_there_is(self):
+        # non-Chinese audio: B 站 hands over the translation and no source-language track
+        subtitle = {"subtitles": [{"lan": "ai-zh", "type": 1, "ai_type": 1, "subtitle_url": "//x/t.json"}]}
+        self.assertEqual(ns._bili_kind(ns.pick_bili_track(subtitle)), "bili-ai-translated")
+
+    def test_no_chinese_track_means_asr(self):
+        self.assertIsNone(ns.pick_bili_track({"subtitles": [{"lan": "ai-ja", "type": 1, "ai_type": 1, "subtitle_url": "//x/j.json"}]}))
+        self.assertIsNone(ns.pick_bili_track({"subtitles": []}))
+        self.assertIsNone(ns.pick_bili_track(None))
+        # a track without any url cannot be fetched, so it is not a candidate
+        self.assertIsNone(ns.pick_bili_track({"subtitles": [{"lan": "zh", "type": 0, "ai_type": 0}]}))
+
+
+class BilibiliParseTests(SimpleTestCase):
+    def test_cues_become_segments_without_word_times(self):
+        self.assertEqual(ns.parse_bili_json(BILI_BODY), [[0.34, 4.06, "各位B站的同学们大家好"], [4.06, 6.55, "欢迎大家来学习操作系统"]])
+        self.assertEqual(ns.parse_bili_json([{"from": "x", "to": 1, "content": "a"}, {"content": "b"}]), [])
+        self.assertEqual(ns.parse_bili_json(None), [])
+
+    def test_text_is_checked_against_the_lan_tag(self):
+        self.assertTrue(ns.looks_chinese("各位B站的同学们大家好，欢迎大家来学习操作系统这门课程"))
+        self.assertTrue(ns.looks_chinese("短"))  # too short to measure
+        self.assertFalse(ns.looks_chinese("ネットでこの白い子猫、見たことありますか？その猫の名前はボンゴキャットです"))
+        self.assertFalse(ns.looks_chinese("Have you seen this little white cat online? Its name is Bongo Cat."))
+
+    def test_fetch_uses_the_chosen_track_and_reports_its_kind(self):
+        fetched = []
+
+        def get_body(url):
+            fetched.append(url)
+            return BILI_BODY
+
+        native = ns.fetch_bili(BILI_SUBTITLE, get_body)
+        self.assertEqual(fetched, ["//aisubtitle.hdslb.com/zh.json"])
+        self.assertEqual((native["kind"], native["lang"], native["tag"]), ("bili-manual", "zh", "zh"))
+        self.assertEqual(native["words"], [])
+        self.assertEqual(len(native["segments"]), 2)
+
+    def test_a_track_whose_text_is_not_chinese_is_dropped(self):
+        japanese = [{"from": 0, "to": 2, "content": "ネットでこの白い子猫、見たことありますか"}]
+        self.assertIsNone(ns.fetch_bili(BILI_SUBTITLE, lambda url: japanese))
+        self.assertIsNone(ns.fetch_bili(BILI_SUBTITLE, lambda url: []))
+
+
 class TaskIntegrationTests(TestCase):
     def setUp(self):
         self.media = tempfile.mkdtemp()
@@ -159,3 +236,34 @@ class TaskIntegrationTests(TestCase):
         srt, split, detail = _native_transcript(8, "en", True)
         self.assertFalse(split)  # human-made lines are already sentences
         self.assertIn("YouTube subtitles", detail)
+
+    def test_bilibili_download_stores_chapters_and_chinese_subtitle(self):
+        video = Video.objects.create(name="王道 p1 test", url="ghi.mp4", video_source="bilibili")
+        player = {"view_points": [{"type": 2, "from": 0, "to": 30, "content": "开场"}], "subtitle": BILI_SUBTITLE}
+        with mock.patch("utils.stream_downloader.bili_download.get_player_v2", return_value=player), \
+                mock.patch("utils.stream_downloader.bili_download.get_subtitle_body", return_value=BILI_BODY):
+            _apply_bilibili_metadata(video, "BV1YE411D7nH", 235890180, "SESSDATA")
+        video.refresh_from_db()
+        self.assertEqual([c["title"] for c in video.chapters], ["开场"])
+        self.assertEqual((video.srt_path, video.raw_lang), (f"{video.id}_zh.srt", "zh"))
+        with open(os.path.join(self.media, "saved_srt", video.srt_path), encoding="utf-8") as f:
+            self.assertIn("各位B站的同学们大家好", f.read())
+
+    def test_bilibili_subtitle_failure_still_stores_chapters(self):
+        video = Video.objects.create(name="no subtitle", url="jkl.mp4", video_source="bilibili")
+        player = {"view_points": [{"type": 2, "from": 0, "to": 30, "content": "开场"}], "subtitle": BILI_SUBTITLE}
+        with mock.patch("utils.stream_downloader.bili_download.get_player_v2", return_value=player), \
+                mock.patch("utils.stream_downloader.bili_download.get_subtitle_body", side_effect=OSError("auth_key expired")):
+            _apply_bilibili_metadata(video, "BV1xx", 1, "SESSDATA")
+        video.refresh_from_db()
+        self.assertEqual(len(video.chapters), 1)
+        self.assertIsNone(video.srt_path)
+
+    def test_bilibili_track_is_used_instead_of_asr(self):
+        ns.save(self.media, 9, {"kind": "bili-ai", "tag": "ai-zh", "lang": "zh",
+                                "segments": ns.parse_bili_json(BILI_BODY), "words": []})
+        srt, split, detail = _native_transcript(9, "zh", True)
+        self.assertFalse(split)  # Bilibili cues are sentences, there are no word times
+        self.assertIn("Bilibili AI subtitles", detail)
+        self.assertIn("各位B站的同学们大家好", srt)
+        self.assertIsNone(_native_transcript(9, "en", True))

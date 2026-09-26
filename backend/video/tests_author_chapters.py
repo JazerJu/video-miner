@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import agent as agent_module  # noqa: E402
 from utils.stream_downloader import native_subtitles as ns  # noqa: E402
 from video.models import Video  # noqa: E402
-from video.tasks import _apply_bilibili_chapters  # noqa: E402
+from video.tasks import _apply_bilibili_metadata  # noqa: E402
 
 # view_points of BV1hj8fzrEey (硅谷101), as /x/player/wbi/v2 returns them, plus one non-chapter entry
 VIEW_POINTS = [
@@ -41,15 +41,15 @@ class BilibiliChapterTests(SimpleTestCase):
 class BilibiliDownloadTests(TestCase):
     def test_download_stores_uploader_chapters(self):
         video = Video.objects.create(name="硅谷101 test", url="x.mp4", video_source="bilibili")
-        with mock.patch("utils.stream_downloader.bili_download.get_view_points", return_value=[p for p in VIEW_POINTS if p["type"] == 2]):
-            _apply_bilibili_chapters(video, "BV1hj8fzrEey", 31368216795, "")
+        with mock.patch("utils.stream_downloader.bili_download.get_player_v2", return_value={"view_points": VIEW_POINTS}):
+            _apply_bilibili_metadata(video, "BV1hj8fzrEey", 31368216795, "")
         video.refresh_from_db()
         self.assertEqual(len(video.chapters), 3)
 
     def test_api_failure_does_not_fail_the_download(self):
         video = Video.objects.create(name="no chapters", url="y.mp4", video_source="bilibili")
-        with mock.patch("utils.stream_downloader.bili_download.get_view_points", side_effect=OSError("timeout")):
-            _apply_bilibili_chapters(video, "BV1xx", 1, "")
+        with mock.patch("utils.stream_downloader.bili_download.get_player_v2", side_effect=OSError("timeout")):
+            _apply_bilibili_metadata(video, "BV1xx", 1, "")
         video.refresh_from_db()
         self.assertEqual(video.chapters, [])
 

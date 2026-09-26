@@ -1,6 +1,8 @@
-"""Native subtitles and chapters from yt-dlp metadata (YouTube).
+"""Native subtitles and chapters of a downloaded video, used instead of local ASR.
 
-A video that already has subtitles on YouTube does not need local ASR:
+YouTube tracks come from yt-dlp metadata, Bilibili tracks from the web player API; both
+end up in the same stored shape. See the Bilibili section below for how its tracks are
+chosen. On YouTube:
 
 - Human-made subtitles in the original language are used as they are.
 - Without them, the automatic captions of the original audio track are used. yt-dlp
@@ -177,6 +179,104 @@ def fetch(ydl, info: dict) -> dict | None:
         "lang": track["lang"],
         "segments": segments,
         "words": words,
+    }
+
+
+# ----------------------------------------------------------------- Bilibili
+
+# Bilibili subtitle language tags. vidgo_lang() cannot read these: it splits on "-" and
+# would take "ai-zh" for a language called "ai".
+_BILI_ZH_TAGS = {"zh", "zh-hans", "zh-cn", "ai-zh"}
+
+_KANA_RE = re.compile(r"[\u3040-\u30ff]")
+_HANGUL_RE = re.compile(r"[\uac00-\ud7af\u1100-\u11ff]")
+_HAN_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _bili_kind(track: dict) -> str:
+    """How the track was made: by the uploader, by ASR, or by machine translation."""
+    if track.get("type") == 0:
+        return "bili-manual"
+    return "bili-ai-translated" if track.get("ai_type") == 1 else "bili-ai"
+
+
+def pick_bili_track(subtitle: dict | None) -> dict | None:
+    """The Chinese subtitle track of a Bilibili part, or None.
+
+    Only Chinese is taken, so a video that gets a track has raw_lang "zh" by construction
+    and nothing has to stamp a language afterwards. Preference: the uploader track (type 0),
+    then the AI track of the spoken language (ai_type 0), then the AI track translated into
+    Chinese (ai_type 1). ai_type only ranks and never rejects: a video with non-Chinese
+    audio usually carries the translated Chinese track and no source-language track at all,
+    and that translation still beats running Chinese ASR over foreign speech.
+    """
+    tracks = [
+        t
+        for t in (subtitle or {}).get("subtitles") or []
+        if str(t.get("lan") or "").lower() in _BILI_ZH_TAGS
+        and (t.get("subtitle_url") or t.get("subtitle_url_v2"))
+    ]
+    if not tracks:
+        return None
+    return min(tracks, key=lambda t: (t.get("type", 1), t.get("ai_type", 1)))
+
+
+def parse_bili_json(body: list) -> list[list]:
+    """Cues of a Bilibili subtitle file as [start, end, text] lists.
+
+    The file is {"body": [{"from": seconds, "to": seconds, "content": "..."}]}. They are
+    already sentences, so there are no word-level cues to return alongside them.
+    """
+    cues = []
+    for item in body or []:
+        text = str(item.get("content") or "").strip()
+        if not text:
+            continue
+        try:
+            cues.append([float(item["from"]), float(item["to"]), text])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return _clamp(cues)
+
+
+def looks_chinese(text: str) -> bool:
+    """Whether the text of a track tagged Chinese really is Chinese.
+
+    The lan tag is metadata, and a wrong one would label foreign text as the video's own
+    transcript, which is worse than having no subtitle at all: ASR is skipped and the
+    translation step believes the text is already Chinese. Measured over the subtitle files
+    of the sampled videos, a Chinese track holds no kana at all, a Japanese one is 0.73 kana
+    even though 0.20 of it is Han, and the Latin-script and Arabic ones hold no Han. The Han
+    floor stays low because Chinese technical subtitles carry many English terms: the lowest
+    Chinese sample seen was 0.75 Han.
+    """
+    if len(text) < 20:  # too short to measure; the lan tag is all there is
+        return True
+    n = len(text)
+    if len(_KANA_RE.findall(text)) / n > 0.02 or len(_HANGUL_RE.findall(text)) / n > 0.02:
+        return False
+    return len(_HAN_RE.findall(text)) / n >= 0.30
+
+
+def fetch_bili(subtitle: dict | None, get_body) -> dict | None:
+    """Download and parse the Chinese track of a Bilibili part, or None.
+
+    ``get_body`` fetches one subtitle url and returns its cue list. It lives in
+    bili_download because it needs the Bilibili Referer and the configured proxy, and it is
+    called right away because the url carries an auth_key that expires.
+    """
+    track = pick_bili_track(subtitle)
+    if not track:
+        return None
+    segments = parse_bili_json(get_body(track.get("subtitle_url") or track.get("subtitle_url_v2")))
+    if not segments or not looks_chinese("".join(text for _, _, text in segments)):
+        return None
+    return {
+        "kind": _bili_kind(track),
+        "tag": track.get("lan"),
+        "lang": "zh",
+        "segments": segments,
+        "words": [],
     }
 
 

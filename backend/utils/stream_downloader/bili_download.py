@@ -23,8 +23,10 @@ import configparser
 def get_proxies():
     """
     Get proxy configuration based on settings.
-    Returns {'http': None, 'https': None} if proxy is disabled (to bypass system env vars),
-    otherwise returns proxy URL from config.
+    Returns {'http': '', 'https': ''} if proxy is disabled, which makes requests go direct.
+    Empty strings, not None: requests drops proxy keys whose value is None and then reads the
+    environment, so None let ALL_PROXY=socks://... back in and every B 站 request failed with
+    "Missing dependencies for SOCKS support".
     """
     try:
         config_path = os.path.join(settings.BASE_DIR, "config/config.ini")
@@ -38,10 +40,10 @@ def get_proxies():
             if stream_download_proxy:
                 return {"http": stream_download_proxy, "https": stream_download_proxy}
             else:
-                return {"http": None, "https": None}
+                return {"http": "", "https": ""}
     except Exception as e:
         print(f"Error reading proxy settings: {e}")
-    return {"http": None, "https": None}
+    return {"http": "", "https": ""}
 
 
 # **0. Utils function
@@ -282,18 +284,22 @@ def save_json_to_file(json_string: str, file_path: str):
         f.write(json_string)
 
 
-def get_view_points(bvid: str, cid: int, sessdata: str = "") -> list:
-    """Uploader chapters of one part: data.view_points of the web player API.
+_PLAYER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    "Referer": "https://www.bilibili.com/",
+}
 
-    See docs/video/player.md in bilibili-API-collect. Only entries with type 2 are chapters;
-    the list is empty when the uploader made none.
+
+def get_player_v2(bvid: str, cid: int, sessdata: str = "") -> dict:
+    """data of the web player API for one part: chapters and subtitles in one request.
+
+    See docs/video/player.md in bilibili-API-collect. data.view_points holds the uploader
+    chapters and data.subtitle.subtitles the subtitle tracks. Both need the SESSDATA cookie:
+    without it the API answers need_login_subtitle with an empty subtitle list.
     """
     img_key, sub_key = getWbiKeys()
     params = encWbi({"bvid": bvid, "cid": cid}, img_key, sub_key)
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        "Referer": "https://www.bilibili.com/",
-    }
+    headers = dict(_PLAYER_HEADERS)
     if sessdata:
         headers["Cookie"] = f"SESSDATA={sessdata}"
     resp = requests.get(
@@ -306,8 +312,29 @@ def get_view_points(bvid: str, cid: int, sessdata: str = "") -> list:
     resp.raise_for_status()
     payload = resp.json()
     if payload.get("code") != 0:
-        return []
-    return [p for p in (payload.get("data") or {}).get("view_points") or [] if p.get("type") == 2]
+        return {}
+    return payload.get("data") or {}
+
+
+def get_view_points(bvid: str, cid: int, sessdata: str = "") -> list:
+    """Uploader chapters of one part. Only entries with type 2 are chapters;
+    the list is empty when the uploader made none.
+    """
+    return [p for p in get_player_v2(bvid, cid, sessdata).get("view_points") or [] if p.get("type") == 2]
+
+
+def get_subtitle_body(url: str) -> list:
+    """The cue list of one Bilibili subtitle file.
+
+    The url carries an auth_key that expires, so it is fetched as soon as the player API
+    hands it over and never stored. Tracks also carry a subtitle_url_v2 on a second host
+    that does not resolve everywhere, so the caller passes the older subtitle_url first.
+    """
+    if url.startswith("//"):
+        url = f"https:{url}"
+    resp = requests.get(url, headers=_PLAYER_HEADERS, proxies=get_proxies(), timeout=20)
+    resp.raise_for_status()
+    return resp.json().get("body") or []
 
 
 # 获取 1080p 视频原链接 JSON

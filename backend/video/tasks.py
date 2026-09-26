@@ -458,7 +458,7 @@ def generate_subtitles_for_video(video_id: int) -> None:
         fallback_engine = transcription_settings.get("fallback_engine", "")
         enable_split = default_settings.get("enable_split", "true").lower() == "true"
 
-        # YouTube 自带字幕优先：下载时存下的人工字幕或原音轨自动字幕，语言一致就不跑 ASR
+        # 自带字幕优先：下载时存下的 YouTube/B 站字幕，语言一致就不跑 ASR
         native = _native_transcript(video_id, src_lang, enable_split)
         native_detail = None
         if native:
@@ -926,27 +926,37 @@ def download_thumbnail(thumbnail_url: str, md5_value: str) -> str:
         return ""
 
 
+# How a stored native track is named in the task detail line shown in the UI
+_NATIVE_SOURCES = {
+    "manual": "YouTube subtitles",
+    "auto": "YouTube automatic captions",
+    "bili-manual": "Bilibili uploader subtitles",
+    "bili-ai": "Bilibili AI subtitles",
+    "bili-ai-translated": "Bilibili AI translated subtitles",
+}
+
+
 def _native_transcript(video_id, src_lang, enable_split):
-    """SRT text from the YouTube subtitles stored at download time, used instead of ASR.
+    """SRT text from the subtitles stored at download time, used instead of ASR.
 
     Returns (srt_content, enable_split, detail) or None when the video has no stored track in
-    src_lang. Human-made subtitles are already sentences, so the LLM split is turned off for
-    them. Automatic captions give one word per cue when the split is on, which is the input
-    ASR gives the split in word mode.
+    src_lang. Only YouTube automatic captions carry per-word timestamps, which is the input
+    ASR gives the split in word mode; every other track is already sentences, so the LLM
+    split is turned off for it.
     """
     from utils.stream_downloader import native_subtitles
 
     native = native_subtitles.load(settings.MEDIA_ROOT, video_id, src_lang)
     if not native:
         return None
+    source = _NATIVE_SOURCES.get(native["kind"], native["kind"])
     if native["kind"] == "auto" and enable_split and native.get("words"):
-        return native_subtitles.to_srt(native["words"]), True, "YouTube automatic captions, ASR skipped"
-    label = "subtitles" if native["kind"] == "manual" else "automatic captions"
-    return native_subtitles.to_srt(native["segments"]), False, f"YouTube {label}, ASR skipped"
+        return native_subtitles.to_srt(native["words"]), True, f"{source}, ASR skipped"
+    return native_subtitles.to_srt(native["segments"]), False, f"{source}, ASR skipped"
 
 
-def _apply_youtube_metadata(video, video_info, native):
-    """Store the YouTube chapters and native subtitles of a newly downloaded video.
+def _store_native_metadata(video, chapters, native, source):
+    """Store the chapters and the native subtitle track of a newly downloaded video.
 
     The native track becomes the video's subtitle right away and is kept in
     MEDIA_ROOT/native_subtitles so a later subtitle task can reuse it. Failures only log.
@@ -954,7 +964,6 @@ def _apply_youtube_metadata(video, video_info, native):
     from utils.stream_downloader import native_subtitles
 
     fields = []
-    chapters = native_subtitles.chapters_from_info(video_info or {})
     if chapters:
         video.chapters = chapters
         fields.append("chapters")
@@ -974,9 +983,16 @@ def _apply_youtube_metadata(video, video_info, native):
     if fields:
         video.save(update_fields=fields)
     logger.info(
-        "YouTube metadata for video %s: %d chapters, native subtitles %s",
-        video.id, len(chapters), f"{native['kind']} {native['lang']}" if native else "none",
+        "%s metadata for video %s: %d chapters, native subtitles %s",
+        source, video.id, len(chapters), f"{native['kind']} {native['lang']}" if native else "none",
     )
+
+
+def _apply_youtube_metadata(video, video_info, native):
+    """Store the chapters and native subtitles yt-dlp reported for a newly downloaded video."""
+    from utils.stream_downloader import native_subtitles
+
+    _store_native_metadata(video, native_subtitles.chapters_from_info(video_info or {}), native, "YouTube")
 
 
 def download_youtube_video(task_id: str):
@@ -1097,20 +1113,28 @@ def download_youtube_video(task_id: str):
             logger.error("Error cleaning up work directory: %s", e)
 
 
-def _apply_bilibili_chapters(video, bvid, cid, sessdata):
-    """Store the uploader chapters of this Bilibili part in Video.chapters. Failures only log."""
+def _apply_bilibili_metadata(video, bvid, cid, sessdata):
+    """Store the uploader chapters and the Chinese subtitle track of this Bilibili part.
+
+    Both come out of one /x/player/wbi/v2 response and both need the SESSDATA cookie: without
+    it the API answers need_login_subtitle with an empty subtitle list. Failures only log, so
+    a download still counts as done when the player API or a subtitle file is unreachable.
+    """
     from utils.stream_downloader import native_subtitles
-    from utils.stream_downloader.bili_download import get_view_points
+    from utils.stream_downloader.bili_download import get_player_v2, get_subtitle_body
 
     try:
-        chapters = native_subtitles.chapters_from_view_points(get_view_points(bvid, cid, sessdata))
+        data = get_player_v2(bvid, cid, sessdata)
     except Exception as e:
-        logger.warning("Bilibili chapters for %s cid=%s failed: %s", bvid, cid, e)
+        logger.warning("Bilibili player data for %s cid=%s failed: %s", bvid, cid, e)
         return
-    if chapters:
-        video.chapters = chapters
-        video.save(update_fields=["chapters"])
-    logger.info("Bilibili chapters for video %s: %d", video.id, len(chapters))
+    chapters = native_subtitles.chapters_from_view_points(data.get("view_points"))
+    try:
+        native = native_subtitles.fetch_bili(data.get("subtitle"), get_subtitle_body)
+    except Exception as e:
+        logger.warning("Bilibili subtitles for %s cid=%s failed: %s", bvid, cid, e)
+        native = None
+    _store_native_metadata(video, chapters, native, "Bilibili")
 
 
 def download_bilibili_video(task_id: str):
@@ -1308,7 +1332,7 @@ def download_bilibili_video(task_id: str):
     from .utils import update_video_file_info
 
     update_video_file_info(video, save=True)
-    _apply_bilibili_chapters(video, bvid, cid, sessdata)
+    _apply_bilibili_metadata(video, bvid, cid, sessdata)
 
     logger.info(
         "Video created with thumbnail: %s, duration: %s", thumbnail_filename, formatted_duration
