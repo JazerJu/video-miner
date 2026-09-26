@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     VIDEO_PATH, SRT_PATH, DB_DIR, GGUF_PATH, EXPORT_DIR,
     N_CTX, N_GPU_LAYERS, N_BATCH, N_PREDICT, KV_CACHE_TYPE, ONNX_PROVIDER,
+    ONNX_CUDA_PROVIDER_OPTIONS,
 )
 from srt_utils import parse_srt
 from agent import VideoAgent
@@ -34,7 +35,7 @@ def _load_models():
     if ONNX_PROVIDER == "cpu":
         providers = ["CPUExecutionProvider"]
     else:
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        providers = [("CUDAExecutionProvider", dict(ONNX_CUDA_PROVIDER_OPTIONS)), "CPUExecutionProvider"]
 
     model = minicpmv_llama.LlamaModel(str(GGUF_PATH), n_gpu_layers=N_GPU_LAYERS)
     kv_type = {"q4_0": 2, "q8_0": 8, "fp16": 1}.get(KV_CACHE_TYPE, 0)

@@ -124,3 +124,12 @@ SUMMARY_LANG = os.environ.get("VIDUNDER_SUMMARY_LANG", "中文")
 # 的残图。由设置里的 [Video Understanding] vu_layout_crop 覆盖（tasks.py 启动摘要前写入），
 # 真正的画中画/分屏视频打开它即可恢复原行为。
 LAYOUT_CROP = False
+
+# CUDA arena for the ONNX vision sessions. kSameAsRequested grows the arena by exactly the
+# requested buffer instead of the next power of two, and HEURISTIC stops cuDNN from benchmarking
+# every conv algorithm (EXHAUSTIVE reserves a workspace per candidate), both of which otherwise
+# leave the 16 GB card with no room for the build subprocess.
+ONNX_CUDA_PROVIDER_OPTIONS = {
+    "arena_extend_strategy": "kSameAsRequested",
+    "cudnn_conv_algo_search": "HEURISTIC",
+}

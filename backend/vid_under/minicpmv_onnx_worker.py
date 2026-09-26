@@ -15,10 +15,18 @@ from typing import Any
 _READY_REQUEST_ID = 0
 
 
-def _provider_list(provider: str) -> list[str]:
+_CUDA_ERROR_MARKERS = ("CUDNN", "CUDA", "bfc_arena", "out of memory", "cudnnCreate")
+
+
+def _provider_list(provider: str) -> list:
     if provider.lower() == "cpu":
         return ["CPUExecutionProvider"]
-    return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    from config import ONNX_CUDA_PROVIDER_OPTIONS
+    return [("CUDAExecutionProvider", dict(ONNX_CUDA_PROVIDER_OPTIONS)), "CPUExecutionProvider"]
+
+
+def _is_cuda_failure(text: object) -> bool:
+    return isinstance(text, str) and any(marker in text for marker in _CUDA_ERROR_MARKERS)
 
 
 def _compute_onnx_inputs_v45(h, w, npps=70, resampler_embed_dim=4096):
@@ -168,20 +176,31 @@ class MiniCpmvOnnxWorker:
         self.info = payload
 
     def encode_tiles(self, tiles, num_frames: int, video_fps: float, timeout: int | None = None):
-        self.start()
-        req_id = self._request_id
-        self._request_id += 1
-        assert self._request_q is not None
-
+        timeout = self.timeout if timeout is None else int(timeout)
         payload = [
             (t["pixel_values"], int(t["h"]), int(t["w"]), int(t.get("frame", 0)))
             for t in tiles
         ]
-        self._request_q.put((req_id, payload, int(num_frames), float(video_fps)))
-        _, ok, result = self._read_response(req_id, self.timeout if timeout is None else int(timeout))
-        if not ok:
-            raise RuntimeError(f"MiniCPM-V ONNX worker error:\n{result}")
-        return result
+
+        last_error = None
+        for attempt in range(2):
+            self.start()
+            req_id = self._request_id
+            self._request_id += 1
+            assert self._request_q is not None
+            self._request_q.put((req_id, payload, int(num_frames), float(video_fps)))
+            _, ok, result = self._read_response(req_id, timeout)
+            if ok:
+                return result
+            last_error = result
+            # A CUDA/cuDNN failure poisons this worker's context: without a restart every later
+            # call keeps failing at cudnnCreate. Rebuild the worker and retry the same tiles once.
+            if attempt == 0 and _is_cuda_failure(result):
+                print("  [MiniCPM-V] CUDA failure, restarting the ONNX worker", flush=True)
+                self.stop(force=True)
+                continue
+            break
+        raise RuntimeError(f"MiniCPM-V ONNX worker error:\n{last_error}")
 
     def stop(self, force: bool = False) -> None:
         process = self._process
