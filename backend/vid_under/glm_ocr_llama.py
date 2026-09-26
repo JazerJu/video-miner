@@ -13,14 +13,15 @@ LlamaBatch = minicpmv_llama.LlamaBatch
 LlamaSampler = minicpmv_llama.LlamaSampler
 
 
+# These must keep the base __del__: overriding it to only drop the pointer skips
+# llama_model_free / llama_free, so each GlmOcrLlama leaked its decoder and KV cache on
+# the GPU (~1 GB per summary task) until the build ran out of memory.
 class _OcrLlamaModel(minicpmv_llama.LlamaModel):
-    def __del__(self):
-        self.ptr = None
+    pass
 
 
 class _OcrLlamaContext(minicpmv_llama.LlamaContext):
-    def __del__(self):
-        self.ptr = None
+    pass
 
 from config import GLM_OCR_ONNX_DIR
 
@@ -62,9 +63,21 @@ class GlmOcrLlama:
         self.spatial_merge_size = cfg["vision_config"]["spatial_merge_size"]
 
     def close(self) -> None:
+        # Release the native decoder and context now: dropping the references alone defers the
+        # free to __del__, which does not run before the GPU is wanted again.
+        if getattr(self, "ctx", None) is not None:
+            try:
+                self.ctx.free()
+            except Exception:
+                pass
+            self.ctx = None
+        if getattr(self, "model", None) is not None:
+            try:
+                self.model.free()
+            except Exception:
+                pass
+            self.model = None
         self.onnx = None
-        self.ctx = None
-        self.model = None
         import gc
         gc.collect()
 

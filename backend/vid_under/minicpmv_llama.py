@@ -450,10 +450,18 @@ class LlamaModel:
     def detokenize(self, token_id):
         return token_to_piece(self.vocab, token_id)
 
-    def __del__(self):
-        if hasattr(self, "ptr") and self.ptr:
-            _fn["model_free"](self.ptr)
+    def free(self) -> None:
+        """Release the native model; idempotent, and safe during interpreter shutdown."""
+        ptr = getattr(self, "ptr", None)
+        if ptr:
             self.ptr = None
+            try:
+                _fn["model_free"](ptr)
+            except Exception:
+                pass
+
+    def __del__(self):
+        self.free()
 
 
 class LlamaContext:
@@ -508,10 +516,18 @@ class LlamaContext:
         mem = _fn["get_memory"](self.ptr)
         _fn["memory_clear"](mem, True)
 
-    def __del__(self):
-        if hasattr(self, "ptr") and self.ptr:
-            _fn["free"](self.ptr)
+    def free(self) -> None:
+        """Release the native context (KV cache, compute buffers); idempotent."""
+        ptr = getattr(self, "ptr", None)
+        if ptr:
             self.ptr = None
+            try:
+                _fn["free"](ptr)
+            except Exception:
+                pass
+
+    def __del__(self):
+        self.free()
 
 
 class LlamaBatch:
