@@ -11,6 +11,13 @@ class VideoConfig(AppConfig):
     name = "video"
 
     def ready(self):
+        from video.proxy import sanitize_proxy_env
+
+        message = sanitize_proxy_env()
+        if message:
+            import logging
+
+            logging.getLogger(__name__).warning(message)
         if getattr(self, "_worker_started", False):
             return
 

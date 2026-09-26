@@ -49,3 +49,33 @@ def get_effective_proxy(use_proxy: bool) -> Optional[str]:
         or os.environ.get("http_proxy")
         or None
     )
+
+
+_USABLE_SOCKS = ("socks4", "socks4a", "socks5", "socks5h")
+
+
+def sanitize_proxy_env() -> str:
+    """Drop ALL_PROXY when nothing here can use it. Returns a message, or "" when nothing changed.
+
+    Desktop proxy tools export ALL_PROXY=socks://127.0.0.1:port. "socks" is not a scheme any
+    client accepts: yt-dlp raises "Unknown SOCKS proxy version: socks" and requests raises
+    "Missing dependencies for SOCKS support" unless PySocks is installed. HTTP_PROXY and
+    HTTPS_PROXY point at the same port and work, so the variable is only removed.
+    """
+    dropped = []
+    for key in ("ALL_PROXY", "all_proxy"):
+        value = os.environ.get(key, "").strip()
+        if not value:
+            continue
+        scheme = value.split("://", 1)[0].lower()
+        if scheme in ("http", "https"):
+            continue
+        if scheme in _USABLE_SOCKS:
+            try:
+                import socks  # noqa: F401  (PySocks, needed by requests for socks proxies)
+                continue
+            except ImportError:
+                pass
+        del os.environ[key]
+        dropped.append(f"{key}={scheme}://...")
+    return ("忽略无法使用的代理环境变量：" + ", ".join(dropped)) if dropped else ""
