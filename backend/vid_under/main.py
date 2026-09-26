@@ -198,10 +198,11 @@ def _decode_clip_frames(container, stream, time_base, clip_idx, clip_secs,
 def cmd_extract(video_path: str, srt_path: str | None = None,
                 clip_secs: int = 10, frames_per_clip: int = 7,
                 output_dir: str | None = None, perspective: bool = False,
-                progress_cb=None):
+                progress_cb=None, clip_scenes: dict[int, str] | None = None):
     import time, av
     from video_structure import classify_scene, VideoStructure, SlideEntry, CodeSnapshot
     from layout_detector import detect_layout, crop_content, detect_ui_strips, get_vision_bbox, LayoutResult
+    from config import LAYOUT_CROP
     from content_extractor import (
         extract_unique_slides, ocr_slides, detect_code_changes, extract_code_snapshots,
     )
@@ -255,7 +256,11 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
         if not frames:
             continue
 
-        if len(frames) >= 3:
+        if not LAYOUT_CROP:
+            # 版面裁剪关闭（默认）：整帧就是内容帧，分屏检测和 vision bbox 都不跑
+            layout = None
+            content_frames = frames
+        elif len(frames) >= 3:
             layout = detect_layout(frames)
 
             if layout.layout_type == "fullscreen" and cached_vision_bbox is not None:
@@ -300,26 +305,41 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
     print(f"  Phase 1 done: {len(clip_mid_frames)} clips")
     _log_rss("phase1 done")
 
-    # Phase 2: Batch OCR (sequential)
+    # Phase 2: scene per clip. clip_scenes comes from the build step ({clip start second: scene},
+    # MiniCPM-V answering a closed question). Without it (e.g. extract run on its own) fall back to
+    # a GLM-OCR description + keyword match, which misroutes PPT pages and editor windows.
     from external_api import call_glm_ocr
     sorted_indices = sorted(clip_mid_frames.keys())
-    print(f"  Phase 2: OCR on {len(sorted_indices)} clips...")
-    for ocr_i, clip_idx in enumerate(sorted_indices):
-        mid_content = clip_mid_frames[clip_idx]
-        caption = call_glm_ocr(mid_content, "Describe this image in one short sentence:", max_tokens=128)
-        clip_captions[clip_idx] = caption
-
-        if clip_idx % 50 == 0:
-            m, s = divmod(int(clip_idx * clip_secs), 60)
-            print(f"  [{m:02d}:{s:02d}] {caption[:50]}...")
+    clip_scene = {}
+    if clip_scenes:
+        missing = 0
+        for clip_idx in sorted_indices:
+            scene = clip_scenes.get(int(clip_idx * clip_secs))
+            if scene is None:
+                missing += 1
+                scene = "other"
+            clip_scene[clip_idx] = scene
+        print(f"  Phase 2: scenes from build for {len(sorted_indices) - missing}/{len(sorted_indices)} clips")
         if progress_cb:
-            progress_cb("ocr", ocr_i + 1, len(sorted_indices))
+            progress_cb("ocr", len(sorted_indices), len(sorted_indices))
+    else:
+        print(f"  [warn] no scenes from build; Phase 2: GLM-OCR caption + keywords on {len(sorted_indices)} clips...")
+        for ocr_i, clip_idx in enumerate(sorted_indices):
+            mid_content = clip_mid_frames[clip_idx]
+            caption = call_glm_ocr(mid_content, "Describe this image in one short sentence:", max_tokens=128)
+            clip_captions[clip_idx] = caption
+            clip_scene[clip_idx] = classify_scene(caption)
 
-    # Phase 3: Classify scenes
+            if clip_idx % 50 == 0:
+                m, s = divmod(int(clip_idx * clip_secs), 60)
+                print(f"  [{m:02d}:{s:02d}] {caption[:50]}...")
+            if progress_cb:
+                progress_cb("ocr", ocr_i + 1, len(sorted_indices))
+
+    # Phase 3: route clips by scene
     for clip_idx in sorted_indices:
         start_sec = clip_idx * clip_secs
-        caption = clip_captions[clip_idx]
-        scene = classify_scene(caption)
+        scene = clip_scene[clip_idx]
         layout = clip_layouts[clip_idx]
 
         if clip_idx % 50 == 0:
@@ -404,7 +424,7 @@ def cmd_extract(video_path: str, srt_path: str | None = None,
                     print(f"  [warn] clip {clip_idx} 重解码无帧，跳过")
                     continue
                 layout = clip_layouts.get(clip_idx)
-                clip_frames = [crop_content(f, layout) for f in raw] if layout else raw
+                clip_frames = [crop_content(f, layout) for f in raw] if (LAYOUT_CROP and layout) else raw
                 del raw
                 try:
                     deduped = deduplicate_frames(clip_frames)

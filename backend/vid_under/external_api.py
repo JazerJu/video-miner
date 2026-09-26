@@ -628,16 +628,23 @@ def _glm_ocr_onnx_provider() -> str:
     return provider
 
 
-def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
+def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048, return_hit_limit=False):
+    """OCR one image. With return_hit_limit, returns (text, hit_limit) where hit_limit says the
+    decoder stopped at max_tokens rather than EOS (usually a repetition loop)."""
     from PIL import Image as PILImage
     from pathlib import Path
+
+    def _out(text, engine=None):
+        if not return_hit_limit:
+            return text
+        return text, bool(getattr(engine, "last_hit_max_tokens", False))
 
     if isinstance(image, str) and Path(image).exists():
         image = PILImage.open(image).convert("RGB")
     elif hasattr(image, 'convert'):
         image = image.convert("RGB")
     else:
-        return ""
+        return _out("")
 
     try:
         provider = _glm_ocr_onnx_provider()
@@ -656,20 +663,20 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048) -> str:
             )
             encoded = worker.infer(image, prompt, timeout=timeout)
             engine = _get_glm_ocr_engine(load_onnx=False)
-            return engine.decode_precomputed(
+            return _out(engine.decode_precomputed(
                 encoded["input_ids"],
                 encoded["embeds"],
                 encoded["grid_thw"],
                 max_tokens=min(max_tokens, 2048),
-            )
+            ), engine)
 
         if provider != "cpu":
             print(f"  Unknown GLM-OCR ONNX provider '{provider}', using CPU same-process mode", flush=True)
         engine = _get_glm_ocr_engine(load_onnx=True)
-        return engine.ocr(image, prompt=prompt, max_tokens=min(max_tokens, 2048))
+        return _out(engine.ocr(image, prompt=prompt, max_tokens=min(max_tokens, 2048)), engine)
     except Exception as e:
         print(f"  GLM-OCR error: {e}", flush=True)
-        return ""
+        return _out("")
 
 
 def shutdown_glm_ocr_workers(stop_decoder: bool = False) -> None:

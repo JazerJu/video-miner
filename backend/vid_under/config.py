@@ -119,3 +119,8 @@ SUMMARY_SLIDES_PER_CHAPTER = _clamped_int(
     10,
 )
 SUMMARY_LANG = os.environ.get("VIDUNDER_SUMMARY_LANG", "中文")
+# 版面裁剪默认关闭：detect_layout 的分屏判据是「画面变化集中在某个区域」，而 PPT 动画
+# 逐段出现天然就是这样，实测一段 14 分钟的王道课程 33 张 slide 里有 22 张被裁成 49%~86%
+# 的残图。由设置里的 [Video Understanding] vu_layout_crop 覆盖（tasks.py 启动摘要前写入），
+# 真正的画中画/分屏视频打开它即可恢复原行为。
+LAYOUT_CROP = False

@@ -16,6 +16,43 @@ from srt_utils import search_transcript, transcript_for_timerange
 from config import DEEPSEEK_API_KEY, STEP_API_KEY, N_PREDICT, GGUF_PATH, EXPORT_DIR, N_CTX, N_GPU_LAYERS, N_BATCH, KV_CACHE_TYPE, ONNX_PROVIDER, SUMMARY_LANG, MEDIA_VIDUNDER
 
 
+def _evenly(items: list, n: int) -> list:
+    """均匀取 n 个。原先写的是 items[::len//n][:n]，个数落在 (n, 2n) 时 step 算成 1，只取了最前面几个。"""
+    if n <= 0:
+        return []
+    if len(items) <= n:
+        return items
+    if n == 1:
+        return items[:1]
+    idx = sorted({round(i * (len(items) - 1) / (n - 1)) for i in range(n)})
+    return [items[i] for i in idx]
+
+
+# 章节开头停留在上一页超过这么多秒，上一页也算这一章的图。分章边界本身有几秒误差，
+# 阈值太小相邻两章会频繁共用一张。
+_CARRY_OVER_SECS = 30
+
+
+def _slides_for_chapter(slides: list, start_sec: float, end_sec: float, max_slides: int) -> list:
+    """一章该配的图。
+
+    区间取左闭右开：闭区间会让正好落在边界上的那张同时算进前后两章，实测出现过同一张
+    slide_003 在相邻两章各出现一次。
+
+    一页 PPT 常常跨章：王道那一页 00:20 出现、讲到 05:00，而第二章从 03:13 开始，前 107 秒
+    屏幕上一直是它，按出现时间它却只算第一章。所以章节开头停留在上一页超过
+    _CARRY_OVER_SECS 秒时，把那一页放在这一章的第一张；章内一张新 slide 都没有时也用它。
+    """
+    usable = [s for s in slides if s.get("image_path") and Path(s["image_path"]).exists()]
+    usable.sort(key=lambda s: s.get("time", 0))
+    picked = [s for s in usable if start_sec <= s.get("time", -1) < end_sec]
+    earlier = [s for s in usable if s.get("time", -1) < start_sec]
+    first = picked[0].get("time", 0) if picked else end_sec
+    if earlier and (not picked or first - start_sec > _CARRY_OVER_SECS):
+        return [earlier[-1]] + _evenly(picked, max_slides - 1)
+    return _evenly(picked, max_slides)
+
+
 def _summary_slides_per_chapter() -> int:
     try:
         import config as _vu_config
@@ -848,13 +885,8 @@ class VideoAgent:
 
             chapter_slides = []
             if slides_data and start_sec < end_sec:
-                max_slides = _summary_slides_per_chapter()
-                candidates = [s for s in slides_data
-                              if start_sec <= s.get("time", -1) <= end_sec
-                              and s.get("image_path") and Path(s["image_path"]).exists()]
-                if len(candidates) > max_slides:
-                    step = len(candidates) // max_slides
-                    candidates = candidates[::step][:max_slides]
+                candidates = _slides_for_chapter(slides_data, start_sec, end_sec,
+                                                 _summary_slides_per_chapter())
                 for s in candidates:
                     t = s.get("time", 0)
                     mm, sc = divmod(int(t), 60)
@@ -876,8 +908,13 @@ class VideoAgent:
     def _crop_slide_for_summary(self, slide: dict, min_coverage: float = 0.60) -> str | None:
         """Use Gemini to get precise bbox for a single slide, crop and save.
 
-        Returns path to cropped image, or None to use original.
+        Returns path to cropped image, or None to use original. Skipped entirely unless
+        VIDUNDER_LAYOUT_CROP is on: the bbox is a vision model's guess at the four corners,
+        so on a full-screen slide it mostly trims the slide rather than any surrounding frame.
         """
+        from config import LAYOUT_CROP
+        if not LAYOUT_CROP:
+            return None
         img_path = slide.get("image_path", "")
         if not img_path or not Path(img_path).exists():
             return None
@@ -927,11 +964,7 @@ class VideoAgent:
                 return header_line
             start = int(time_match.group(1).split(':')[0]) * 60 + int(time_match.group(1).split(':')[1])
             end = int(time_match.group(2).split(':')[0]) * 60 + int(time_match.group(2).split(':')[1])
-            chapter_slides = [s for s in slides if start <= s.get("time", -1) <= end]
-            max_slides = _summary_slides_per_chapter()
-            if len(chapter_slides) > max_slides:
-                step = len(chapter_slides) // max_slides
-                chapter_slides = chapter_slides[::step][:max_slides]
+            chapter_slides = _slides_for_chapter(slides, start, end, _summary_slides_per_chapter())
             if not chapter_slides:
                 return header_line
             img_lines = []

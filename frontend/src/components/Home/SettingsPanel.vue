@@ -1503,6 +1503,15 @@
                 {{ t('vuSummarySlidesPerChapterDesc') }}
               </p>
             </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-2 dark:text-gray-300">
+                {{ t('vuLayoutCrop') }}
+              </label>
+              <el-switch v-model="settings.vuLayoutCrop" />
+              <p class="mt-1 text-xs text-slate-400 dark:text-gray-500">
+                {{ t('vuLayoutCropDesc') }}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -2738,6 +2747,7 @@ const settings = reactive<FrontendSettings>({
   vuCornerUseProxy: false,
   vuCornerCoverage: 0.6,
   vuSummaryUseProxy: false,
+  vuLayoutCrop: false,
   vuDownloadUseProxy: false,
 })
 

@@ -169,6 +169,8 @@ export default {
   vuSummaryLLMDesc: '分章、章节总结和视频问答都使用这个模型',
   vuSummarySlidesPerChapter: '每章摘要图片数',
   vuSummarySlidesPerChapterDesc: '生成 summary 时每个章节最多插入的幻灯片/截图数量，范围 1-10',
+  vuLayoutCrop: '版面裁剪',
+  vuLayoutCropDesc: '按分屏检测裁掉画面中的非内容区域。全屏录屏的 PPT 课程会被误判成左右/上下分屏而裁掉半幅，默认关闭；画中画或真正分屏的讲课视频再打开',
   vuPrimaryFallback: '主 Fallback',
   vuSecondaryFallback: '次 Fallback',
   vuDownload: '下载',

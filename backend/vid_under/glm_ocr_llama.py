@@ -241,6 +241,9 @@ class GlmOcrLlama:
             sampler.accept(token)
 
             generated: list[int] = []
+            # True when generation stops at max_tokens instead of EOS: on dense screens that is
+            # a repetition loop, read by content_extractor to retry or trim
+            self.last_hit_max_tokens = False
             for _ in range(max_tokens):
                 if token in self.eos_tokens:
                     break
@@ -261,6 +264,8 @@ class GlmOcrLlama:
                     break
                 token = sampler.sample(self.ctx)
                 sampler.accept(token)
+            else:
+                self.last_hit_max_tokens = True
         finally:
             sampler.free()
 

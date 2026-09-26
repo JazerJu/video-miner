@@ -1719,6 +1719,10 @@ def _inject_vidunder_config():
     vu_config.SUMMARY_SLIDES_PER_CHAPTER = slides_per_chapter
     os.environ["VIDUNDER_SUMMARY_SLIDES_PER_CHAPTER"] = str(slides_per_chapter)
 
+    # 版面裁剪默认关：分屏检测把全屏 PPT 误判成左右/上下分屏，会裁掉半幅画面。
+    # 真的是画中画/分屏的讲课视频才打开。
+    vu_config.LAYOUT_CROP = str(g("vu_layout_crop", "false")).strip().lower() == "true"
+
     # Sync to external_api module-level imports
     vu_ext.OPENROUTER_KEY = vu_config.OPENROUTER_KEY
     vu_ext.OPENROUTER_BASE_URL = vu_config.OPENROUTER_BASE_URL
@@ -1850,6 +1854,16 @@ def generate_summary_for_video(task_id: str) -> None:
         )
         _summary_update(task_id, "build", "Completed")
 
+        # Scenes classified during build, keyed by clip start second, for extract's routing
+        clip_scenes = {}
+        try:
+            with open(os.path.join(db_dir, f"{db_name}.json"), encoding="utf-8") as fh:
+                for clip in json.load(fh).get("clips", []):
+                    if clip.get("scene"):
+                        clip_scenes[int(clip["start"])] = clip["scene"]
+        except (OSError, ValueError) as exc:
+            logger.warning("summary %s: could not read scenes from build db: %s", task_id, exc)
+
         # Step 2: extract
         _summary_update(task_id, "extract", "Running", detail="Running GLM-OCR extraction...")
         extract_output = os.path.join(result_dir, f"{db_name}_extract")
@@ -1868,7 +1882,8 @@ def generate_summary_for_video(task_id: str) -> None:
             _summary_update(task_id, "extract", "Running", progress=pct)
 
         try:
-            cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress)
+            cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress,
+                        clip_scenes=clip_scenes)
         finally:
             # Drop the ggml decoder too: summarize loads its own models on top,
             # and holding both is what pushed this over the OOM line.

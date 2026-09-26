@@ -58,6 +58,7 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
 
     model, ctx, sampler = _load_llm()
     onnx_worker = _load_onnx()
+    src_fps = _get_video_fps(str(video_path))
 
     clips = []
     try:
@@ -73,6 +74,7 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
             caption, vis = _caption_frames(
                 frames, transcript, model, ctx, sampler, onnx_worker,
             )
+            scene, scene_answer = _classify_scene(frames, model, ctx, sampler, onnx_worker, src_fps)
 
             dense_path = str(TOKENS_DIR / f"{db_name}_dense_{i:04d}.npy")
             np.save(dense_path, vis.astype(np.float32))
@@ -80,6 +82,7 @@ def build_database(video_path: str, srt_path: str, db_name: str = "default",
             clips.append({
                 "idx": i, "start": start, "end": end,
                 "caption": caption, "frames_extracted": len(frames),
+                "scene": scene, "scene_answer": scene_answer,
                 "has_transcript": len(transcript) > 0,
                 "dense_tokens": dense_path,
                 "n_dense_tokens": int(vis.shape[0]),
@@ -202,6 +205,33 @@ def _compute_onnx_inputs_v45(h, w, npps=70, resampler_embed_dim=4096):
 
 
 
+# Scene of each clip, used by main.cmd_extract to route it to the slide / code / terminal branch.
+# Asked as a closed question here, where the frames and MiniCPM-V are already loaded. The old way,
+# keyword-matching a free-text description, sent PPT pages that mention 编译 and editor windows
+# (Kate's status bar shows "Terminal" and "Bash") to the terminal branch.
+SCENE_PROMPT = ("这是一段教学视频的截图。画面的主要内容属于哪一类？\n"
+                "A. 幻灯片：PPT 或讲义页面\n"
+                "B. 代码编辑器：带行号、文件标签页或文件树的编辑窗口。编辑器里显示的即使是命令、数据表或配置，也选 B\n"
+                "C. 终端：命令行窗口，有命令提示符（如 user@host$），显示命令和输出\n"
+                "D. 其他：真人镜头、文件管理器、网页、表格软件等\n"
+                "只回答一个字母。")
+SCENE_LABELS = {"A": "slide", "B": "code", "C": "terminal", "D": "other"}
+
+
+def _classify_scene(frames, model, ctx, sampler, onnx_worker, video_fps):
+    """Scene of a clip from its middle frame: (slide|code|terminal|other, raw answer)."""
+    if not frames:
+        return "other", ""
+    tiles, _ = _preprocess_frames([frames[len(frames) // 2]], max_slice_nums=MAX_SLICE_NUMS)
+    vis = onnx_worker.encode_tiles(tiles, num_frames=1, video_fps=video_fps)
+    ctx.clear_kv()
+    answer = _ask(model, ctx, sampler, vis, SCENE_PROMPT, 4, no_think=True).strip()
+    letter = next((ch for ch in answer.upper() if ch in SCENE_LABELS), None)
+    if letter is None:
+        print(f"    [WARN] unparsed scene answer {answer!r}, treated as other")
+    return SCENE_LABELS.get(letter, "other"), answer
+
+
 def _caption_frames(frames, transcript, model, ctx, sampler, onnx_worker):
     from config import NPPS, EMBED_DIM, VIDEO_PATH as _VIDEO
     if not frames:
@@ -250,7 +280,7 @@ def _strip_think(text: str) -> str:
 
 
 _pad_id_cache = None
-def _ask(model, ctx, sampler, vis, question, n_predict):
+def _ask(model, ctx, sampler, vis, question, n_predict, no_think=False):
     global _pad_id_cache
     if _pad_id_cache is None:
         _pad_id_cache = model.tokenize("<|image_pad|>", parse_special=True)[0]
@@ -265,6 +295,9 @@ def _ask(model, ctx, sampler, vis, question, n_predict):
         image_str = tile_str + slice_str * (n_tiles - 1)
 
     prompt = f"<|im_start|>user\n{image_str}\n{question}<|im_end|>\n<|im_start|>assistant\n"
+    if no_think:
+        # MiniCPM-V 4.5 thinks first by default; an empty think block makes it answer directly
+        prompt += "<think>\n\n</think>\n\n"
     tokens = model.tokenize(prompt, add_special=True, parse_special=True)
 
     segments = []

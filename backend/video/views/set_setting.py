@@ -164,6 +164,7 @@ def _ensure_ini():
             "vu_summary_base_url": "https://api.deepseek.com",
             "vu_summary_model": "deepseek-flash",
             "vu_summary_slides_per_chapter": "3",
+            "vu_layout_crop": "false",
             "vu_corner_use_proxy": "false",
             "vu_summary_use_proxy": "false",
             "vu_corner_use_proxy": "false",
@@ -273,6 +274,7 @@ def load_all_settings():
         "vu_summary_base_url": "https://api.deepseek.com",
         "vu_summary_model": "deepseek-flash",
         "vu_summary_slides_per_chapter": "3",
+        "vu_layout_crop": "false",
         "vu_download_use_proxy": "false",
     }
     if not cfg.has_section("Video Understanding"):

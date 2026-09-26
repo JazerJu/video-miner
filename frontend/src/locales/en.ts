@@ -175,6 +175,8 @@ export default {
   vuSummaryLLMDesc: 'Chapter detection, chapter summaries and video Q&A all use this model',
   vuSummarySlidesPerChapter: 'Summary Images per Chapter',
   vuSummarySlidesPerChapterDesc: 'Maximum slide/screenshot images inserted into each generated summary chapter, from 1 to 10',
+  vuLayoutCrop: 'Layout Cropping',
+  vuLayoutCropDesc: 'Crop frames to the detected content region. Full-screen slide recordings get mistaken for a split screen and lose half the frame, so this is off by default; turn it on for picture-in-picture or genuinely split-screen lectures',
   vuPrimaryFallback: 'Primary Fallback',
   vuSecondaryFallback: 'Secondary Fallback',
   vuDownload: 'Download',

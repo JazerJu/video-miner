@@ -248,6 +248,7 @@ export interface ConfigData {
     vu_summary_base_url: string
     vu_summary_model: string
     vu_summary_slides_per_chapter: string
+    vu_layout_crop: string
     vu_corner_use_proxy: string
     vu_corner_coverage: string
     vu_summary_use_proxy: string
@@ -389,6 +390,7 @@ export interface FrontendSettings {
   vuCornerUseProxy: boolean
   vuCornerCoverage: number
   vuSummaryUseProxy: boolean
+  vuLayoutCrop: boolean
   vuDownloadUseProxy: boolean
 }
 
@@ -652,6 +654,7 @@ export async function loadConfig(): Promise<FrontendSettings> {
       vuCornerUseProxy: data['Video Understanding']?.vu_corner_use_proxy === 'true',
       vuCornerCoverage: parseFloat(data['Video Understanding']?.vu_corner_coverage || '0.6'),
       vuSummaryUseProxy: data['Video Understanding']?.vu_summary_use_proxy === 'true',
+      vuLayoutCrop: data['Video Understanding']?.vu_layout_crop === 'true',
       vuDownloadUseProxy: data['Video Understanding']?.vu_download_use_proxy === 'true',
     }
   } catch (error) {
@@ -806,6 +809,7 @@ split_use_proxy: settings.splitUseProxy.toString(),
         vu_corner_use_proxy: settings.vuCornerUseProxy.toString(),
         vu_corner_coverage: settings.vuCornerCoverage.toString(),
         vu_summary_use_proxy: settings.vuSummaryUseProxy.toString(),
+        vu_layout_crop: settings.vuLayoutCrop.toString(),
         vu_download_use_proxy: settings.vuDownloadUseProxy.toString(),
       },
     }
