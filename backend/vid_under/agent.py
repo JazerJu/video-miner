@@ -1604,16 +1604,15 @@ class VideoAgent:
         )
 
         from external_api import call_deepseek
-        chapter_secs = end_sec - start_sec
-        # 正文额度按每分钟 400 token 估，再加 4000 给思考模型想。实测 deepseek-flash
-        # 写 273 个字的回答也用掉了 2084 个 reasoning token，额度不够时正文会是空的。
-        max_tok = min(16384, max(4000, int(chapter_secs / 60 * 400)) + 4000)
-        summary, finish = call_deepseek(prompt, max_tokens=max_tok, return_finish=True)
+        # 思考 token 也算在 max_tokens 里。原先按时长估（每分钟 400 + 思考 4000，短章节都是 8000），
+        # 09-27 在 548 上 6 章有 4 章的思考就用掉 6.6k-7.8k，只能走下面关思考的重写，而重写
+        # 不再对照画面核对，会照抄 OCR 错字。给到 32768 后 20 章都一次写完；按实际用量计费，
+        # 上限高不多花钱，只是长章节要等得久些，超时相应放宽。
+        summary, finish = call_deepseek(prompt, max_tokens=32768, timeout=600, return_finish=True)
         if not summary or len(summary) < 50 or finish == "length":
-            # 思考 token 也算在 max_tokens 里：空回复是额度被思考吃光，finish_reason=length 是正文写到
-            # 一半被截断（09-26 批量跑的 103 章里有 3 章断在半句话或没闭合的代码块里）。
-            # 关掉思考、额度翻倍重写这一章，全部额度都给正文。
-            retry, retry_finish = call_deepseek(prompt, max_tokens=min(16384, max_tok * 2),
+            # 空回复是额度被思考吃光，finish_reason=length 是正文写到一半被截断，
+            # "error" 是请求失败或超时。关掉思考重写这一章，全部额度都给正文。
+            retry, retry_finish = call_deepseek(prompt, max_tokens=16384, timeout=600,
                                                 thinking=False, return_finish=True)
             if retry and (retry_finish != "length" or len(retry) > len(summary or "")):
                 summary, finish = retry, retry_finish
