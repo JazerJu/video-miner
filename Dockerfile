@@ -125,8 +125,8 @@ RUN set -eux; \
         groupadd --gid 1000 vidgo; \
         useradd --create-home --uid 1000 --gid 1000 vidgo; \
     fi; \
-    mkdir -p /app/config /app/media /app/models /app/database /app/work_dir /app/cache \
-    && chown -R vidgo:vidgo /app/config /app/media /app/models /app/database /app/work_dir /app/cache
+    mkdir -p /app/config /app/media /app/models /app/database /app/work_dir /app/cache /app/logs \
+    && chown -R vidgo:vidgo /app/config /app/media /app/models /app/database /app/work_dir /app/cache /app/logs
 
 # 仅复制配置的备份文件到镜像固定位置（**不是**挂载点）
 COPY backend/config/config.ini.backup /app/config.ini.backup
