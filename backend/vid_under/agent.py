@@ -1608,12 +1608,22 @@ class VideoAgent:
         # 正文额度按每分钟 400 token 估，再加 4000 给思考模型想。实测 deepseek-flash
         # 写 273 个字的回答也用掉了 2084 个 reasoning token，额度不够时正文会是空的。
         max_tok = min(16384, max(4000, int(chapter_secs / 60 * 400)) + 4000)
-        summary = call_deepseek(prompt, max_tokens=max_tok)
-        if not summary or len(summary) < 50:
-            # 空回复多半是额度被思考吃光：翻倍再试一次
-            summary = call_deepseek(prompt, max_tokens=min(16384, max_tok * 2))
+        summary, finish = call_deepseek(prompt, max_tokens=max_tok, return_finish=True)
+        if not summary or len(summary) < 50 or finish == "length":
+            # 思考 token 也算在 max_tokens 里：空回复是额度被思考吃光，finish_reason=length 是正文写到
+            # 一半被截断（09-26 批量跑的 103 章里有 3 章断在半句话或没闭合的代码块里）。
+            # 关掉思考、额度翻倍重写这一章，全部额度都给正文。
+            retry, retry_finish = call_deepseek(prompt, max_tokens=min(16384, max_tok * 2),
+                                                thinking=False, return_finish=True)
+            if retry and (retry_finish != "length" or len(retry) > len(summary or "")):
+                summary, finish = retry, retry_finish
 
         summary = self._strip_preamble(summary or "")
+        if finish == "length" and summary:
+            # 重写后仍没写完：别让没闭合的代码块把后面的配图吞成代码，也让读者知道这章缺了后半
+            if summary.count("```") % 2:
+                summary += "\n```"
+            summary += "\n\n> （本章摘要超出长度上限，后半部分缺失）"
 
         return {
             "_source": "summarize_chapter",

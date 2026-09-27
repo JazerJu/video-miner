@@ -374,9 +374,13 @@ def extract_text(result: dict | None) -> str:
 
 
 def call_deepseek(prompt: str, system: str = "你是视频分析助手。", max_tokens: int = 1024,
-                  model: str | None = None, timeout: int = 120) -> str:
+                  model: str | None = None, timeout: int = 120, thinking: bool = True,
+                  return_finish: bool = False):
+    """thinking=False asks the model to answer without a reasoning pass (DeepSeek's
+    `thinking: disabled`), so all of max_tokens goes to the answer. return_finish=True returns
+    (content, finish_reason); "length" means the answer was cut off at max_tokens."""
     return _call_openai_compat(DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model or llm_model_name(), prompt, system, max_tokens,
-                               timeout=timeout)
+                               timeout=timeout, thinking=thinking, return_finish=return_finish)
 
 
 def call_step(prompt: str, system: str = "你是视频分析助手。", max_tokens: int = 1024) -> str:
@@ -545,9 +549,13 @@ def _call_openai_compat_raw(base_url: str, api_key: str, model: str, messages: l
         return {}
 
 
-def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, system: str, max_tokens: int, images: list = None, timeout: int = 120) -> str:
+def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, system: str, max_tokens: int, images: list = None,
+                        timeout: int = 120, thinking: bool = True, return_finish: bool = False):
+    def _out(content, finish=""):
+        return (content, finish) if return_finish else content
+
     if not api_key:
-        return ""
+        return _out("")
     url = f"{base_url}/chat/completions"
     messages = [{"role": "system", "content": system}]
     if images:
@@ -560,6 +568,8 @@ def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, sy
         messages.append({"role": "user", "content": prompt})
 
     payload = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0}
+    if not thinking:
+        payload["thinking"] = {"type": "disabled"}
     data = json.dumps(payload, ensure_ascii=False).encode()
     req = urllib.request.Request(url, data=data, headers={
         "Content-Type": "application/json",
@@ -578,14 +588,21 @@ def _call_openai_compat(base_url: str, api_key: str, model: str, prompt: str, sy
                 thinking = msg.get("reasoning_content") or msg.get("reasoning") or ""
                 print(f"  API returned no content: finish_reason={choice.get('finish_reason')}, "
                       f"max_tokens={max_tokens}, reasoning {len(thinking)} chars", flush=True)
-            return content
+            elif choice.get("finish_reason") == "length":
+                # reasoning tokens count against max_tokens too, so a long answer stops mid-sentence
+                usage = result.get("usage") or {}
+                print(f"  API output cut at max_tokens={max_tokens}: {len(content)} chars, "
+                      f"completion_tokens={usage.get('completion_tokens')}, "
+                      f"reasoning_tokens={(usage.get('completion_tokens_details') or {}).get('reasoning_tokens')}",
+                      flush=True)
+            return _out(content, choice.get("finish_reason") or "")
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:500]
         print(f"  API Error {e.code}: {body}", flush=True)
-        return ""
+        return _out("", "error")
     except Exception as e:
         print(f"  API exception: {e}", flush=True)
-        return ""
+        return _out("", "error")
 
 
 def _pil_to_base64(img) -> str:
@@ -864,4 +881,8 @@ def ocr_long_image(image, max_chunk_height: int = 1800, overlap: int = 50,
     merge_prompt = "以下是对同一段内容的多段 OCR 识别结果，内容有重叠。请合并为一份完整、不重复的内容。\n\n"
     for i, r in enumerate(results, 1):
         merge_prompt += f"【第 {i} 段】\n{r}\n\n"
-    return call_deepseek(merge_prompt, max_tokens=8192)
+    # Merging overlapping text needs no reasoning pass; with one, the reasoning can use
+    # up max_tokens and leave no answer. If the merge still fails, keep the raw chunks
+    # (a repeated overlap line) rather than dropping the whole screen.
+    merged = call_deepseek(merge_prompt, max_tokens=8192, thinking=False)
+    return merged or "\n".join(results)
