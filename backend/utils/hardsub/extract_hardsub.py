@@ -18,7 +18,7 @@ v12 覆盖 96–99%，GLM-ASR 转写对照的召回/查准不低于 video-subtit
   双语分轨         同一区间既有中文行又有纯英文行时，英文行算翻译轨；只有英文行时算中文字幕里的英文（如「JetBrains」「CopyIn」）
 
 用法:
-  extract_hardsub.py --video a.mp4 --out zh.srt --region 0.0,0.84,1.0,0.13 [--en-out en.srt]
+  extract_hardsub.py --video a.mp4 --out primary.srt --region 0.0,0.84,1.0,0.13 [--en-out en.srt]
   --region 是 x,y,w,h，取值 0-1，相对整帧。
 """
 import argparse, collections, json, os, re, subprocess, sys, time
@@ -114,27 +114,35 @@ def merge_cues(cues):
 
 
 def postprocess(intervals, lines):
-    """删固定文字、分中英轨、合并同句。返回 (zh_cues, en_cues, 固定文字集合)。"""
+    """删固定文字、分轨、合并同句。返回 (主轨, 译文轨, 主轨语言, 固定文字集合)。
+
+    主轨是视频自己的字幕语言：整片出现过汉字就算中文，一条都没有就算英文。译文轨只在中英
+    同框（原文中文 + 翻译英文）时才有内容。以前不管内容一律当中文，纯英文视频会被存成
+    <id>_zh.srt。"""
     is_static, static = static_filter(lines)
-    zh, en = [], []
+    primary_lang = "zh" if any(CJK.search(l) for ls in lines for l in ls) else "en"
+    main, alt = [], []
     for (a, b), ls in zip(intervals, lines):
         keep = [l for l in ls if not is_static(l)]
         cjk = [l for l in keep if CJK.search(l)]
-        if cjk:
-            latin = [l for l in keep if not CJK.search(l)]
-            if latin:
-                en.append([a, b, " ".join(latin)])
-            zh.append([a, b, " ".join(cjk)])
+        latin = [l for l in keep if not CJK.search(l)]
+        if primary_lang == "zh":
+            if cjk:
+                main.append([a, b, " ".join(cjk)])
+                if latin:
+                    alt.append([a, b, " ".join(latin)])
+            elif keep:
+                main.append([a, b, " ".join(keep)])
         elif keep:
-            zh.append([a, b, " ".join(keep)])
-    return merge_cues(zh), merge_cues(en), static
+            main.append([a, b, " ".join(keep)])
+    return merge_cues(main), merge_cues(alt), primary_lang, static
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", required=True)
-    ap.add_argument("--out", required=True, help="中文轨 SRT")
-    ap.add_argument("--en-out", default="", help="英文轨 SRT，留空则丢弃翻译行")
+    ap.add_argument("--out", required=True, help="主轨 SRT（视频自己的语言，中文或英文）")
+    ap.add_argument("--en-out", default="", help="译文轨 SRT（双语时才写），留空则丢弃译文行")
     ap.add_argument("--region", required=True, help="x,y,w,h，0-1，相对整帧")
     ap.add_argument("--fps", type=float, default=4.0, help="v12 不再按帧率抽帧，保留参数只为兼容旧调用")
     args = ap.parse_args()
@@ -188,12 +196,13 @@ def main():
                      seconds=round(a, 1), duration=round(dur, 1), segments=i + 1, intervals=len(intervals))
         cap.release()
 
-    zh, en, static = postprocess(intervals, lines)
-    write_srt(args.out, zh)
-    if args.en_out and en:
-        write_srt(args.en_out, en)
-    emit("done", segments=len(zh), en_segments=len(en), intervals=len(intervals), static_lines=len(static),
-         elapsed=round(time.time() - t0, 1), out=args.out, en_out=args.en_out if (args.en_out and en) else "")
+    primary, alt, primary_lang, static = postprocess(intervals, lines)
+    write_srt(args.out, primary)
+    if args.en_out and alt:
+        write_srt(args.en_out, alt)
+    emit("done", segments=len(primary), en_segments=len(alt), primary_lang=primary_lang,
+         intervals=len(intervals), static_lines=len(static),
+         elapsed=round(time.time() - t0, 1), out=args.out, en_out=args.en_out if (args.en_out and alt) else "")
 
 
 if __name__ == "__main__":

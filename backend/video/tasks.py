@@ -688,8 +688,7 @@ def run_hardsub_for_video(video_id: int) -> None:
     os.makedirs(SAVE_DIR, exist_ok=True)
     raw_out = os.path.join("work_dir", "temp", f"hardsub_{video_id}.srt")
     os.makedirs(os.path.dirname(raw_out), exist_ok=True)
-    zh_name = f"{video_id}_zh.srt"
-    zh_path = os.path.join(SAVE_DIR, zh_name)
+    # 译文轨固定叫 _en.srt；主轨的名字要等脚本报出识别到的语言再定
     en_path = os.path.join(SAVE_DIR, f"{video_id}_en.srt") if task.get("keep_en") else ""
 
     script = os.path.join(settings.BASE_DIR, "utils", "hardsub", "extract_hardsub.py")
@@ -729,6 +728,7 @@ def run_hardsub_for_video(video_id: int) -> None:
                     _hardsub_update(video_id, "extract", "Running", progress=pct, detail=detail)
                 elif evt.get("type") == "done":
                     task["segments"] = evt.get("segments", 0)
+                    task["primary_lang"] = evt.get("primary_lang") or ""
             proc.wait()
             if proc.returncode != 0:
                 err = (proc.stderr.read() or "")[-300:]
@@ -742,14 +742,21 @@ def run_hardsub_for_video(video_id: int) -> None:
             return
     _hardsub_update(video_id, "extract", "Completed")
 
-    # v12 的过滤与合并已在提取脚本里完成，这里直接落盘
-    shutil.copy2(raw_out, zh_path)
+    # v12 的过滤与合并已在提取脚本里完成，这里直接落盘。
+    # 主轨语言取脚本识别到的结果，问不到就退回视频原有语言，最后才兜底中文。
+    lang = task.get("primary_lang") or video.raw_lang or "zh"
+    srt_name = f"{video_id}_{lang}.srt"
+    shutil.copy2(raw_out, os.path.join(SAVE_DIR, srt_name))
     _hardsub_update(video_id, "deslide", "Completed", detail="v12 已在提取时完成过滤与合并")
 
     with transaction.atomic():
-        video.srt_path = zh_name
+        fields = ["srt_path", "content_updated_at"]
+        video.srt_path = srt_name
         video.content_updated_at = timezone.now()
-        video.save(update_fields=["srt_path", "content_updated_at"])
+        if not video.raw_lang:
+            video.raw_lang = lang
+            fields.append("raw_lang")
+        video.save(update_fields=fields)
 
 def process_next_task() -> None:
     """被后台线程循环调用，逐个执行"""
