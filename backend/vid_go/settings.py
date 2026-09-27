@@ -40,6 +40,11 @@ def __get_list(env_var, default=None):
 # 允许承载server的 Host,这里全放通
 ALLOWED_HOSTS = __get_list("VIDGO_ALLOWED_HOSTS", ["*"])
 
+# 公网部署打开（VIDGO_API_LOGIN_REQUIRED=1）：所有 /api/ 请求都要先登录（会话或 API Token），
+# 自助注册也一并关闭。默认关闭：GPU 机上的 MCP 服务和本机脚本不登录直接调接口。
+# 经 frp/nginx 转发的公网请求到这里都来自 127.0.0.1，所以不能用"本机请求免检"代替这个开关。
+API_LOGIN_REQUIRED = os.getenv("VIDGO_API_LOGIN_REQUIRED", "") == "1"
+
 # 动态CORS和CSRF配置
 CORS_ALLOWED_ORIGINS = __get_list(
     "VIDGO_CORS_ALLOWED_ORIGINS",
@@ -141,6 +146,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "accounts.middleware.TokenAuthenticationMiddleware",
+    "accounts.middleware.ApiLoginRequiredMiddleware",  # 要放在两种认证之后
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
