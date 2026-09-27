@@ -78,6 +78,16 @@
           <span class="text-xs text-slate-400">{{ t('hardsubFpsHint') }}</span>
         </div>
         <el-checkbox v-model="keepEn">{{ t('hardsubKeepEn') }}</el-checkbox>
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-slate-600 dark:text-slate-300">{{ t('hardsubLang') }}</span>
+          <el-select v-model="lang" size="small" style="width: 110px">
+            <el-option label="中文" value="zh" />
+            <el-option label="English" value="en" />
+            <el-option label="日本語" value="jp" />
+            <el-option label="Deutsch" value="de" />
+          </el-select>
+          <span class="text-xs text-slate-400">{{ t('hardsubLangHint') }}</span>
+        </div>
         <el-button size="small" text @click="useDefaultBand">{{ t('hardsubDefaultBand') }}</el-button>
       </div>
     </div>
@@ -103,6 +113,7 @@ const props = defineProps<{
   videoId: number
   videoName?: string
   videoFile: string
+  rawLang?: string
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
@@ -112,6 +123,9 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const videoRef = ref<HTMLVideoElement | null>(null)
 const stageRef = ref<HTMLElement | null>(null)
+const validLangs = ['zh', 'en', 'jp', 'de'] as const
+type ValidLang = (typeof validLangs)[number]
+const lang = ref<ValidLang>('zh')
 const fps = ref<4 | 8>(4)
 const keepEn = ref(false)
 const submitting = ref(false)
@@ -230,6 +244,16 @@ watch(
   },
 )
 
+watch(
+  () => props.rawLang,
+  (v) => {
+    if (v && validLangs.includes(v as ValidLang)) {
+      lang.value = v as ValidLang
+    }
+  },
+  { immediate: true },
+)
+
 async function submit() {
   if (!box.value) return
   submitting.value = true
@@ -243,6 +267,7 @@ async function submit() {
         region: box.value,
         fps: fps.value,
         keep_en: keepEn.value,
+        lang: lang.value,
       }),
     })
     const data = await res.json().catch(() => ({}))

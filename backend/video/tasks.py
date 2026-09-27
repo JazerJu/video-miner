@@ -743,8 +743,8 @@ def run_hardsub_for_video(video_id: int) -> None:
     _hardsub_update(video_id, "extract", "Completed")
 
     # v12 的过滤与合并已在提取脚本里完成，这里直接落盘。
-    # 主轨语言取脚本识别到的结果，问不到就退回视频原有语言，最后才兜底中文。
-    lang = task.get("primary_lang") or video.raw_lang or "zh"
+    # 主轨语言优先用脚本识别到的结果；识别不出来时依次退到前端给的期望语言、视频原有语言、中文。
+    lang = task.get("primary_lang") or task.get("lang_hint") or video.raw_lang or "zh"
     srt_name = f"{video_id}_{lang}.srt"
     shutil.copy2(raw_out, os.path.join(SAVE_DIR, srt_name))
     _hardsub_update(video_id, "deslide", "Completed", detail="v12 已在提取时完成过滤与合并")

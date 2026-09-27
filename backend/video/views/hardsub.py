@@ -52,6 +52,11 @@ class HardsubAddView(View):
         fps = payload.get("fps", 4)
         fps = 8 if str(fps) == "8" else 4
 
+        # 用户框选的这块画面里是什么语言；只作兜底，识别出的语言优先
+        lang = str(payload.get("lang") or "").strip().lower()
+        if lang not in ("zh", "en", "jp", "de"):
+            lang = ""
+
         existing = hardsub_task_status.get(int(video_id))
         if existing and existing["stages"]["extract"] == "Running":
             return JsonResponse({"error": "task already running"}, status=409)
@@ -63,6 +68,7 @@ class HardsubAddView(View):
         task["region"] = {"x": x, "y": y, "w": w, "h": h}
         task["fps"] = fps
         task["keep_en"] = bool(payload.get("keep_en"))
+        task["lang_hint"] = lang
         subtitle_task_queue.put(f"hs_{int(video_id)}")
         return JsonResponse({"success": True})
 
