@@ -63,6 +63,8 @@ class GlmOcrLlama:
         self.spatial_merge_size = cfg["vision_config"]["spatial_merge_size"]
 
     def close(self) -> None:
+        """Free the decoder. Only at process end: a GlmOcrLlama built after this in the same
+        process aborts it (see external_api._get_glm_ocr_engine)."""
         # Release the native decoder and context now: dropping the references alone defers the
         # free to __del__, which does not run before the GPU is wanted again.
         if getattr(self, "ctx", None) is not None:

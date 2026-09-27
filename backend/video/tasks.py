@@ -1916,8 +1916,9 @@ def generate_summary_for_video(task_id: str) -> None:
             cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress,
                         clip_scenes=clip_scenes)
         finally:
-            # Drop the ggml decoder too: summarize loads its own models on top,
-            # and holding both is what pushed this over the OOM line.
+            # Stop the OCR workers before summarize loads its own models. The GLM-OCR decoder
+            # itself stays in this process for the next task: rebuilding a freed llama.cpp
+            # decoder aborts the process (external_api._get_glm_ocr_engine).
             from external_api import shutdown_glm_ocr_workers
             shutdown_glm_ocr_workers(stop_decoder=True)
             import gc
@@ -1929,7 +1930,7 @@ def generate_summary_for_video(task_id: str) -> None:
             except Exception:
                 pass
             from main import _log_rss
-            _log_rss("decoder released")
+            _log_rss("ocr workers stopped")
         _summary_update(task_id, "extract", "Completed")
 
         # Step 3: summarize

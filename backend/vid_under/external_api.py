@@ -595,18 +595,19 @@ def _pil_to_base64(img) -> str:
 
 
 _glm_ocr_engine = None
-_glm_ocr_engine_mode = None
 
 
 def _get_glm_ocr_engine(load_onnx: bool):
-    global _glm_ocr_engine, _glm_ocr_engine_mode
-    mode_key = "with_onnx" if load_onnx else "decoder_only"
-    if _glm_ocr_engine is not None and _glm_ocr_engine_mode != mode_key:
-        if hasattr(_glm_ocr_engine, "close"):
-            _glm_ocr_engine.close()
-        _glm_ocr_engine = None
-        _glm_ocr_engine_mode = None
+    """The process's one GLM-OCR decoder, created on first use and never freed.
 
+    A llama.cpp decoder must not be rebuilt after the previous one was freed: ggml-cuda raises
+    mul_mat_q's shared-memory limit once per process and remembers that in a static flag, so the
+    rebuilt decoder launches with the default limit and the whole process aborts ("CUDA error:
+    invalid argument" in launch_mul_mat_q, reproduced 2026-09-27). Freeing it after every summary
+    crashed the web server on the next one; never freeing and building a new one per task leaked
+    ~1.4 GB each time. Keeping this single instance costs ~1.4 GB for the life of the process.
+    """
+    global _glm_ocr_engine
     if _glm_ocr_engine is None:
         from glm_ocr_llama import GlmOcrLlama
         _glm_ocr_engine = GlmOcrLlama(
@@ -614,7 +615,11 @@ def _get_glm_ocr_engine(load_onnx: bool):
             n_gpu_layers=GLM_OCR_N_GPU_LAYERS,
             load_onnx=load_onnx,
         )
-        _glm_ocr_engine_mode = mode_key
+    elif load_onnx and _glm_ocr_engine.onnx is None:
+        # CPU mode encodes in-process: attach the ONNX encoder rather than rebuild the decoder
+        from glm_ocr_onnx import GlmOcrOnnx
+        from config import GLM_OCR_ONNX_DIR
+        _glm_ocr_engine.onnx = GlmOcrOnnx(GLM_OCR_ONNX_DIR, max_tokens=2048)
     return _glm_ocr_engine
 
 
@@ -680,7 +685,9 @@ def call_glm_ocr(image, prompt="Text Recognition:", max_tokens=2048, return_hit_
 
 
 def shutdown_glm_ocr_workers(stop_decoder: bool = False) -> None:
-    global _glm_ocr_engine, _glm_ocr_engine_mode, _ocr_pool
+    """Stop the OCR worker processes. stop_decoder drops only the in-process ONNX encoder; the
+    llama.cpp decoder stays loaded for reuse (see _get_glm_ocr_engine for why it can't be freed)."""
+    global _ocr_pool
     try:
         from glm_ocr_worker import shutdown_glm_ocr_onnx_worker
         shutdown_glm_ocr_onnx_worker()
@@ -692,10 +699,7 @@ def shutdown_glm_ocr_workers(stop_decoder: bool = False) -> None:
         _ocr_pool = None
 
     if stop_decoder and _glm_ocr_engine is not None:
-        if hasattr(_glm_ocr_engine, "close"):
-            _glm_ocr_engine.close()
-        _glm_ocr_engine = None
-        _glm_ocr_engine_mode = None
+        _glm_ocr_engine.onnx = None
 
 
 # ── Parallel GLM-OCR via multiprocessing ──────────────────────
