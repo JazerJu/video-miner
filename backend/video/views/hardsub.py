@@ -52,7 +52,7 @@ class HardsubAddView(View):
         fps = payload.get("fps", 4)
         fps = 8 if str(fps) == "8" else 4
 
-        # 用户框选的这块画面里是什么语言；只作兜底，识别出的语言优先
+        # 用户框选的这块画面里是什么语言；空表示自动识别。选了就以它为准
         lang = str(payload.get("lang") or "").strip().lower()
         if lang not in ("zh", "en", "jp", "de"):
             lang = ""

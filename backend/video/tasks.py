@@ -696,6 +696,8 @@ def run_hardsub_for_video(video_id: int) -> None:
            "--region", region_arg, "--fps", str(task.get("fps") or 4)]
     if en_path:
         cmd += ["--en-out", en_path]
+    if task.get("lang_hint"):
+        cmd += ["--lang", task["lang_hint"]]
 
     with hardsub_gpu_lock:
         _hardsub_update(video_id, "extract", "Running", detail="正在解码与识别")
@@ -743,8 +745,8 @@ def run_hardsub_for_video(video_id: int) -> None:
     _hardsub_update(video_id, "extract", "Completed")
 
     # v12 的过滤与合并已在提取脚本里完成，这里直接落盘。
-    # 主轨语言优先用脚本识别到的结果；识别不出来时依次退到前端给的期望语言、视频原有语言、中文。
-    lang = task.get("primary_lang") or task.get("lang_hint") or video.raw_lang or "zh"
+    # 用户在对话框里选了语言就以它为准（脚本也按它分轨）；选「自动」时用脚本识别的结果。
+    lang = task.get("lang_hint") or task.get("primary_lang") or video.raw_lang or "zh"
     srt_name = f"{video_id}_{lang}.srt"
     shutil.copy2(raw_out, os.path.join(SAVE_DIR, srt_name))
     _hardsub_update(video_id, "deslide", "Completed", detail="v12 已在提取时完成过滤与合并")
@@ -753,7 +755,8 @@ def run_hardsub_for_video(video_id: int) -> None:
         fields = ["srt_path", "content_updated_at"]
         video.srt_path = srt_name
         video.content_updated_at = timezone.now()
-        if not video.raw_lang:
+        # 用户明确选的语言纠正视频语言；自动识别的只在还没有语言时填上
+        if task.get("lang_hint") or not video.raw_lang:
             video.raw_lang = lang
             fields.append("raw_lang")
         video.save(update_fields=fields)

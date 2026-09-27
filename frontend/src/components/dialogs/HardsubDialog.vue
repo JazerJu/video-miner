@@ -81,6 +81,7 @@
         <div class="flex items-center gap-2">
           <span class="text-sm text-slate-600 dark:text-slate-300">{{ t('hardsubLang') }}</span>
           <el-select v-model="lang" size="small" style="width: 110px">
+            <el-option :label="t('hardsubLangAuto')" value="" />
             <el-option label="中文" value="zh" />
             <el-option label="English" value="en" />
             <el-option label="日本語" value="jp" />
@@ -113,7 +114,6 @@ const props = defineProps<{
   videoId: number
   videoName?: string
   videoFile: string
-  rawLang?: string
 }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void
@@ -123,9 +123,9 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const videoRef = ref<HTMLVideoElement | null>(null)
 const stageRef = ref<HTMLElement | null>(null)
-const validLangs = ['zh', 'en', 'jp', 'de'] as const
-type ValidLang = (typeof validLangs)[number]
-const lang = ref<ValidLang>('zh')
+// '' = auto-detect. Not prefilled from the video's raw_lang: that value is what goes wrong for
+// English videos, and a prefilled choice would now override detection.
+const lang = ref<'' | 'zh' | 'en' | 'jp' | 'de'>('')
 const fps = ref<4 | 8>(4)
 const keepEn = ref(false)
 const submitting = ref(false)
@@ -242,16 +242,6 @@ watch(
       box.value = null
     }
   },
-)
-
-watch(
-  () => props.rawLang,
-  (v) => {
-    if (v && validLangs.includes(v as ValidLang)) {
-      lang.value = v as ValidLang
-    }
-  },
-  { immediate: true },
 )
 
 async function submit() {

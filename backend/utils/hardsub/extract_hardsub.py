@@ -39,6 +39,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("GLM_OCR_PRECISION", "fp16")
 
 CJK = re.compile(r"[一-鿿]")
+KANA = re.compile(r"[\u3040-\u30ff]")
+LATIN = re.compile(r"[A-Za-z]")
+# Share of the distinct subtitle lines that must be in a script for it to be the video's own language.
+# Bilingual zh+en subtitles sit at ~0.5; an English video with a few misread 汉字 stays far below.
+LANG_SHARE = 0.3
 PROMPT = "请识别图中的所有文字，只输出文字本身"
 PAD_Y, PAD_X = 16, 24
 STATIC_RUNS, STATIC_FRAC, STATIC_SIM = 3, 0.10, 0.75
@@ -113,28 +118,50 @@ def merge_cues(cues):
     return out
 
 
-def postprocess(intervals, lines):
+def _asian(line):
+    """中文/日文行：汉字和假名按一个抵三个字母算，比拉丁字母多。英文行里误识别出的一个汉字
+    翻不了它，「我们使用 JetBrains 的 IDE」这样夹英文词的中文行仍算中文。"""
+    n = len(CJK.findall(line)) + len(KANA.findall(line))
+    return n > 0 and n * 3 >= len(LATIN.findall(line))
+
+
+def detect_lang(lines, is_static):
+    """字幕自己的语言：zh / jp / en（拉丁字母一律按 en）。
+
+    按去重后的不同行算占比，不按出现次数：一直挂着的水印在每个区间都出现（它连成一段，
+    static_filter 认不出），按次数它能和字幕平分秋色，按不同行它只算一条；偶尔误识别出的
+    一个汉字也只算一条。"""
+    distinct = {norm(l): l for ls in lines for l in ls if not is_static(l) and len(norm(l)) >= 2}
+    if not distinct:
+        return ""
+    n = len(distinct)
+    if sum(1 for l in distinct.values() if KANA.search(l)) / n >= LANG_SHARE:
+        return "jp"
+    if sum(1 for l in distinct.values() if _asian(l)) / n >= LANG_SHARE:
+        return "zh"
+    return "en"
+
+
+def postprocess(intervals, lines, lang=""):
     """删固定文字、分轨、合并同句。返回 (主轨, 译文轨, 主轨语言, 固定文字集合)。
 
-    主轨是视频自己的字幕语言：整片出现过汉字就算中文，一条都没有就算英文。译文轨只在中英
-    同框（原文中文 + 翻译英文）时才有内容。以前不管内容一律当中文，纯英文视频会被存成
-    <id>_zh.srt。"""
+    lang 是用户指定的字幕语言，留空则自动判断（detect_lang）。主轨语言是中文或日文时，汉字/
+    假名行进主轨，同框的拉丁字母行进译文轨；主轨是拉丁字母语言时，汉字行是水印或误识别，丢掉。"""
     is_static, static = static_filter(lines)
-    primary_lang = "zh" if any(CJK.search(l) for ls in lines for l in ls) else "en"
+    primary_lang = lang or detect_lang(lines, is_static)
+    asian = primary_lang in ("zh", "jp")
     main, alt = [], []
     for (a, b), ls in zip(intervals, lines):
         keep = [l for l in ls if not is_static(l)]
-        cjk = [l for l in keep if CJK.search(l)]
-        latin = [l for l in keep if not CJK.search(l)]
-        if primary_lang == "zh":
-            if cjk:
-                main.append([a, b, " ".join(cjk)])
-                if latin:
-                    alt.append([a, b, " ".join(latin)])
-            elif keep:
-                main.append([a, b, " ".join(keep)])
-        elif keep:
-            main.append([a, b, " ".join(keep)])
+        own = [l for l in keep if _asian(l)]
+        latin = [l for l in keep if not _asian(l)]
+        if asian and own:
+            main.append([a, b, " ".join(own)])
+            if latin:
+                alt.append([a, b, " ".join(latin)])
+        elif latin:
+            # 中文字幕里夹的纯英文行（「JetBrains」「CopyIn」），或拉丁字母视频本身的字幕
+            main.append([a, b, " ".join(latin)])
     return merge_cues(main), merge_cues(alt), primary_lang, static
 
 
@@ -144,6 +171,8 @@ def main():
     ap.add_argument("--out", required=True, help="主轨 SRT（视频自己的语言，中文或英文）")
     ap.add_argument("--en-out", default="", help="译文轨 SRT（双语时才写），留空则丢弃译文行")
     ap.add_argument("--region", required=True, help="x,y,w,h，0-1，相对整帧")
+    ap.add_argument("--lang", default="", choices=["", "zh", "en", "jp", "de"],
+                    help="字幕语言，留空自动判断")
     ap.add_argument("--fps", type=float, default=4.0, help="v12 不再按帧率抽帧，保留参数只为兼容旧调用")
     args = ap.parse_args()
 
@@ -196,7 +225,7 @@ def main():
                      seconds=round(a, 1), duration=round(dur, 1), segments=i + 1, intervals=len(intervals))
         cap.release()
 
-    primary, alt, primary_lang, static = postprocess(intervals, lines)
+    primary, alt, primary_lang, static = postprocess(intervals, lines, args.lang)
     write_srt(args.out, primary)
     if args.en_out and alt:
         write_srt(args.en_out, alt)

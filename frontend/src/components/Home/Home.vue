@@ -881,7 +881,6 @@ watch(
       :video-id="hardsubVideo.id"
       :video-name="hardsubVideo.name"
       :video-file="hardsubVideo.url"
-      :raw-lang="hardsubVideo.rawLang"
     />
 
     <!-- 实时转录对话框 -->
