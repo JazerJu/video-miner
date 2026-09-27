@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FolderOpen, Tag, FileText, Filter, SortAsc, ChevronDown, X, Check, Search } from 'lucide-vue-next'
+import { FolderOpen, Tag, FileText, Filter, SortAsc, ChevronDown, X, Check, Search, Eye, EyeOff, LayoutGrid, List } from 'lucide-vue-next'
 import { ElMessage } from '@/composables/useNotification'
 import type { Video } from '@/types/media'
 import VideoCard from '@/components/Home/VideoCard.vue'
@@ -9,8 +9,10 @@ import BatchToolbar from '@/components/Home/BatchToolbar.vue'
 import { BACKEND } from '@/composables/ConfigAPI'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import { loadTags } from '@/composables/TagsAPI'
+import { useThumbnailBlur } from '@/composables/useThumbnailBlur'
 
 const { t } = useI18n()
+const { blurThumbnails } = useThumbnailBlur()
 
 const props = defineProps<{
   videos: Video[]
@@ -42,6 +44,9 @@ const selectedTypes = ref<string[]>([])
 /* ─── 排序状态 ─── */
 const sortBy = ref<'lastModified' | 'createdTime' | 'fileSize' | 'duration' | 'natural'>('lastModified')
 const sortOrder = ref<'desc' | 'asc'>('desc')
+
+/* ─── 显示方式 ─── */
+const viewType = ref<'grid' | 'list'>('grid')
 
 /* ─── 分页状态 ─── */
 const currentPage = ref(1)
@@ -501,8 +506,41 @@ watch(showFilterPanel, (val) => {
           </button>
         </h2>
 
-        <!-- 排序控制 -->
+        <!-- 模糊 / 视图切换 / 排序控制 -->
         <div class="flex items-center space-x-2">
+          <button
+            @click="blurThumbnails = !blurThumbnails"
+            class="p-1.5 rounded-lg transition-colors"
+            :class="blurThumbnails
+              ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-200 dark:hover:bg-cyan-500/30'
+              : 'bg-slate-100 text-slate-800 hover:bg-slate-200 dark:bg-gray-700/50 dark:text-white/80 dark:hover:bg-gray-600/50'"
+            :title="blurThumbnails ? t('blurThumbnailsOn') : t('blurThumbnailsOff')"
+          >
+            <EyeOff v-if="blurThumbnails" class="w-4 h-4" />
+            <Eye v-else class="w-4 h-4" />
+          </button>
+          <div class="flex items-center rounded-lg bg-slate-100 p-0.5 dark:bg-gray-700/50">
+            <button
+              @click="viewType = 'grid'"
+              class="p-1 rounded-md transition-colors"
+              :class="viewType === 'grid'
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-white/15 dark:text-white'
+                : 'text-slate-500 hover:text-slate-900 dark:text-white/60 dark:hover:text-white'"
+              :title="t('viewGrid')"
+            >
+              <LayoutGrid class="w-4 h-4" />
+            </button>
+            <button
+              @click="viewType = 'list'"
+              class="p-1 rounded-md transition-colors"
+              :class="viewType === 'list'
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-white/15 dark:text-white'
+                : 'text-slate-500 hover:text-slate-900 dark:text-white/60 dark:hover:text-white'"
+              :title="t('viewList')"
+            >
+              <List class="w-4 h-4" />
+            </button>
+          </div>
           <span class="text-sm text-slate-500 dark:text-white/60">{{ t('sortBy') }}</span>
           <div class="relative">
             <select
@@ -912,13 +950,16 @@ watch(showFilterPanel, (val) => {
     <!-- 点击外部关闭下拉面板 -->
     <div v-if="showFilterPanel" class="fixed inset-0 z-40" @click="showFilterPanel = false"></div>
 
-    <!-- 视频网格 -->
-    <div v-if="paginatedVideos.length > 0" class="grid gap-5 grid-cols-[repeat(auto-fit,minmax(240px,300px))]">
+    <!-- 视频网格 / 列表 -->
+    <div
+      v-if="paginatedVideos.length > 0"
+      :class="viewType === 'grid' ? 'grid gap-5 grid-cols-[repeat(auto-fit,minmax(240px,300px))]' : 'flex flex-col gap-2'"
+    >
       <VideoCard
         v-for="video in paginatedVideos"
         :key="video.id"
         :video="video"
-        view="grid"
+        :view="viewType"
         :batch-mode="batchMode"
         :checked="selectedIds.includes(video.id)"
         @update:checked="() => toggleSelection(video.id)"

@@ -8,6 +8,7 @@ import type { Video } from '@/types/media'
 import { getCSRFToken } from '@/composables/GetCSRFToken'
 import { useNotification } from '@/composables/useNotification'
 import { BACKEND } from '@/composables/ConfigAPI'
+import { useThumbnailBlur } from '@/composables/useThumbnailBlur'
 
 const props = defineProps<{
   video: Video
@@ -29,6 +30,7 @@ const emit = defineEmits<{
 
 const { success: successNotify, error: errorNotify, warning: warningNotify } = useNotification()
 const { t } = useI18n()
+const { blurThumbnails } = useThumbnailBlur()
 
 const FALLBACK_IMG =
   'https://pic.chaopx.com/chao_water_pic/23/03/03/e78a5cf45f9ebc92411a8f9531975dec.jpg'
@@ -289,6 +291,7 @@ const LANG_OPTIONS = [
       <img
         :src="thumbnailUrl || FALLBACK_IMG"
         class="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+        :class="blurThumbnails ? 'scale-110 blur-2xl group-hover:blur-none' : ''"
         :alt="video.name"
       />
       <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
@@ -419,13 +422,21 @@ const LANG_OPTIONS = [
   <!-- ───────────── LIST STYLE ───────────── -->
   <div
     v-else
-    class="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/50 dark:bg-slate-900/45 dark:hover:border-slate-600/70 dark:hover:bg-slate-900/72"
+    class="group flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700/50 dark:bg-slate-900/45 dark:hover:border-slate-600/70 dark:hover:bg-slate-900/72"
+    :class="checked ? 'border-[rgb(34,124,46)] border-2' : ''"
   >
-    <div class="flex items-center gap-4">
-      <div class="relative overflow-hidden rounded-xl">
+    <div class="flex min-w-0 flex-1 items-center gap-4">
+      <el-checkbox
+        v-model="modelChecked"
+        :label="''"
+        class="video-select shrink-0 transition-opacity opacity-0 group-hover:opacity-100"
+        :class="batchMode ? '!opacity-100' : ''"
+      />
+      <div class="relative shrink-0 overflow-hidden rounded-xl">
         <img
           :src="thumbnailUrl || FALLBACK_IMG"
-          class="h-16 w-28 object-cover"
+          class="h-16 w-28 object-cover transition duration-300"
+          :class="blurThumbnails ? 'scale-110 blur-lg group-hover:scale-100 group-hover:blur-none' : ''"
           :alt="video.name"
         />
         <div v-if="hasPlaybackProgress" class="absolute inset-x-0 bottom-0 z-10 h-1 bg-slate-200 dark:bg-slate-950/40">
@@ -448,10 +459,10 @@ const LANG_OPTIONS = [
         </div>
       </div>
 
-      <div class="min-w-0">
+      <div class="min-w-0 flex-1">
         <div v-if="!isEditing" class="flex items-center gap-2">
           <el-tooltip :content="video.name" placement="top">
-            <a :href="watchUrl" class="line-clamp-1 font-medium text-slate-900 no-underline hover:text-cyan-600 dark:text-white dark:hover:text-cyan-200">
+            <a :href="watchUrl" class="line-clamp-2 min-w-0 font-medium leading-6 text-slate-900 no-underline hover:text-cyan-600 dark:text-white dark:hover:text-cyan-200">
               {{ video.name }}
             </a>
           </el-tooltip>
@@ -460,22 +471,39 @@ const LANG_OPTIONS = [
           <input
             ref="inputRef"
             v-model="editingName"
-            class="rounded border border-cyan-300/40 bg-white px-2 py-1 font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            class="w-full rounded border border-cyan-300/40 bg-white px-2 py-1 font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
             @keydown="handleKeydown"
             @blur="saveEdit"
           />
         </div>
-        <div class="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
           <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="sourceBadgeClass">{{ sourceLabel }}</span>
           <span>•</span>
           <span>{{ categoryLabel }}</span>
           <span>•</span>
           <span>{{ accessLabel }}</span>
+          <template v-if="visibleTags.length">
+            <span>•</span>
+            <span
+              v-for="tag in visibleTags"
+              :key="tag"
+              class="inline-flex max-w-[12rem] items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold text-white/95 dark:text-white"
+              :style="getTagStyle(tag)"
+            >
+              <span class="truncate">{{ tag }}</span>
+            </span>
+            <span
+              v-if="hiddenTagCount > 0"
+              class="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-semibold dark:border-white/18"
+            >
+              +{{ hiddenTagCount }}
+            </span>
+          </template>
         </div>
       </div>
     </div>
 
-    <div class="flex items-center gap-2">
+    <div class="flex shrink-0 items-center gap-2">
       <el-popover placement="top-end" :width="280" trigger="hover">
         <template #reference>
           <button class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:text-white">
