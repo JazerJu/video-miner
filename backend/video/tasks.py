@@ -1788,15 +1788,36 @@ def _inject_vidunder_config():
 
 def _run_vidunder_build_subprocess(video_path: str, srt_path: str, db_name: str, vid_under_dir: str, progress_cb=None):
     """Run vid_under build in a spawn process and relay progress to the caller."""
-    import multiprocessing as mp
     from .vidunder_build_process import vidunder_build_process_main
+
+    _run_vidunder_child(
+        "build",
+        vidunder_build_process_main,
+        (vid_under_dir, video_path, srt_path, db_name),
+        progress_cb,
+    )
+
+
+def _run_vidunder_extract_subprocess(video_path: str, srt_path: str, output_dir: str, clip_scenes: dict,
+                                     vid_under_dir: str, progress_cb=None):
+    """Run vid_under extract in a spawn process: its GLM-OCR decoder can only be freed by exiting."""
+    from .vidunder_extract_process import vidunder_extract_process_main
+
+    _run_vidunder_child(
+        "extract",
+        vidunder_extract_process_main,
+        (vid_under_dir, video_path, srt_path, output_dir, clip_scenes),
+        progress_cb,
+    )
+
+
+def _run_vidunder_child(name: str, target, args: tuple, progress_cb=None):
+    """Run target(progress_q, *args) in a spawn process and relay its progress messages."""
+    import multiprocessing as mp
 
     ctx = mp.get_context("spawn")
     progress_q = ctx.Queue()
-    process = ctx.Process(
-        target=vidunder_build_process_main,
-        args=(progress_q, vid_under_dir, video_path, srt_path, db_name),
-    )
+    process = ctx.Process(target=target, args=(progress_q, *args))
     process.start()
 
     done = False
@@ -1814,7 +1835,7 @@ def _run_vidunder_build_subprocess(video_path: str, srt_path: str, db_name: str,
             if msg_type == "progress":
                 if progress_cb:
                     progress_cb(
-                        msg.get("stage", "caption"),
+                        msg.get("stage", ""),
                         int(msg.get("current", 0)),
                         int(msg.get("total", 0)),
                     )
@@ -1822,7 +1843,7 @@ def _run_vidunder_build_subprocess(video_path: str, srt_path: str, db_name: str,
                 done = True
                 break
             elif msg_type == "error":
-                error_text = msg.get("traceback") or "unknown build subprocess error"
+                error_text = msg.get("traceback") or f"unknown {name} subprocess error"
                 break
 
         process.join(timeout=10)
@@ -1840,11 +1861,11 @@ def _run_vidunder_build_subprocess(video_path: str, srt_path: str, db_name: str,
             pass
 
     if error_text:
-        raise RuntimeError(f"VidUnder build subprocess failed:\n{error_text}")
+        raise RuntimeError(f"VidUnder {name} subprocess failed:\n{error_text}")
     if process.exitcode != 0:
-        raise RuntimeError(f"VidUnder build subprocess exited with code {process.exitcode}")
+        raise RuntimeError(f"VidUnder {name} subprocess exited with code {process.exitcode}")
     if not done:
-        raise RuntimeError("VidUnder build subprocess exited before reporting completion")
+        raise RuntimeError(f"VidUnder {name} subprocess exited before reporting completion")
 
 
 def generate_summary_for_video(task_id: str) -> None:
@@ -1902,7 +1923,6 @@ def generate_summary_for_video(task_id: str) -> None:
         _summary_update(task_id, "extract", "Running", detail="Running GLM-OCR extraction...")
         extract_output = os.path.join(result_dir, f"{db_name}_extract")
         os.makedirs(extract_output, exist_ok=True)
-        from main import cmd_extract
 
         def _extract_progress(stage, current, total):
             layout_weight = 0.5  # Phase 1 = 50% of extract
@@ -1915,25 +1935,16 @@ def generate_summary_for_video(task_id: str) -> None:
                 pct = 75
             _summary_update(task_id, "extract", "Running", progress=pct)
 
-        try:
-            cmd_extract(video_path, srt_path=srt_path, output_dir=extract_output, progress_cb=_extract_progress,
-                        clip_scenes=clip_scenes)
-        finally:
-            # Stop the OCR workers before summarize loads its own models. The GLM-OCR decoder
-            # itself stays in this process for the next task: rebuilding a freed llama.cpp
-            # decoder aborts the process (external_api._get_glm_ocr_engine).
-            from external_api import shutdown_glm_ocr_workers
-            shutdown_glm_ocr_workers(stop_decoder=True)
-            import gc
-            gc.collect()
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except Exception:
-                pass
-            from main import _log_rss
-            _log_rss("ocr workers stopped")
+        # In a spawn child like build: the GLM-OCR decoder cannot be freed in-process, so a
+        # decoder kept here would hold ~1.4 GB through the next task's build.
+        _run_vidunder_extract_subprocess(
+            video_path,
+            srt_path,
+            output_dir=extract_output,
+            clip_scenes=clip_scenes,
+            vid_under_dir=vid_under_dir,
+            progress_cb=_extract_progress,
+        )
         _summary_update(task_id, "extract", "Completed")
 
         # Step 3: summarize
