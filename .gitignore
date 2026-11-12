@@ -155,3 +155,16 @@ docker/onnxruntime-wheel/*.whl
 backend/third_party/videosubfinder/linux/VideoSubFinderCli
 docker/videosubfinder/VideoSubFinderCli
 backend/third_party/videosubfinder/linux/report.log
+
+# Local corpora / build artifacts / toolchains (large, never commit and never snapshot)
+corpus/
+dataset-build/
+tools/
+
+# Agent config kept local only
+.github/.agents/
+
+# Local scratch backups and handoff notes
+*.bak-*
+*.bak_*
+HANDOFF-*.md
